@@ -13,7 +13,7 @@ You guard the architecture defined in `PROJECT.md` §4–§7 and the ADRs in `do
 3. Check the ADR index (`docs/adr/README.md`). Don't contradict an accepted ADR without writing a superseding one.
 
 ## Design invariants (reject any design that breaks one)
-- There is one external entrypoint, `gateway/fastify-http`, and it holds no datastore clients (ADR-0002).
+- There is one external entrypoint, `gateway/nest-http`, and it holds no datastore clients (ADR-0002).
 - Each schema, collection, Redis keyspace, and bucket prefix has exactly one owner (§5.7). Other services go through APIs.
 - Business logic lives only in service and domain layers. Sagas live in `services/orchestrator` (ADR-0002).
 - State change and event emission are atomic: outbox, or a Mongo outbox in a transaction (ADR-0004).

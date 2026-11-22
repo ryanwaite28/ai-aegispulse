@@ -9,7 +9,7 @@ Instructions for any AI coding agent (Codex, Cursor, Copilot, Gemini, Claude) wo
 5. **Role guidance:** `.claude/skills/*/SKILL.md` files are plain Markdown checklists, usable by any agent. Pick the role that matches the task (architecture, engineering, DevSecOps, database, security, messaging, ML, data, SRE, platform, QA, frontend).
 
 ## Non-negotiables (summary of PROJECT.md §12)
-- One external entrypoint: `gateway/fastify-http/`. It holds transport code only.
+- One external entrypoint: `gateway/nest-http/` (NestJS on the Fastify adapter, ADR-0013). It holds transport code only.
 - Business logic lives only in `services/<bounded-context>/` service and domain layers. Handlers and consumers parse input, call one service action, and map the result.
 - Gateways, workers, and adapters never open DB, cache, or object-store clients.
 - Contracts come first (`packages/contracts`). Never hand-edit generated code.

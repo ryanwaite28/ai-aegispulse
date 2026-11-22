@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-22 |
+| **Last updated** | 2026-11-22 (ADR-0013: NestJS gateway) |
 
 ---
 
@@ -57,7 +57,7 @@ The platform is organized into four planes:
 ```
 EXTERNAL PUBLISHER (regulator relay, filing feed, market-alert vendor)
   → POST /webhooks/{sourceKey} with HMAC-SHA256 signature, timestamp, delivery id
-  → [gateway/fastify-http] forwards raw bytes + headers to Ingestion Service
+  → [gateway/nest-http] forwards raw bytes + headers to Ingestion Service
   → [Ingestion] verifies signature (constant-time, dual-key), timestamp skew ±5 min,
      Redis nonce (deliveryId) + durable idempotency (sourceKey:externalId:vN)
       ├─ invalid signature / skew / replay → 401/409, metric webhook_rejected_total{reason}
@@ -515,7 +515,7 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 - Evidence: `kubectl describe node` allocation snapshot per release; `ci/check-resource-budget.sh` sums manifest requests and fails over budget.
 
 ### NFR-04 — Testability & Layering
-- Service and domain modules are framework-agnostic: no Fastify/Express/Spring Web/FastAPI/AMQP types import into `src/service/` or `src/domain/` (enforced by `dependency-cruiser` (TS), ArchUnit (Java), `import-linter` (Python)).
+- Service and domain modules are framework-agnostic: no NestJS/Fastify/Express/Spring Web/FastAPI/AMQP types import into `src/service/` or `src/domain/` (enforced by `dependency-cruiser` (TS), ArchUnit (Java), `import-linter` (Python)).
 - Coverage gates: service/domain layers ≥ 85% lines, overall ≥ 75% per runtime (SonarQube quality gate).
 - Evidence: architecture tests in each runtime's unit suite; SonarQube gate status.
 
@@ -576,7 +576,7 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 - Evidence: contract job output; migration review checklist in MR template.
 
 ### NFR-14 — Type Safety & Code Quality
-- TypeScript `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, no `any` (ESLint `@typescript-eslint/no-explicit-any: error`); Java with `-Werror` on compiler warnings, NullAway/Error Prone; Python `mypy --strict` + Ruff. Formatters: Prettier, Spotless (google-java-format), Ruff format.
+- TypeScript `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, no `any` (ESLint `@typescript-eslint/no-explicit-any: error`); the gateway alone additionally enables `experimentalDecorators` + `emitDecoratorMetadata` for NestJS DI (ADR-0013); Java with `-Werror` on compiler warnings, NullAway/Error Prone; Python `mypy --strict` + Ruff. Formatters: Prettier, Spotless (google-java-format), Ruff format.
 - Evidence: lint/type jobs in CI.
 
 ### NFR-15 — Capacity & Resource Limits
@@ -615,7 +615,7 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 
 AegisPulse separates **transport** from **business logic** in every runtime and every language:
 
-- **Dispatch Layer** — gateways and adapters only: the external HTTP gateway (`gateway/fastify-http`), internal HTTP route adapters inside each service (`src/adapters/http/`), AMQP consumer adapters (`src/adapters/amqp/`), scheduled triggers (`workers/scheduler-trigger` CronJobs), the webhook receiver route, and transport mappers. They parse/validate transport input, establish auth context, call exactly one service-layer entrypoint, and map the result to transport output.
+- **Dispatch Layer** — gateways and adapters only: the external HTTP gateway (`gateway/nest-http`), internal HTTP route adapters inside each service (`src/adapters/http/`), AMQP consumer adapters (`src/adapters/amqp/`), scheduled triggers (`workers/scheduler-trigger` CronJobs), the webhook receiver route, and transport mappers. They parse/validate transport input, establish auth context, call exactly one service-layer entrypoint, and map the result to transport output.
 - **Orchestration Layer** — application use-case coordinators that live **inside service modules** (`src/service/orchestrators/`, e.g., `ScoreTransactionSaga` in `services/orchestrator`, `CompleteUploadUseCase` in `services/files`). They sequence domain services, repositories, typed clients, and outbox events. Orchestration is not a transport layer and never lives in handlers or consumers.
 - **Service Layer** — domain/application services (`src/service/`, `src/domain/`) of named microservices under `services/<bounded-context>/`. Only service runtimes own data stores.
 
@@ -1051,13 +1051,15 @@ aegispulse/
 │   ├── java-platform/                 # Spring Boot starter: logging, OTel, JWT, outbox, consumer kit, health
 │   └── py-platform/                   # Python kit: config, structlog, OTel, JWT, aio-pika consumer kit, health
 ├── gateway/
-│   └── fastify-http/                  # SINGLE external HTTP/SSE/webhook entrypoint (Node, Fastify)
-│       ├── src/handlers/              # {domain}.handler.ts — transport adapters only
-│       ├── src/routes/                # route registration + JSON schema wiring
-│       ├── src/clients/               # {service}.service-client.ts (generated types + thin fetch)
-│       ├── src/middleware/            # auth context (JWKS), correlation ids, body limits, error mapping
-│       ├── src/sse/                   # broker subscription → tenant-filtered projections
-│       ├── src/server.ts · src/main.ts
+│   └── nest-http/                     # SINGLE external HTTP/SSE/webhook entrypoint (NestJS on Fastify adapter, ADR-0013)
+│       ├── src/modules/{domain}/      # {domain}.module.ts + {domain}.controller.ts — transport adapters only
+│       ├── src/clients/               # {service}.client.ts — @Injectable typed service clients (generated types + undici)
+│       ├── src/common/guards/         # jwt-auth.guard.ts (JWKS via jose), roles.guard.ts (coarse pre-check only)
+│       ├── src/common/pipes/          # zod-validation.pipe.ts (schemas generated from packages/contracts)
+│       ├── src/common/interceptors/   # correlation-id, logging, timeout, error-envelope mapping (§8.2)
+│       ├── src/common/mappers/        # {domain}.mapper.ts — transport ↔ contract shape mapping
+│       ├── src/stream/                # stream.controller.ts (@Sse) + broker subscription → tenant-filtered projections
+│       ├── src/app.module.ts · src/main.ts   # NestFactory + FastifyAdapter({ bodyLimit }), rawBody: true
 │       └── tests/
 ├── services/
 │   ├── ingestion/                     # Node — webhooks, connectors, transaction intake
@@ -1256,7 +1258,7 @@ Internal route convention: `POST /internal/v1/{action}` for commands, `GET /inte
 
 | Layer | Technology |
 |---|---|
-| Edge gateway | Node.js 24 LTS, TypeScript 5.x strict, Fastify 5, `@fastify/rate-limit` (per-pod defense only), `jose` (JWKS), Zod + `fastify-type-provider-zod` |
+| Edge gateway | Node.js 24 LTS, TypeScript 5.x strict (+ `experimentalDecorators`/`emitDecoratorMetadata`, gateway only), **NestJS 11 on `@nestjs/platform-fastify` (Fastify 5)** (ADR-0013), `@nestjs/throttler` (in-memory, per-pod defense only), `jose` (JWKS) in a Nest guard, Zod validation pipe (schemas from contracts), `@Sse` + RxJS for streaming, `undici` typed clients. Public OpenAPI is served from `packages/contracts` (no `@nestjs/swagger` generation) |
 | Node services | Node.js 24, TypeScript, Fastify 5 (internal adapters), `pg` + Kysely (typed SQL), `mongodb` driver 6, `ioredis`, `@aws-sdk/client-s3` + `s3-request-presigner`, `opossum` (circuit breaker), `undici` (HTTP client), `pino` |
 | Node messaging | `rxjs-rabbitmq` (author's library, [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md)) on `amqplib`, wrapped by `packages/ts-platform/amqp` with typed generics from the topology contract, publisher confirms, retry/DLQ policy |
 | Java services | Java 25 LTS, Spring Boot 4.x, Spring Web MVC (virtual threads), Spring Security OAuth2 Resource Server + Nimbus JOSE (registry issuer), Spring JDBC `JdbcClient`, Spring AMQP, Resilience4j, Bean Validation, Flyway, Micrometer + OTel Java agent, ArchUnit, password4j (Argon2id) |
@@ -2678,7 +2680,7 @@ services:
     environment: { ZO_ROOT_USER_EMAIL: dev@aegispulse.local, ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_LOCAL_PASSWORD} }
     ports: ["5080:5080"]
   migrate:      { build: { context: ../.., dockerfile: deploy/docker/migrate.Dockerfile }, profiles: [tools], <<: *svc-env }
-  gateway:            { build: { context: ../.., dockerfile: gateway/fastify-http/Dockerfile }, ports: ["8080:8080"], <<: *svc-env }
+  gateway:            { build: { context: ../.., dockerfile: gateway/nest-http/Dockerfile }, ports: ["8080:8080"], <<: *svc-env }
   ingestion:          { build: ../../services/ingestion,           ports: ["8081:8081"], <<: *svc-env }
   files:              { build: ../../services/files,               ports: ["8082:8082"], <<: *svc-env }
   events:             { build: ../../services/events,              ports: ["8083:8083"], <<: *svc-env }
@@ -2867,7 +2869,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [ ] `ci/check-boundaries.sh` (NFR-09), `ci/check-migrations.sh`, `ci/check-layer-sizes.sh`, `ci/check-resource-budget.sh` stubs with tests
 - [ ] Gitleaks pre-commit hook via `make bootstrap`; `.gitleaks.toml` with project allowlist for test fixtures only
 - [ ] `CLAUDE.md`, `AGENTS.md`, `.claude/` (skills, agents, hooks), `docs/steering/`, `docs/adr/0001–0012`, `docs/specs/_template.md`, `docs/evidence/_template.md`, `CHANGELOG.md` (present at v1.0 of this document)
-- [ ] Pin exact versions after verifying current stable releases (Node, TS, Fastify, Spring Boot, Java, Python libs, datastore images, object-store image + license per ADR-0011) in `docs/steering/tech.md`
+- [ ] Pin exact versions after verifying current stable releases (Node, TS, NestJS, Fastify, Spring Boot, Java, Python libs, datastore images, object-store image + license per ADR-0011) in `docs/steering/tech.md`
 
 #### Workstream: Local infrastructure
 - [ ] `deploy/compose/docker-compose.yml` infra services (postgres, mongo+init, redis, rabbitmq, objectstore+init, clamav, openobserve) with healthchecks
@@ -2910,7 +2912,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 #### Workstream: Service skeletons
 - [ ] Every runtime in §5.4 boots with config validation, `/livez`, `/readyz` (checking only its own deps), structured logs, and traces; Dockerfiles (multi-stage, non-root, read-only FS)
-- [ ] `gateway/fastify-http` skeleton: request id, correlation id, body limits, error envelope (§8.2), JWKS auth middleware, OpenAPI served at `/v1/openapi.json`
+- [ ] `gateway/nest-http` skeleton: request id, correlation id, body limits, error envelope (§8.2), JWKS auth middleware, OpenAPI served at `/v1/openapi.json`
 
 **Phase 1 exit evidence:** `make contracts` clean; kit integration tests output; `make up` with all 12 runtimes `/readyz` = 200; trace of a health request in OpenObserve.
 **Phase note:** status `PENDING`.
@@ -3001,7 +3003,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 #### FR-WHK-02 / FR-WHK-03 — Signature verification & replay protection
 - [ ] `src/domain/signature.ts`: canonical signed string, constant-time compare (`crypto.timingSafeEqual` on equal-length buffers), multi-signature header parsing
 - [ ] `IngestWebhookUseCase`: source lookup → status/tenant checks → verify (current, previous) → skew → Redis nonce `SET NX` → schema validation
-- [ ] Gateway `POST /webhooks/:sourceKey` handler: raw-body capture (no JSON parse before forwarding), 1 MiB limit, passes headers + base64 body to `ingestWebhookDelivery`
+- [ ] Gateway `WebhooksController` (`POST /webhooks/:sourceKey`): `req.rawBody` via `NestFactory.create(..., { rawBody: true })` (no JSON re-serialization before forwarding), 1 MiB route limit, passes headers + base64 body to `ingestWebhookDelivery`
 - [ ] Metrics `aegispulse_webhook_rejected_total{source,reason}`; logs without body
 - [ ] Tests: adversarial suite (FR-EVAL-04 subset): wrong secret, truncated signature, skew ±301 s, replayed delivery id, oversize, malformed JSON, missing headers → expected codes; timing test asserts constant-time path used
 
@@ -3367,14 +3369,14 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 ### Phase 17 — Gateway Completion & SSE
 
 #### FR-SSE-01 / FR-SSE-02 — Streaming
-- [ ] `gateway/src/sse/`: per-pod exclusive queue, tenant/role filter, projection mappers (no payloads), heartbeats, limits, idle timeout, graceful drain on shutdown
+- [ ] `gateway/nest-http/src/stream/` (`@Sse` controller returning an RxJS `Observable`): per-pod exclusive queue, tenant/role filter, projection mappers (no payloads), heartbeats, limits, idle timeout, graceful drain on shutdown
 - [ ] Ingress annotations verified for SSE through Cloudflare (buffering off)
 - [ ] Tests: two tenants streaming concurrently see only their events; 6th stream → 429
 
 #### Workstream: Gateway hardening (cross-cutting, traces to FR-AUTH-06 and NFR-08)
 - [ ] Complete public OpenAPI (every route in §8.3) with examples; Schemathesis fuzz run green
 - [ ] Security headers, CORS (console origin), per-pod rate limit, body limits per route, error mapping table tests for every §8.4 code
-- [ ] Typed service clients for every action used by handlers; handler lint rule: one service call per handler (except documented compositions: `GET /v1/transactions/{id}`)
+- [ ] Typed service clients for every action used by controllers; controller lint rule: one service-client call per controller method, no `*.service.ts` files in the gateway, no datastore imports (except documented compositions: `GET /v1/transactions/{id}`)
 - [ ] ZAP API scan clean (no High)
 
 **Phase 17 exit evidence:** Schemathesis + ZAP reports; SSE demo recording.
@@ -3467,7 +3469,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 These rules bind every contributor and every AI coding assistant. `CLAUDE.md`, `AGENTS.md`, `.claude/skills/*`, and `docs/steering/*` restate them; if any of those disagree with this section, this section wins.
 
-1. **Gateway/Service Separation.** External HTTP, SSE, and webhook traffic enters only through `gateway/fastify-http`. Gateway code parses transport input, validates shape, authenticates/derives auth context, invokes typed service clients, and maps output. Domain logic, repositories, DB/cache/object-store clients, transactions, and outbox publication belong in named `services/<bounded-context>/` runtimes.
+1. **Gateway/Service Separation.** External HTTP, SSE, and webhook traffic enters only through `gateway/nest-http`. Gateway code parses transport input, validates shape, authenticates/derives auth context, invokes typed service clients, and maps output. Domain logic, repositories, DB/cache/object-store clients, transactions, and outbox publication belong in named `services/<bounded-context>/` runtimes.
 2. **Service Layer Supremacy.** All business logic lives in `src/service/` + `src/domain/` (TS), `..service` + `..domain` packages (Java), `service/` + `domain/` modules (Python). Handlers and consumers do three things only: parse input, call one service action, return/ack the result.
 3. **Dispatch Layer = gateways/adapters only.** API gateways, HTTP route adapters, AMQP consumers, CronJob triggers, and webhook receivers are transport adapters and are never treated as service-layer components.
 4. **Orchestration belongs to service modules.** Multi-step workflows (sagas, use cases) live in `src/service/orchestrators/` of the owning service (cross-service sagas in `services/orchestrator`). Never in handlers, consumers, controllers, or CronJobs.
@@ -3605,6 +3607,7 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 | A13 | Cluster guide prefers plain manifests | Kustomize base + overlays (still plain manifests) | Two environments, minimal templating |
 | A14 | Template §9.3 Terraform remote state bootstrap | Replaced by cluster bootstrap scripts (§9.3) | No Terraform-managed cluster resources |
 | A15 | Template email notifications | ntfy push templates (FR-NOTIF) | Source specifies ntfy; no email in scope |
+| A16 | v1.0 baseline gateway was plain Fastify (`gateway/fastify-http`) | NestJS on the Fastify adapter at `gateway/nest-http` (ADR-0013); internal service adapters stay plain Fastify | Owner decision; evaluated with no architectural risk |
 
 Open decisions (record outcome via ADR before the phase that needs it): SonarQube hosting (Phase 10), object-store implementation (Phase 0), kaniko vs. buildah (Phase 10), Uptime Kuma/ntfy hosting location (Phase 18).
 

@@ -24,7 +24,7 @@ Write a short plan listing every file to create or modify, grouped by layer (con
 4. Repository with Testcontainers integration tests.
 5. Service / use case: authz, tenant, idempotency, transaction, outbox. Unit tests with fakes.
 6. Adapters (internal route / consumer): parse → one action → map. Add consumer redelivery, retry, and DLQ tests.
-7. Gateway handler + typed client (public FRs), plus error mapping tests.
+7. Gateway NestJS controller + typed client (public FRs), plus error mapping tests.
 8. E2E acceptance test named with the FR id.
 
 ## 4. Verify (run, don't assume)

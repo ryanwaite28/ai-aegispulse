@@ -8,7 +8,8 @@
 | Node.js | 24 LTS | _tbd_ | — |
 | pnpm | 10.x | _tbd_ | — |
 | TypeScript | 5.x | _tbd_ | — |
-| Fastify | 5.x | _tbd_ | — |
+| NestJS (gateway) + `@nestjs/platform-fastify` | 11.x | _tbd_ | — |
+| Fastify (gateway adapter + internal service adapters) | 5.x | _tbd_ | — |
 | Java | 25 LTS (Temurin) | _tbd_ | — |
 | Spring Boot | 4.x | _tbd_ | — |
 | Gradle | wrapper, current | _tbd_ | — |
@@ -27,7 +28,7 @@
 ## Key libraries
 | Concern | Node | Java | Python |
 |---|---|---|---|
-| HTTP server | Fastify | Spring Web MVC (virtual threads) | FastAPI + uvicorn |
+| HTTP server | NestJS on Fastify (gateway); Fastify (service internal adapters) | Spring Web MVC (virtual threads) | FastAPI + uvicorn |
 | Validation | Zod | Bean Validation | Pydantic v2 |
 | SQL | `pg` + Kysely | `JdbcClient` | SQLAlchemy 2 Core + psycopg 3 |
 | Mongo | `mongodb` 6 | — | — |

@@ -2,7 +2,7 @@
 
 ## Project Summary
 AegisPulse is a multi-tenant, event-driven risk, regulatory and market-intelligence platform (portfolio-grade). It ingests verified webhooks, connector feeds, transactions and file uploads; archives every routed event in MongoDB with sensitivity and severity lineage (`publisher_stated_severity` → `algorithm_severity` → `final_severity`); scores risk; runs case workflows with an immutable audit log; and feeds analyst dispositions back into data-intelligence metrics.
-Stack: Node.js 24/TypeScript (Fastify gateway + ingestion/files/events/orchestrator services) · Java 25/Spring Boot 4 (registry, cases) · Python 3.13/FastAPI (risk-scoring, sensitivity-scanner, doc-extraction, data-intel) · RabbitMQ · PostgreSQL 18 · MongoDB 8 · Redis 8 · S3-compatible object storage · homelab k3s · GitLab CI.
+Stack: Node.js 24/TypeScript (NestJS-on-Fastify gateway; Fastify ingestion/files/events/orchestrator services) · Java 25/Spring Boot 4 (registry, cases) · Python 3.13/FastAPI (risk-scoring, sensitivity-scanner, doc-extraction, data-intel) · RabbitMQ · PostgreSQL 18 · MongoDB 8 · Redis 8 · S3-compatible object storage · homelab k3s · GitLab CI.
 **`PROJECT.md` is the single source of truth.** Read the sections relevant to your task before writing code. When something isn't specified there, propose an amendment. Don't invent it.
 
 ## Quick Start
@@ -33,7 +33,7 @@ make demo             # end-to-end scenario
 | Per-FR implementation specs | `docs/specs/` |
 
 ## Architecture Rules
-- External HTTP, SSE and webhook traffic enters only through **`gateway/fastify-http/`**.
+- External HTTP, SSE and webhook traffic enters only through **`gateway/nest-http/`** (NestJS on `@nestjs/platform-fastify`, ADR-0013). Controllers, guards, pipes, and interceptors are transport only. Gateway `@Injectable` providers are typed clients and mappers only, and there are no `*.service.ts` files in the gateway.
 - Gateway code only parses transport input, validates its shape, authenticates and derives auth context, invokes typed service clients (`src/clients/`), and maps output.
 - ALL business logic lives in named `services/<bounded-context>/` runtimes: `src/service/` + `src/domain/` (TS), `..service`/`..domain` (Java), `service/`/`domain/` (Python). Domain orchestration, repositories, DB access, transactions, and outbox publication stay in services.
 - Dispatch-layer components (gateway handlers, `src/adapters/http`, `src/adapters/amqp` consumers, `workers/scheduler-trigger` CronJobs, the webhook receiver) are transport adapters only: parse → call ONE service action → map/ack.
@@ -59,8 +59,10 @@ make demo             # end-to-end scenario
 - Deployment happens only through the GitLab pipeline on `main`. Never `kubectl apply` by hand except for the bootstrap scripts.
 
 ## File Conventions
-- Gateway handler: `gateway/fastify-http/src/handlers/{domain}.handler.ts`
-- Gateway typed client: `gateway/fastify-http/src/clients/{service}.service-client.ts`
+- Gateway module + controller: `gateway/nest-http/src/modules/{domain}/{domain}.module.ts`, `{domain}.controller.ts`
+- Gateway typed client: `gateway/nest-http/src/clients/{service}.client.ts`
+- Gateway cross-cutting: `gateway/nest-http/src/common/{guards,pipes,interceptors,mappers}/`
+- Gateway SSE: `gateway/nest-http/src/stream/stream.controller.ts`
 - Node service: `services/{svc}/src/service/{domain}.service.ts`; use cases in `src/service/orchestrators/{name}.usecase.ts` / `{name}.saga.ts`
 - Node domain (pure): `services/{svc}/src/domain/{concept}.ts`
 - Node repositories: `services/{svc}/src/db/{domain}.repository.ts`; migrations `services/{svc}/db/migrations/V{n}__{desc}.sql`
@@ -82,14 +84,14 @@ make demo             # end-to-end scenario
 
 ## DO NOT
 - Do not add business logic, DB/cache/storage clients, or transactions to gateway handlers, consumer adapters, or CronJob triggers.
-- Do not import Fastify, Spring Web, FastAPI, amqplib, Spring AMQP, or aio-pika types into `service/` or `domain/` code.
+- Do not import NestJS, Fastify, Spring Web, FastAPI, amqplib, Spring AMQP, or aio-pika types into `service/` or `domain/` code.
 - Do not open database or cache connections in `gateway/` or `workers/`.
 - Do not hardcode secrets, hostnames, bucket names, or environment-specific values. Use typed config from env.
 - Do not create new architectural patterns, services, queues, exchanges, tables, routes, or env vars not defined in `PROJECT.md`.
 - Do not modify existing migration files. Create new ones (expand/contract).
 - Do not edit `packages/contracts/generated/` by hand.
 - Do not use `any` (TS), raw types (Java), or untyped defs (Python).
-- Do not name the external entrypoint ambiguously (`api-*`, `app-*`). The gateway is `gateway/fastify-http/`.
+- Do not name the external entrypoint ambiguously (`api-*`, `app-*`). The gateway is `gateway/nest-http/`.
 - Do not place transport routing or HTTP-specific types inside `service/`/`domain/` code of service runtimes.
 - Do not weaken signature checks, RLS, authz, SSRF guards, redaction, or rate limits to make tests pass.
 - Do not mock Postgres, Mongo, RabbitMQ, or Redis in integration tests (use Testcontainers).
@@ -106,4 +108,5 @@ make demo             # end-to-end scenario
 ## Skills & Agents
 Role skills live in `.claude/skills/`: `systems-architect`, `principal-engineer`, `devsecops`, `database-admin`, `cybersecurity`, `messaging-engineer`, `ml-ai-engineer`, `data-intel-engineer`, `sre-observability`, `kubernetes-platform`, `qa-test-engineer`, `frontend-engineer`.
 Workflow skills: `/implement-fr`, `/write-spec`, `/phase-exit-evidence`, `/new-adr`, `/amend-project`.
+Session trail: every prompt and response is recorded automatically to `docs/sessions/` by `.claude/hooks/session_log.py` (see `docs/sessions/README.md`).
 Review agents live in `.claude/agents/`: `architecture-reviewer`, `security-reviewer`, `spec-tracer`. Use them before opening an MR.
