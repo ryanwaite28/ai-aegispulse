@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/doc.extraction.completed.v1.schema.json",
+  "title": "doc.extraction.completed payload (v1)",
+  "description": "Extraction finished with confidence ≥ 0.70 (recordExtractionResult status=COMPLETED). Emitted by files on behalf of doc-extraction. Excerpt only. Producer: files. Exchange: aegispulse.enrichment. FRs: FR-DOC-04, FR-DOC-06, FR-FILE-06. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "required": ["fileId", "extractorVersion", "eventTypeGuess", "mentionedEntities", "redFlags", "confidence"],
+  "properties": {
+    "fileId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "extractorVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "eventTypeGuess": {
+      "type": "string",
+      "enum": ["REGULATION_PUBLISHED", "IPO_FILED", "ACQUISITION_ANNOUNCED", "COMPLIANCE_DISCLOSURE", "OTHER"],
+      "description": "FR-DOC-03."
+    },
+    "mentionedEntities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "redFlags": {
+      "type": "array",
+      "items": {
+        "type": ["string", "object"],
+        "description": "Red-flag clause (clauses-v1) as a clause string or an object with clause and sentence offsets; shape not fixed by PROJECT.md."
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "textExcerpt": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Excerpt only, ≤ 2,000 chars; never the full text (FR-DOC-06)."
+    },
+    "artifactKeys": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "_shared.v1.schema.json#/$defs/storageKey"
+      },
+      "description": "Pointers to artifacts/{tenantId}/{fileId}/{extractorVersion}/ (e.g. textKey, chunksKey, extractionKey; FR-DOC-05, files.file_artifacts)."
+    }
+  },
+  "additionalProperties": true
+}

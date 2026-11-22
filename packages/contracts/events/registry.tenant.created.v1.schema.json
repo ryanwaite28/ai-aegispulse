@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/registry.tenant.created.v1.schema.json",
+  "title": "registry.tenant.created payload (v1)",
+  "description": "Tenant created. Ids and changed field names only; no secrets or password data. Producer: registry. Exchange: aegispulse.domain. FRs: FR-TEN-01. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/registryChange"
+    }
+  ],
+  "required": ["tenantId"],
+  "properties": {
+    "tenantId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{3,40}$"
+    }
+  },
+  "additionalProperties": true
+}

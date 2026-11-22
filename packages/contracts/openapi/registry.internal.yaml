@@ -1,0 +1,2759 @@
+openapi: 3.1.0
+info:
+  title: AegisPulse Registry internal API
+  version: 1.0.0
+  description: |-
+    Internal RPC contract for services/registry (Java 25 / Spring Boot): tenancy, identity, RBAC, entities and watchlists. Operations are POST /internal/v1/{action}; operationId equals the ServiceAction name (PROJECT.md §6.2).
+
+    All operations are `POST /internal/v1/{actionName}` (uniform RPC style) and return the success envelope `{ data, meta }` (PROJECT.md §8.2). Caller allowlists follow PROJECT.md §5.7.4; the service re-verifies the JWT, role and tenant ownership itself (FR-AUTH-06).
+servers:
+  - url: http://{host}:8084
+    description: In-cluster Service (PROJECT.md §5.4 port).
+    variables:
+      host:
+        default: aegispulse-registry
+tags:
+  - name: registry
+    description: AegisPulse Registry internal API
+security:
+  - bearerJwt: []
+x-aegis-consumer-actions: []
+paths:
+  /internal/v1/createTenant:
+    post:
+      operationId: createTenant
+      summary: Create a tenant
+      description: "Internal action `registry.createTenant`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `createTenant`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Tenant"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TEN-01
+      x-aegis-error-codes:
+        - TENANT_SLUG_TAKEN
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/updateTenantStatus:
+    post:
+      operationId: updateTenantStatus
+      summary: Suspend, restore or deactivate a tenant
+      description: "Internal action `registry.updateTenantStatus`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `updateTenantStatus`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantStatusInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Tenant"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TEN-02
+        - FR-TEN-03
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getTenantSettings:
+    post:
+      operationId: getTenantSettings
+      summary: Get tenant detail and settings
+      description: |-
+        Callers may cache the result for <= 60 s. Returns the full tenant detail (status and settings) so that gateway tenant detail and service callers share one shape.
+
+        Internal action `registry.getTenantSettings`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getTenantSettings`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetTenantSettingsInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Tenant"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+        - orchestrator
+        - ingestion
+        - files
+        - events
+        - data-intel
+      x-aegis-fr:
+        - FR-TEN-08
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/updateTenantSettings:
+    post:
+      operationId: updateTenantSettings
+      summary: Update tenant settings
+      description: |-
+        Emits registry.tenant.settings_changed.
+
+        Internal action `registry.updateTenantSettings`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `updateTenantSettings`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantSettingsInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Tenant"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TEN-08
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/login:
+    post:
+      operationId: login
+      summary: Authenticate a user
+      description: |-
+        Called with the gateway SERVICE token (no user token exists yet). Failed attempts are limited to 5 per 15 min per (tenant, email); responses never reveal whether the email exists.
+
+        Internal action `registry.login`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `login`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TokenPair"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-AUTH-01
+      x-aegis-error-codes:
+        - AUTH_INVALID_CREDENTIALS
+        - AUTH_RATE_LIMITED
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/refreshToken:
+    post:
+      operationId: refreshToken
+      summary: Rotate a refresh token
+      description: |-
+        Called with the gateway SERVICE token (no user token exists yet). Reuse of a rotated token revokes the whole token family (security audit AUTH_REFRESH_REUSE).
+
+        Internal action `registry.refreshToken`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `refreshToken`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TokenPair"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-AUTH-02
+      x-aegis-error-codes:
+        - AUTH_REFRESH_INVALID
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/logout:
+    post:
+      operationId: logout
+      summary: Revoke the current refresh-token family
+      description: "Internal action `registry.logout`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `logout`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogoutInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-AUTH-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/changePassword:
+    post:
+      operationId: changePassword
+      summary: Change the current user password
+      description: |-
+        Revokes all other refresh-token families.
+
+        Internal action `registry.changePassword`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `changePassword`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-AUTH-07
+      x-aegis-error-codes:
+        - AUTH_PASSWORD_POLICY
+        - AUTH_INVALID_CREDENTIALS
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/issueClientCredentialsToken:
+    post:
+      operationId: issueClientCredentialsToken
+      summary: Issue a client-credentials access token
+      description: |-
+        Client credentials in body; rate limited per clientId. Callable without a bearer token: this is how SERVICE/INTEGRATION accounts obtain one. INTEGRATION accounts use aud=aegispulse; internal SERVICE accounts use aud=aegispulse-internal. TTL 15 min, no refresh token.
+
+        Internal action `registry.issueClientCredentialsToken`. No bearer token required.
+      tags:
+        - registry
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueClientCredentialsTokenInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AccessToken"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - "*"
+      x-aegis-fr:
+        - FR-AUTH-04
+      x-aegis-error-codes:
+        - AUTH_INVALID_CREDENTIALS
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getCurrentPrincipal:
+    post:
+      operationId: getCurrentPrincipal
+      summary: Get the current principal
+      description: "Internal action `registry.getCurrentPrincipal`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getCurrentPrincipal`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetCurrentPrincipalInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Principal"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-AUTH-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/createUser:
+    post:
+      operationId: createUser
+      summary: Create a user
+      description: |-
+        Email stored lower-case; password hashed with Argon2id (m=64 MiB, t=3, p=1); user must change password at first login.
+
+        Internal action `registry.createUser`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `createUser`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/User"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TEN-04
+      x-aegis-error-codes:
+        - USER_EMAIL_TAKEN
+        - AUTH_PASSWORD_POLICY
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listUsers:
+    post:
+      operationId: listUsers
+      summary: List users
+      description: "Internal action `registry.listUsers`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listUsers`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListUsersQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/User"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TEN-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/updateUser:
+    post:
+      operationId: updateUser
+      summary: Update user roles, status or display name
+      description: |-
+        Emits registry.user.changed; audited.
+
+        Internal action `registry.updateUser`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `updateUser`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/User"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TEN-05
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - LAST_TENANT_ADMIN
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/createServiceAccount:
+    post:
+      operationId: createServiceAccount
+      summary: Create an INTEGRATION service account
+      description: |-
+        The clientSecret is returned once.
+
+        Internal action `registry.createServiceAccount`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `createServiceAccount`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateServiceAccountInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ServiceAccountWithSecret"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TEN-06
+      x-aegis-error-codes:
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listServiceAccounts:
+    post:
+      operationId: listServiceAccounts
+      summary: List service accounts
+      description: |-
+        Never returns secret material.
+
+        Internal action `registry.listServiceAccounts`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listServiceAccounts`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListServiceAccountsQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ServiceAccount"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TEN-06
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/rotateServiceAccountSecret:
+    post:
+      operationId: rotateServiceAccountSecret
+      summary: Rotate a service-account secret
+      description: "Internal action `registry.rotateServiceAccountSecret`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `rotateServiceAccountSecret`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RotateServiceAccountSecretInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ServiceAccountWithSecret"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TEN-06
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/revokeServiceAccount:
+    post:
+      operationId: revokeServiceAccount
+      summary: Revoke a service account
+      description: "Internal action `registry.revokeServiceAccount`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `revokeServiceAccount`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeServiceAccountInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ServiceAccount"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TEN-06
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/createEntity:
+    post:
+      operationId: createEntity
+      summary: Create a tracked entity
+      description: |-
+        Normalized name must be unique per tenant. Emits registry.entity.changed.
+
+        Internal action `registry.createEntity`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `createEntity`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEntityInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Entity"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-01
+      x-aegis-error-codes:
+        - ENTITY_DUPLICATE
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getEntity:
+    post:
+      operationId: getEntity
+      summary: Get an entity
+      description: "Internal action `registry.getEntity`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getEntity`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetEntityInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/EntityDetail"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-02
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listEntities:
+    post:
+      operationId: listEntities
+      summary: List and search entities
+      description: "Internal action `registry.listEntities`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listEntities`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListEntitiesQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Entity"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-02
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/updateEntity:
+    post:
+      operationId: updateEntity
+      summary: Update an entity and its aliases
+      description: "Internal action `registry.updateEntity`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `updateEntity`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEntityInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Entity"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-02
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - ENTITY_DUPLICATE
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/archiveEntity:
+    post:
+      operationId: archiveEntity
+      summary: Archive (soft-delete) an entity
+      description: "Internal action `registry.archiveEntity`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `archiveEntity`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArchiveEntityInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Entity"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-02
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/resolveEntities:
+    post:
+      operationId: resolveEntities
+      summary: Resolve mentions to tracked entities
+      description: |-
+        Pure read, deterministic for identical inputs.
+
+        Internal action `registry.resolveEntities`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `resolveEntities`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveEntitiesInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/EntityResolutionResult"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - orchestrator
+        - doc-extraction
+      x-aegis-fr:
+        - FR-ENT-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/createWatchlist:
+    post:
+      operationId: createWatchlist
+      summary: Create a watchlist
+      description: "Internal action `registry.createWatchlist`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `createWatchlist`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWatchlistInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Watchlist"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - WATCHLIST_NAME_TAKEN
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listWatchlists:
+    post:
+      operationId: listWatchlists
+      summary: List watchlists
+      description: "Internal action `registry.listWatchlists`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listWatchlists`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListWatchlistsQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Watchlist"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/updateWatchlist:
+    post:
+      operationId: updateWatchlist
+      summary: Update or pause a watchlist
+      description: "Internal action `registry.updateWatchlist`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `updateWatchlist`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWatchlistInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Watchlist"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - WATCHLIST_NAME_TAKEN
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/deleteWatchlist:
+    post:
+      operationId: deleteWatchlist
+      summary: Soft-delete a watchlist
+      description: "Internal action `registry.deleteWatchlist`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `deleteWatchlist`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteWatchlistInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/addWatchlistEntry:
+    post:
+      operationId: addWatchlistEntry
+      summary: Add an entity to a watchlist
+      description: "Internal action `registry.addWatchlistEntry`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `addWatchlistEntry`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddWatchlistEntryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/WatchlistEntry"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/removeWatchlistEntry:
+    post:
+      operationId: removeWatchlistEntry
+      summary: Remove an entity from a watchlist
+      description: "Internal action `registry.removeWatchlistEntry`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `removeWatchlistEntry`."
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoveWatchlistEntryInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/checkWatchlists:
+    post:
+      operationId: checkWatchlists
+      summary: Check entities or counterparties against watchlists
+      description: |-
+        Used by scoring and correlation sagas.
+
+        Internal action `registry.checkWatchlists`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `checkWatchlists`.
+      tags:
+        - registry
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckWatchlistsInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/WatchlistCheckResult"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - orchestrator
+      x-aegis-fr:
+        - FR-ENT-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+components:
+  securitySchemes:
+    bearerJwt:
+      $ref: ./components/common.yaml#/components/securitySchemes/bearerJwt
+  schemas:
+    TenantStatus:
+      type: string
+      enum:
+        - ACTIVE
+        - SUSPENDED
+        - DEACTIVATED
+    TenantRole:
+      type: string
+      enum:
+        - TENANT_ADMIN
+        - ANALYST
+        - VIEWER
+        - COMPLIANCE_AUDITOR
+      description: Tenant-scoped roles assignable to users (PROJECT.md §1.4.6).
+    CreateTenantInput:
+      type: object
+      additionalProperties: false
+      properties:
+        slug:
+          type: string
+          pattern: ^[a-z0-9-]{3,40}$
+          description: Unique tenant slug.
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        highValueThresholdUsd:
+          type: string
+          pattern: ^(?=.*[1-9])[0-9]{1,18}(\.[0-9]{1,4})?$
+          description: Decimal string, default "50000".
+        highRiskCountries:
+          type: array
+          items:
+            type: string
+            pattern: ^[A-Z]{2}$
+            description: ISO 3166-1 alpha-2.
+          uniqueItems: true
+        demoMode:
+          type: boolean
+          default: false
+        retentionDays:
+          type: integer
+          minimum: 30
+          maximum: 3650
+          default: 400
+      required:
+        - slug
+        - displayName
+    Tenant:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        slug:
+          type: string
+          pattern: ^[a-z0-9-]{3,40}$
+        displayName:
+          type: string
+        status:
+          $ref: "#/components/schemas/TenantStatus"
+        statusReason:
+          oneOf:
+            - type: string
+            - type: "null"
+        highValueThresholdUsd:
+          type: string
+          pattern: ^(?=.*[1-9])[0-9]{1,18}(\.[0-9]{1,4})?$
+          description: Decimal string (never a JSON number).
+        highRiskCountries:
+          type: array
+          items:
+            type: string
+            pattern: ^[A-Z]{2}$
+            description: ISO 3166-1 alpha-2.
+          uniqueItems: true
+        retentionDays:
+          type: integer
+          minimum: 30
+          maximum: 3650
+        demoMode:
+          type: boolean
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        updatedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - slug
+        - displayName
+        - status
+        - highValueThresholdUsd
+        - highRiskCountries
+        - retentionDays
+        - demoMode
+        - createdAt
+        - updatedAt
+      description: Tenant detail including settings (FR-TEN-08).
+    UpdateTenantStatusInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        status:
+          $ref: "#/components/schemas/TenantStatus"
+        reason:
+          type: string
+          minLength: 1
+      required:
+        - tenantId
+        - status
+        - reason
+      description: "PLATFORM_ADMIN status change: ACTIVE <-> SUSPENDED, or DEACTIVATED (terminal) (FR-TEN-02/03)."
+    GetTenantSettingsInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - tenantId
+    UpdateTenantSettingsInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        highValueThresholdUsd:
+          type: string
+          pattern: ^(?=.*[1-9])[0-9]{1,18}(\.[0-9]{1,4})?$
+          description: Decimal string (never a JSON number).
+        highRiskCountries:
+          type: array
+          items:
+            type: string
+            pattern: ^[A-Z]{2}$
+            description: ISO 3166-1 alpha-2.
+          uniqueItems: true
+        retentionDays:
+          type: integer
+          minimum: 30
+          maximum: 3650
+        demoMode:
+          type: boolean
+      required:
+        - tenantId
+      minProperties: 2
+      description: At least one setting must be supplied (FR-TEN-08).
+    LoginInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantSlug:
+          type: string
+          pattern: ^[a-z0-9-]{3,40}$
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
+      required:
+        - tenantSlug
+        - email
+        - password
+    TokenPair:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: RS256 JWT, TTL 15 min.
+        refreshToken:
+          type: string
+          description: Opaque rotating refresh token, TTL 7 d.
+        tokenType:
+          type: string
+          enum:
+            - Bearer
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds (900).
+        mustChangePassword:
+          type: boolean
+          description: True until the initial password is changed (FR-TEN-04).
+      required:
+        - accessToken
+        - refreshToken
+        - tokenType
+        - expiresIn
+        - mustChangePassword
+    RefreshTokenInput:
+      type: object
+      additionalProperties: false
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+      required:
+        - refreshToken
+    LogoutInput:
+      type: object
+      additionalProperties: false
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+      required:
+        - refreshToken
+    ChangePasswordInput:
+      type: object
+      additionalProperties: false
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 256
+        newPassword:
+          type: string
+          minLength: 14
+          maxLength: 256
+          description: "Policy: >= 14 chars and zxcvbn score >= 3 (FR-TEN-04); violations return 422 AUTH_PASSWORD_POLICY."
+      required:
+        - currentPassword
+        - newPassword
+    IssueClientCredentialsTokenInput:
+      type: object
+      additionalProperties: false
+      properties:
+        clientId:
+          type: string
+          minLength: 1
+        clientSecret:
+          type: string
+          minLength: 1
+        audience:
+          type: string
+          enum:
+            - aegispulse
+            - aegispulse-internal
+      required:
+        - clientId
+        - clientSecret
+        - audience
+    AccessToken:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          enum:
+            - Bearer
+        expiresIn:
+          type: integer
+          description: Seconds (900); no refresh token.
+      required:
+        - accessToken
+        - tokenType
+        - expiresIn
+    GetCurrentPrincipalInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty payload (Record<string, never>).
+    Principal:
+      type: object
+      properties:
+        typ:
+          type: string
+          enum:
+            - user
+            - service
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        email:
+          oneOf:
+            - type: string
+              format: email
+              maxLength: 320
+            - type: "null"
+        displayName:
+          oneOf:
+            - type: string
+            - type: "null"
+        roles:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/Role
+        mustChangePassword:
+          type: boolean
+        tenant:
+          oneOf:
+            - type: object
+              properties:
+                id:
+                  $ref: ./components/common.yaml#/components/schemas/Uuid
+                slug:
+                  type: string
+                displayName:
+                  type: string
+                status:
+                  $ref: "#/components/schemas/TenantStatus"
+              required:
+                - id
+                - slug
+            - type: "null"
+      required:
+        - typ
+        - id
+        - roles
+        - tenant
+      description: "Current principal: profile, tenant, roles (FR-AUTH-03). `tenant` is null for internal SERVICE accounts."
+    CreateUserInput:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 1
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantRole"
+          minItems: 1
+          uniqueItems: true
+        initialPassword:
+          type: string
+          minLength: 14
+          maxLength: 256
+          description: "Policy: >= 14 chars and zxcvbn score >= 3 (FR-TEN-04); violations return 422 AUTH_PASSWORD_POLICY."
+      required:
+        - email
+        - displayName
+        - roles
+        - initialPassword
+    User:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantRole"
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - DISABLED
+        mustChangePassword:
+          type: boolean
+        lastLoginAt:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+            - type: "null"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        updatedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - tenantId
+        - email
+        - displayName
+        - roles
+        - status
+        - mustChangePassword
+        - createdAt
+        - updatedAt
+    ListUsersQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+        role:
+          $ref: "#/components/schemas/TenantRole"
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - DISABLED
+    UpdateUserInput:
+      type: object
+      additionalProperties: false
+      properties:
+        userId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        displayName:
+          type: string
+          minLength: 1
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantRole"
+          minItems: 1
+          uniqueItems: true
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - DISABLED
+      required:
+        - userId
+      minProperties: 2
+      description: Role changes revoke the user refresh tokens; the last active TENANT_ADMIN cannot be removed (409 LAST_TENANT_ADMIN).
+    CreateServiceAccountInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+      required:
+        - name
+      description: Creates an INTEGRATION service account (FR-TEN-06).
+    ServiceAccount:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        clientId:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+            - INTEGRATION
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - REVOKED
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        updatedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - tenantId
+        - clientId
+        - name
+        - kind
+        - status
+        - createdAt
+    ServiceAccountWithSecret:
+      allOf:
+        - $ref: "#/components/schemas/ServiceAccount"
+        - type: object
+          properties:
+            clientSecret:
+              type: string
+              description: 32 random bytes, base64url. Displayed exactly once.
+            previousSecretValidUntil:
+              oneOf:
+                - $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+                - type: "null"
+              description: "Set on rotation: previous secret remains valid for a 24 h grace period."
+          required:
+            - clientSecret
+    ListServiceAccountsQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - REVOKED
+      description: Responses carry ServiceAccount summaries only; secret material is never returned.
+    RotateServiceAccountSecretInput:
+      type: object
+      additionalProperties: false
+      properties:
+        serviceAccountId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - serviceAccountId
+    RevokeServiceAccountInput:
+      type: object
+      additionalProperties: false
+      properties:
+        serviceAccountId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - serviceAccountId
+    EntityType:
+      type: string
+      enum:
+        - ORGANIZATION
+        - TICKER
+        - COUNTERPARTY
+        - AGENCY
+        - PERSON
+    CreateEntityInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        entityType:
+          $ref: "#/components/schemas/EntityType"
+        ticker:
+          type: string
+          pattern: ^[A-Z.]{1,10}$
+        lei:
+          type: string
+          pattern: ^[A-Z0-9]{20}$
+          description: ISO 17442 LEI.
+        country:
+          type: string
+          pattern: ^[A-Z]{2}$
+          description: ISO 3166-1 alpha-2.
+        aliases:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+          uniqueItems: true
+      required:
+        - name
+        - entityType
+    Entity:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        name:
+          type: string
+        normalizedName:
+          type: string
+        entityType:
+          $ref: "#/components/schemas/EntityType"
+        ticker:
+          oneOf:
+            - type: string
+              pattern: ^[A-Z.]{1,10}$
+            - type: "null"
+        lei:
+          oneOf:
+            - type: string
+            - type: "null"
+        country:
+          oneOf:
+            - type: string
+              pattern: ^[A-Z]{2}$
+              description: ISO 3166-1 alpha-2.
+            - type: "null"
+        aliases:
+          type: array
+          items:
+            type: string
+        archivedAt:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+            - type: "null"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        updatedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - tenantId
+        - name
+        - normalizedName
+        - entityType
+        - aliases
+        - createdAt
+        - updatedAt
+    EntityDetail:
+      allOf:
+        - $ref: "#/components/schemas/Entity"
+        - type: object
+          properties:
+            watchlists:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    $ref: ./components/common.yaml#/components/schemas/Uuid
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - ACTIVE
+                      - PAUSED
+                required:
+                  - id
+                  - name
+                  - status
+          required:
+            - watchlists
+      description: Entity detail + aliases + watchlists.
+    GetEntityInput:
+      type: object
+      additionalProperties: false
+      properties:
+        entityId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - entityId
+    ListEntitiesQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+        q:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Trigram-similarity search.
+        entityType:
+          $ref: "#/components/schemas/EntityType"
+        watchlistId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+    UpdateEntityInput:
+      type: object
+      additionalProperties: false
+      properties:
+        entityId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        entityType:
+          $ref: "#/components/schemas/EntityType"
+        ticker:
+          oneOf:
+            - type: string
+              pattern: ^[A-Z.]{1,10}$
+            - type: "null"
+        lei:
+          oneOf:
+            - type: string
+              pattern: ^[A-Z0-9]{20}$
+            - type: "null"
+        country:
+          oneOf:
+            - type: string
+              pattern: ^[A-Z]{2}$
+              description: ISO 3166-1 alpha-2.
+            - type: "null"
+        addAliases:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+        removeAliases:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+      required:
+        - entityId
+      minProperties: 2
+    ArchiveEntityInput:
+      type: object
+      additionalProperties: false
+      properties:
+        entityId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - entityId
+    ResolveEntitiesInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        mentions:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 500
+        tickers:
+          type: array
+          items:
+            type: string
+            pattern: ^[A-Z.]{1,10}$
+      required:
+        - tenantId
+        - mentions
+    EntityMatchType:
+      type: string
+      enum:
+        - TICKER_EXACT
+        - ALIAS_EXACT
+        - NAME_NORMALIZED
+        - TRIGRAM
+    EntityResolution:
+      type: object
+      properties:
+        mention:
+          type: string
+        entityId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        matchType:
+          oneOf:
+            - $ref: "#/components/schemas/EntityMatchType"
+            - type: "null"
+        similarity:
+          oneOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: "null"
+      required:
+        - mention
+        - entityId
+      description: Unmatched mentions return entityId = null.
+    EntityResolutionResult:
+      type: object
+      properties:
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntityResolution"
+          description: One entry per mention (and per ticker), deterministic for identical inputs (FR-ENT-03). Exact matches first, pg_trgm similarity >= 0.85 last.
+      required:
+        - matches
+    WatchlistStatus:
+      type: string
+      enum:
+        - ACTIVE
+        - PAUSED
+    CreateWatchlistInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        reason:
+          type: string
+          minLength: 1
+        severityFloor:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+          default: HIGH
+        status:
+          $ref: "#/components/schemas/WatchlistStatus"
+          default: ACTIVE
+      required:
+        - name
+        - reason
+    Watchlist:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        name:
+          type: string
+        reason:
+          type: string
+        severityFloor:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+        status:
+          $ref: "#/components/schemas/WatchlistStatus"
+        entryCount:
+          type: integer
+          minimum: 0
+        createdBy:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        updatedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - tenantId
+        - name
+        - reason
+        - severityFloor
+        - status
+        - createdAt
+        - updatedAt
+    ListWatchlistsQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+    UpdateWatchlistInput:
+      type: object
+      additionalProperties: false
+      properties:
+        watchlistId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        reason:
+          type: string
+          minLength: 1
+        severityFloor:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+        status:
+          $ref: "#/components/schemas/WatchlistStatus"
+      required:
+        - watchlistId
+      minProperties: 2
+      description: status=PAUSED pauses the watchlist.
+    DeleteWatchlistInput:
+      type: object
+      additionalProperties: false
+      properties:
+        watchlistId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - watchlistId
+    AddWatchlistEntryInput:
+      type: object
+      additionalProperties: false
+      properties:
+        watchlistId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        entityId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        note:
+          type: string
+          maxLength: 2000
+      required:
+        - watchlistId
+        - entityId
+    RemoveWatchlistEntryInput:
+      type: object
+      additionalProperties: false
+      properties:
+        watchlistId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        entityId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - watchlistId
+        - entityId
+    WatchlistEntry:
+      type: object
+      properties:
+        watchlistId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        entityId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        note:
+          oneOf:
+            - type: string
+            - type: "null"
+        addedBy:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - watchlistId
+        - entityId
+        - createdAt
+    CounterpartyRef:
+      type: object
+      additionalProperties: false
+      properties:
+        counterpartyId:
+          type: string
+          minLength: 1
+          maxLength: 64
+        counterpartyName:
+          type: string
+          minLength: 1
+          maxLength: 200
+      required:
+        - counterpartyId
+    CheckWatchlistsInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        entityIds:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        counterpartyRefs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CounterpartyRef"
+      required:
+        - tenantId
+      anyOf:
+        - required:
+            - entityIds
+        - required:
+            - counterpartyRefs
+      description: Provide entityIds and/or counterpartyRefs.
+    WatchlistHit:
+      type: object
+      properties:
+        watchlistId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        watchlistName:
+          type: string
+        severityFloor:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+        entityId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        counterpartyId:
+          oneOf:
+            - type: string
+            - type: "null"
+      required:
+        - watchlistId
+        - watchlistName
+        - severityFloor
+        - entityId
+    WatchlistCheckResult:
+      type: object
+      properties:
+        hits:
+          type: array
+          items:
+            $ref: "#/components/schemas/WatchlistHit"
+          description: Hits against ACTIVE watchlists only.
+      required:
+        - hits

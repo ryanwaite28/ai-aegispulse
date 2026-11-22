@@ -178,6 +178,21 @@ services:
     # Distroless image (no shell/curl): health is probed from the host by scripts/dev/compose-wait.sh.
     mem_limit: 512m
 
+  # ---------- tools (profile: tools) — `make migrate` ----------
+  migrate:
+    profiles: [tools]
+    build:
+      context: ../..
+      dockerfile: deploy/docker/migrate.Dockerfile
+    env_file: ../../.env
+    environment:
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_DATABASE: aegispulse
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
 volumes:
   rendered: {}
   pgdata: {}

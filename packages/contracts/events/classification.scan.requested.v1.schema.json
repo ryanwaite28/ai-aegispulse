@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/classification.scan.requested.v1.schema.json",
+  "title": "classification.scan.requested payload (v1)",
+  "description": "Stage 2 scan request written to the Mongo outbox when Stage 1 says a scan is required. Pointer to the archived event only. Producer: events. Exchange: aegispulse.enrichment. FRs: FR-CLS-03, FR-CLS-06. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "required": ["eventId", "revision"],
+  "properties": {
+    "eventId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid",
+      "description": "Archived event to scan."
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "classificationRevision for optimistic concurrency (FR-CLS-05)."
+    }
+  },
+  "additionalProperties": true
+}

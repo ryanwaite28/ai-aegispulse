@@ -1,0 +1,1448 @@
+openapi: 3.1.0
+info:
+  title: AegisPulse Files internal API
+  version: 1.0.0
+  description: |-
+    Internal RPC contract for services/files (Node 24 / Fastify): upload lifecycle, downloads, processing lifecycle and sweeps. Operations are POST /internal/v1/{action}; operationId equals the ServiceAction name (PROJECT.md §6.2).
+
+    All operations are `POST /internal/v1/{actionName}` (uniform RPC style) and return the success envelope `{ data, meta }` (PROJECT.md §8.2). Caller allowlists follow PROJECT.md §5.7.4; the service re-verifies the JWT, role and tenant ownership itself (FR-AUTH-06).
+servers:
+  - url: http://{host}:8082
+    description: In-cluster Service (PROJECT.md §5.4 port).
+    variables:
+      host:
+        default: aegispulse-files
+tags:
+  - name: files
+    description: AegisPulse Files internal API
+security:
+  - bearerJwt: []
+x-aegis-consumer-actions:
+  - validateFile
+paths:
+  /internal/v1/initUpload:
+    post:
+      operationId: initUpload
+      summary: Initiate a file upload
+      description: "Internal action `files.initUpload`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `initUpload`."
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InitUploadInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/InitUploadResult"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/InitUploadResult"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-FILE-01
+        - FR-FILE-02
+        - FR-FILE-03
+        - FR-FILE-13
+      x-aegis-error-codes:
+        - FILE_TYPE_NOT_ALLOWED
+        - FILE_TOO_LARGE
+        - UPLOAD_RATE_LIMITED
+        - STORAGE_QUOTA_EXCEEDED
+        - IDEMPOTENCY_KEY_REUSED
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/completeUpload:
+    post:
+      operationId: completeUpload
+      summary: Complete an upload
+      description: |-
+        INITIATED -> UPLOADED; emits file.uploaded and file.status.changed. Already completed: idempotent 200 with current status.
+
+        Internal action `files.completeUpload`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `completeUpload`.
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteUploadInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/File"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-FILE-04
+        - FR-FILE-13
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UPLOAD_SESSION_EXPIRED
+        - UPLOAD_NOT_FOUND_IN_STORAGE
+        - UPLOAD_SIZE_MISMATCH
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/abortUpload:
+    post:
+      operationId: abortUpload
+      summary: Abort an upload
+      description: "Internal action `files.abortUpload`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `abortUpload`."
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AbortUploadInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/File"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-FILE-10
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getFile:
+    post:
+      operationId: getFile
+      summary: Get file metadata, status and artifact summary
+      description: "Internal action `files.getFile`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getFile`."
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetFileInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/FileDetail"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-FILE-07
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listFiles:
+    post:
+      operationId: listFiles
+      summary: List files
+      description: "Internal action `files.listFiles`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listFiles`."
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListFilesQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/File"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-FILE-09
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getDownloadUrl:
+    post:
+      operationId: getDownloadUrl
+      summary: Get a presigned download URL
+      description: |-
+        Allowed for VALIDATED, PROCESSING and PROCESSED files. QUARANTINED files require TENANT_ADMIN and acknowledgeQuarantine = true (audited).
+
+        Internal action `files.getDownloadUrl`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getDownloadUrl`.
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetDownloadUrlInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DownloadUrl"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-FILE-08
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - FILE_NOT_DOWNLOADABLE
+        - FILE_QUARANTINED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getInternalDownloadUrl:
+    post:
+      operationId: getInternalDownloadUrl
+      summary: Get an internal presigned download URL
+      description: |-
+        For doc-extraction; avoids sharing bucket credentials.
+
+        Internal action `files.getInternalDownloadUrl`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getInternalDownloadUrl`.
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetInternalDownloadUrlInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DownloadUrl"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - doc-extraction
+      x-aegis-fr:
+        - FR-DOC-01
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - FILE_NOT_DOWNLOADABLE
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/deleteFile:
+    post:
+      operationId: deleteFile
+      summary: Soft-delete a file
+      description: |-
+        Sets deletedAt; the object is retained until the retention purge. Audited.
+
+        Internal action `files.deleteFile`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `deleteFile`.
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteFileInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-FILE-12
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/markProcessing:
+    post:
+      operationId: markProcessing
+      summary: Mark a file as processing
+      description: |-
+        VALIDATED -> PROCESSING; idempotent.
+
+        Internal action `files.markProcessing`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `markProcessing`.
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkProcessingInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/File"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - doc-extraction
+      x-aegis-fr:
+        - FR-FILE-06
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/recordExtractionResult:
+    post:
+      operationId: recordExtractionResult
+      summary: Record an extraction result
+      description: "Internal action `files.recordExtractionResult`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `recordExtractionResult`."
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordExtractionResultInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/File"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - doc-extraction
+      x-aegis-fr:
+        - FR-FILE-06
+        - FR-DOC-04
+        - FR-DOC-05
+        - FR-DOC-06
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/recordProcessingFailure:
+    post:
+      operationId: recordProcessingFailure
+      summary: Record a processing failure
+      description: "Internal action `files.recordProcessingFailure`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `recordProcessingFailure`."
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordProcessingFailureInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/File"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - doc-extraction
+      x-aegis-fr:
+        - FR-FILE-06
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/registerRemoteFile:
+    post:
+      operationId: registerRemoteFile
+      summary: Fetch and register a remote file (SSRF-guarded)
+      description: |-
+        Result enters the lifecycle at UPLOADED.
+
+        Internal action `files.registerRemoteFile`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `registerRemoteFile`.
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRemoteFileInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/File"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - ingestion
+      x-aegis-fr:
+        - FR-FILE-11
+        - FR-WHK-06
+      x-aegis-error-codes:
+        - FILE_TYPE_NOT_ALLOWED
+        - FILE_TOO_LARGE
+        - STORAGE_QUOTA_EXCEEDED
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/sweepOrphans:
+    post:
+      operationId: sweepOrphans
+      summary: Expire orphaned INITIATED uploads
+      description: |-
+        Every 15 min: INITIATED files older than 1 h become EXPIRED, objects deleted, multipart uploads aborted.
+
+        Internal action `files.sweepOrphans`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `sweepOrphans`.
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SweepOrphansInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-FILE-10
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/purgeRetention:
+    post:
+      operationId: purgeRetention
+      summary: Purge files past tenant retention
+      description: |-
+        Deletes objects and artifacts past tenant.retentionDays, keeping a tombstone row.
+
+        Internal action `files.purgeRetention`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `purgeRetention`.
+      tags:
+        - files
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurgeRetentionInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-FILE-12
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+components:
+  securitySchemes:
+    bearerJwt:
+      $ref: ./components/common.yaml#/components/securitySchemes/bearerJwt
+  schemas:
+    FileStatus:
+      type: string
+      enum:
+        - INITIATED
+        - UPLOADED
+        - VALIDATED
+        - PROCESSING
+        - PROCESSED
+        - FAILED
+        - QUARANTINED
+        - EXPIRED
+    FileContentType:
+      type: string
+      enum:
+        - application/pdf
+        - text/html
+        - text/csv
+        - application/json
+        - text/plain
+      description: Content-type allowlist (FR-FILE-01); others return 422 FILE_TYPE_NOT_ALLOWED.
+    FilePurpose:
+      type: string
+      enum:
+        - FILING
+        - REGULATORY_DOCUMENT
+        - TRANSACTION_BATCH
+        - OTHER
+    FileSourceType:
+      type: string
+      enum:
+        - AD_HOC_UPLOAD
+        - WEBHOOK_ATTACHMENT
+        - CONNECTOR_FETCH
+    InitUploadInput:
+      type: object
+      additionalProperties: false
+      properties:
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: ^[^./\\\x00-\x1f][^/\\\x00-\x1f]*$
+          description: No path separators, control characters or leading dots.
+        contentType:
+          $ref: "#/components/schemas/FileContentType"
+        sizeBytes:
+          type: integer
+          minimum: 1
+          maximum: 536870912
+          description: 1 B - 64 MiB for a single PUT; > 64 MiB up to 512 MiB only as multipart (Phase 5b, MULTIPART_UPLOADS_ENABLED).
+        sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: Lower-case hex SHA-256.
+        purpose:
+          $ref: "#/components/schemas/FilePurpose"
+        relatedEntityIds:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+          uniqueItems: true
+        allowDuplicate:
+          type: boolean
+          default: false
+          description: Disable dedup for this request (ANALYST+ only).
+      required:
+        - filename
+        - contentType
+        - sizeBytes
+        - sha256
+        - purpose
+      description: Object key is raw/{tenantId}/{yyyy}/{mm}/{dd}/{fileId} and never derived from filename.
+    PresignedUpload:
+      type: object
+      properties:
+        method:
+          type: string
+          enum:
+            - PUT
+        url:
+          type: string
+          format: uri
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Headers that must be sent (signed Content-Type and Content-Length).
+        expiresAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - method
+        - url
+        - headers
+        - expiresAt
+      description: Presigned PUT, expires after 10 min.
+    MultipartUpload:
+      type: object
+      properties:
+        uploadId:
+          type: string
+        partSizeBytes:
+          type: integer
+          const: 16777216
+        parts:
+          type: array
+          items:
+            type: object
+            properties:
+              partNumber:
+                type: integer
+                minimum: 1
+                maximum: 32
+              url:
+                type: string
+                format: uri
+            required:
+              - partNumber
+              - url
+          maxItems: 32
+      required:
+        - uploadId
+        - partSizeBytes
+        - parts
+      description: "Phase 5b: 16 MiB parts, <= 32 parts (FR-FILE-13)."
+    InitUploadResult:
+      type: object
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        status:
+          $ref: "#/components/schemas/FileStatus"
+        deduplicated:
+          type: boolean
+          description: True when an existing file matched (tenantId, sha256); no upload URL is returned.
+        upload:
+          $ref: "#/components/schemas/PresignedUpload"
+        multipart:
+          $ref: "#/components/schemas/MultipartUpload"
+      required:
+        - fileId
+        - status
+        - deduplicated
+      description: 201 for a new upload; 200 with deduplicated = true for a dedup hit (FR-FILE-02).
+    UploadPart:
+      type: object
+      additionalProperties: false
+      properties:
+        partNumber:
+          type: integer
+          minimum: 1
+          maximum: 32
+        etag:
+          type: string
+          minLength: 1
+      required:
+        - partNumber
+        - etag
+    CompleteUploadInput:
+      type: object
+      additionalProperties: false
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        parts:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadPart"
+          minItems: 1
+          maxItems: 32
+          description: "Multipart only: part ETag list."
+      required:
+        - fileId
+    AbortUploadInput:
+      type: object
+      additionalProperties: false
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - fileId
+      description: INITIATED -> EXPIRED; aborts any multipart upload.
+    File:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        filename:
+          type: string
+        contentType:
+          $ref: "#/components/schemas/FileContentType"
+        detectedType:
+          oneOf:
+            - type: string
+            - type: "null"
+        sizeBytes:
+          type: integer
+        sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: Lower-case hex SHA-256.
+        verifiedSha256:
+          oneOf:
+            - type: string
+              pattern: ^[0-9a-f]{64}$
+              description: Lower-case hex SHA-256.
+            - type: "null"
+        sourceType:
+          $ref: "#/components/schemas/FileSourceType"
+        sourceUrl:
+          oneOf:
+            - type: string
+            - type: "null"
+        purpose:
+          $ref: "#/components/schemas/FilePurpose"
+        relatedEntityIds:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        status:
+          $ref: "#/components/schemas/FileStatus"
+        failureReason:
+          oneOf:
+            - type: string
+            - type: "null"
+        extractorVersion:
+          oneOf:
+            - type: string
+            - type: "null"
+        uploadedBy:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        correlationId:
+          type: string
+        deletedAt:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+            - type: "null"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        updatedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - tenantId
+        - filename
+        - contentType
+        - sizeBytes
+        - sha256
+        - sourceType
+        - purpose
+        - relatedEntityIds
+        - status
+        - correlationId
+        - createdAt
+        - updatedAt
+    FileArtifactSummary:
+      type: object
+      properties:
+        extractorVersion:
+          type: string
+        resultStatus:
+          type: string
+          enum:
+            - COMPLETED
+            - REVIEW_REQUIRED
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        rowsAccepted:
+          oneOf:
+            - type: integer
+            - type: "null"
+        rowsRejected:
+          oneOf:
+            - type: integer
+            - type: "null"
+        summary:
+          type: object
+          additionalProperties: true
+          description: eventTypeGuess, entity count, red flags.
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - extractorVersion
+        - resultStatus
+        - confidence
+        - summary
+        - createdAt
+    FileDetail:
+      allOf:
+        - $ref: "#/components/schemas/File"
+        - type: object
+          properties:
+            artifacts:
+              type: array
+              items:
+                $ref: "#/components/schemas/FileArtifactSummary"
+          required:
+            - artifacts
+      description: Metadata + status + artifact summary (FR-FILE-07). Cached <= 30 s.
+    GetFileInput:
+      type: object
+      additionalProperties: false
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - fileId
+    ListFilesQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+        status:
+          $ref: "#/components/schemas/FileStatus"
+        purpose:
+          $ref: "#/components/schemas/FilePurpose"
+        uploadedBy:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        from:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        to:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+    GetDownloadUrlInput:
+      type: object
+      additionalProperties: false
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        acknowledgeQuarantine:
+          type: boolean
+          default: false
+          description: TENANT_ADMIN only; required to download a QUARANTINED file (audited).
+      required:
+        - fileId
+    GetInternalDownloadUrlInput:
+      type: object
+      additionalProperties: false
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - fileId
+    DownloadUrl:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        expiresAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        filename:
+          type: string
+          description: "Sanitized filename used in Content-Disposition: attachment."
+      required:
+        - url
+        - expiresAt
+        - filename
+      description: Presigned GET (TTL 5 min).
+    DeleteFileInput:
+      type: object
+      additionalProperties: false
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - fileId
+    MarkProcessingInput:
+      type: object
+      additionalProperties: false
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        extractorVersion:
+          type: string
+          minLength: 1
+      required:
+        - fileId
+        - extractorVersion
+    EventTypeGuess:
+      type: string
+      enum:
+        - REGULATION_PUBLISHED
+        - IPO_FILED
+        - ACQUISITION_ANNOUNCED
+        - COMPLIANCE_DISCLOSURE
+        - OTHER
+    RedFlag:
+      type: object
+      additionalProperties: false
+      properties:
+        clause:
+          type: string
+          minLength: 1
+          description: Red-flag clause from the clauses-v1 lexicon.
+        startOffset:
+          type: integer
+          minimum: 0
+        endOffset:
+          type: integer
+          minimum: 0
+      required:
+        - clause
+      description: Red-flag clause with sentence offsets (FR-DOC-03).
+    RecordExtractionResultInput:
+      type: object
+      additionalProperties: false
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        extractorVersion:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum:
+            - COMPLETED
+            - REVIEW_REQUIRED
+          description: confidence >= 0.70 => COMPLETED; < 0.70 or schema violation => REVIEW_REQUIRED (FR-DOC-04).
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        artifactKeys:
+          type: object
+          additionalProperties: false
+          properties:
+            textKey:
+              type: string
+              description: artifacts/{tenantId}/{fileId}/{extractorVersion}/text.txt
+            chunksKey:
+              type: string
+              description: .../chunks.jsonl
+            extractionKey:
+              type: string
+              description: .../extraction.json
+            rowErrorsKey:
+              type: string
+              description: .../row-errors.csv (TRANSACTION_BATCH only)
+          required:
+            - extractionKey
+        rowsAccepted:
+          type: integer
+          minimum: 0
+        rowsRejected:
+          type: integer
+          minimum: 0
+        summary:
+          type: object
+          additionalProperties: false
+          properties:
+            eventTypeGuess:
+              $ref: "#/components/schemas/EventTypeGuess"
+            mentionedEntities:
+              type: array
+              items:
+                type: string
+            redFlags:
+              type: array
+              items:
+                $ref: "#/components/schemas/RedFlag"
+            textExcerpt:
+              type: string
+              maxLength: 2000
+              description: Never the full text (FR-DOC-06).
+          required:
+            - eventTypeGuess
+            - mentionedEntities
+            - redFlags
+      required:
+        - fileId
+        - extractorVersion
+        - status
+        - confidence
+        - artifactKeys
+        - summary
+      description: PROCESSING -> PROCESSED; emits doc.extraction.completed or doc.extraction.review_required (FR-FILE-06).
+    RecordProcessingFailureInput:
+      type: object
+      additionalProperties: false
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        reason:
+          type: string
+          minLength: 1
+        retryable:
+          type: boolean
+      required:
+        - fileId
+        - reason
+        - retryable
+      description: PROCESSING -> FAILED only when not retryable.
+    RegisterRemoteFileInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        url:
+          type: string
+          format: uri
+          pattern: ^https://
+          maxLength: 2048
+        sourceType:
+          type: string
+          enum:
+            - WEBHOOK_ATTACHMENT
+            - CONNECTOR_FETCH
+        allowedHosts:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          minItems: 1
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Optional hint from the attachment descriptor (FR-WHK-04).
+        contentType:
+          $ref: "#/components/schemas/FileContentType"
+          description: Optional hint from the attachment descriptor (FR-WHK-04).
+      required:
+        - tenantId
+        - url
+        - sourceType
+        - allowedHosts
+      description: "SSRF-guarded fetch (FR-FILE-11): https only, host allowlist, DNS resolved and private/loopback/link-local/metadata ranges rejected before connect and re-checked on connect, 30 s timeout, 64 MiB cap, no credentials forwarded."
+    SweepOrphansInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty payload (Record<string, never>).
+    PurgeRetentionInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty payload (Record<string, never>).

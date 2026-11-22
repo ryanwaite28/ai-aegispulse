@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/notification.requested.v1.schema.json",
+  "title": "notification.requested payload (v1)",
+  "description": "Notification request rendered and delivered to ntfy by the orchestrator. Variables are ids, severities, counts and console links only: no PII, payload text or secrets. Published on domain, enrichment or intelligence depending on the emitter. Producer: cases, events, files, ingestion, data-intel. Exchange: aegispulse.domain | aegispulse.enrichment | aegispulse.intelligence. FRs: FR-NOTIF-01, FR-NOTIF-02, FR-CASE-04, FR-CLS-05, FR-FILE-05, FR-CON-04, FR-AUD-03, FR-MSG-04, FR-INTEL-03. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "required": ["templateId", "severity", "notificationKey", "vars"],
+  "properties": {
+    "templateId": {
+      "type": "string",
+      "enum": ["N-01", "N-02", "N-03", "N-04", "N-05", "N-06", "N-07"],
+      "description": "N-01 case escalated CRITICAL (cases) · N-02 event RESTRICTED/CRITICAL (events) · N-03 file quarantined (files) · N-04 dead-letter spike (alerting) · N-05 connector paused (ingestion) · N-06 audit chain broken (cases) · N-07 drift (data-intel)."
+    },
+    "severity": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/severity"
+    },
+    "notificationKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Dedup key; ntfy message id = UUIDv5 of key; 10-min dedup window (FR-NOTIF-01)."
+    },
+    "vars": {
+      "type": "object",
+      "description": "Template variables; flat scalars only; per-template shape below.",
+      "additionalProperties": {
+        "type": ["string", "number"]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "const": "N-01"
+          }
+        },
+        "required": ["templateId"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "vars": {
+            "type": "object",
+            "required": ["caseId", "caseNumber", "type", "entityName", "policyScore"],
+            "additionalProperties": false,
+            "properties": {
+              "caseId": {
+                "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+              },
+              "caseNumber": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "type": {
+                "$ref": "_shared.v1.schema.json#/$defs/caseType"
+              },
+              "entityName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "Tracked entity display name (organization, not a person's PII)."
+              },
+              "policyScore": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "consoleUrl": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://",
+                "description": "Console link (ids only in the path)."
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "const": "N-02"
+          }
+        },
+        "required": ["templateId"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "vars": {
+            "type": "object",
+            "required": ["eventId", "eventType", "source", "sensitivity", "finalSeverity"],
+            "additionalProperties": false,
+            "properties": {
+              "eventId": {
+                "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+              },
+              "eventType": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "sensitivity": {
+                "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/sensitivity"
+              },
+              "finalSeverity": {
+                "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/severity"
+              },
+              "consoleUrl": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://",
+                "description": "Console link (ids only in the path)."
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "const": "N-03"
+          }
+        },
+        "required": ["templateId"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "vars": {
+            "type": "object",
+            "required": ["fileId", "reason", "tenantSlug"],
+            "additionalProperties": false,
+            "properties": {
+              "fileId": {
+                "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "tenantSlug": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{3,40}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "const": "N-04"
+          }
+        },
+        "required": ["templateId"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "vars": {
+            "type": "object",
+            "required": ["count", "queue", "window"],
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "queue": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "window": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "const": "N-05"
+          }
+        },
+        "required": ["templateId"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "vars": {
+            "type": "object",
+            "required": ["connectorKey", "failures"],
+            "additionalProperties": false,
+            "properties": {
+              "connectorKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "failures": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "const": "N-06"
+          }
+        },
+        "required": ["templateId"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "vars": {
+            "type": "object",
+            "required": ["tenantSlug", "seq"],
+            "additionalProperties": false,
+            "properties": {
+              "tenantSlug": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{3,40}$"
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "const": "N-07"
+          }
+        },
+        "required": ["templateId"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "vars": {
+            "type": "object",
+            "required": ["metric", "value", "threshold", "scope"],
+            "additionalProperties": false,
+            "properties": {
+              "metric": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "value": {
+                "type": "number"
+              },
+              "threshold": {
+                "type": "number"
+              },
+              "scope": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

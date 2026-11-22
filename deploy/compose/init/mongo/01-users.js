@@ -2,5 +2,7 @@
 const admin = db.getSiblingDB("admin");
 admin.createUser({ user: "svc_events", pwd: process.env.MONGO_SVC_EVENTS_PASSWORD,
   roles: [{ role: "readWrite", db: "aegispulse_events" }] });
+admin.createUser({ user: "mig_events", pwd: process.env.MONGO_MIG_EVENTS_PASSWORD,
+  roles: [{ role: "readWrite", db: "aegispulse_events" }, { role: "dbAdmin", db: "aegispulse_events" }] });
 admin.createUser({ user: "backup", pwd: process.env.MONGO_BACKUP_PASSWORD, roles: [{ role: "backup", db: "admin" }] });
 print("mongo init: users created");

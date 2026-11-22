@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/registry.user.changed.v1.schema.json",
+  "title": "registry.user.changed payload (v1)",
+  "description": "User created/updated/role-changed/disabled. Ids and changed field names only; no secrets or password data. Producer: registry. Exchange: aegispulse.domain. FRs: FR-TEN-04, FR-TEN-05, FR-AUD-02. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/registryChange"
+    }
+  ],
+  "required": ["userId", "changedFields"],
+  "properties": {
+    "userId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "changedFields": {
+      "$ref": "_shared.v1.schema.json#/$defs/registryChange/properties/changedFields"
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,6 @@
+{
+  "metric": "severity_accuracy",
+  "scope": "eval-golden-v1",
+  "value": 0.93,
+  "window": "run"
+}

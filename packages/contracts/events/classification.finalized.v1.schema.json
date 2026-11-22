@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/classification.finalized.v1.schema.json",
+  "title": "classification.finalized payload (v1)",
+  "description": "Authoritative classification snapshot after Stage 1/2 resolution (severity-resolver-v1). Never re-scanned (classification.* is exempt from Stage 2). Producer: events. Exchange: aegispulse.enrichment. FRs: FR-CLS-02, FR-CLS-05, FR-COR-02. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "required": ["eventId", "eventType", "sensitivity", "categories", "algorithm_severity", "final_severity", "revision"],
+  "properties": {
+    "eventId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid",
+      "description": "Archived event this classification applies to."
+    },
+    "eventType": {
+      "type": "string",
+      "pattern": "^[a-z]+(\\.[a-z_]+)+$"
+    },
+    "sensitivity": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/sensitivity"
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/category"
+      },
+      "uniqueItems": true
+    },
+    "publisher_stated_severity": {
+      "anyOf": [
+        {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/severity"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "algorithm_severity": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/severity"
+    },
+    "final_severity": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/severity"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["PRODUCER", "RULES", "AI_SCANNER", "ANALYST"],
+      "description": "classification_source of this result."
+    },
+    "mentionedEntities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": true
+}

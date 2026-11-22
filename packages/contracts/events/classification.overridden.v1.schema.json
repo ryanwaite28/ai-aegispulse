@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/classification.overridden.v1.schema.json",
+  "title": "classification.overridden payload (v1)",
+  "description": "Analyst override of final_severity and/or sensitivity (only path that can lower severity, §1.4.3); consumed into the audit chain. Producer: events. Exchange: aegispulse.enrichment. FRs: FR-CLS-07, FR-AUD-02. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "required": ["eventId", "before", "after", "actorId", "justification"],
+  "properties": {
+    "eventId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "before": {
+      "type": "object",
+      "properties": {
+        "sensitivity": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/sensitivity"
+        },
+        "final_severity": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/severity"
+        }
+      },
+      "description": "Classification values before/after the override."
+    },
+    "after": {
+      "type": "object",
+      "properties": {
+        "sensitivity": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/sensitivity"
+        },
+        "final_severity": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/severity"
+        }
+      },
+      "description": "Classification values before/after the override."
+    },
+    "actorId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "justification": {
+      "type": "string",
+      "minLength": 20,
+      "description": "Mandatory analyst justification (≥ 20 chars)."
+    }
+  },
+  "additionalProperties": true
+}

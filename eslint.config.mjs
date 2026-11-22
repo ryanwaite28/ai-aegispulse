@@ -30,4 +30,12 @@ export default tseslint.config(
     files: ["deploy/compose/init/mongo/**/*.js"],
     languageOptions: { globals: { db: "readonly", process: "readonly", print: "readonly" } },
   },
+  {
+    // CommonJS config/migration files required by migrate-mongo.
+    files: ["**/*.cjs"],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: { module: "writable", require: "readonly", __dirname: "readonly", process: "readonly" },
+    },
+  },
 );

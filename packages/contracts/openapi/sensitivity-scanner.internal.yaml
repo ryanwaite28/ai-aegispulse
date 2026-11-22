@@ -1,0 +1,154 @@
+openapi: 3.1.0
+info:
+  title: AegisPulse Sensitivity Scanner internal API
+  version: 1.0.0
+  description: |-
+    Internal RPC contract for services/sensitivity-scanner (Python 3.13 / FastAPI). Operations are POST /internal/v1/{action}; operationId equals the ServiceAction name (PROJECT.md §6.2).
+
+    All operations are `POST /internal/v1/{actionName}` (uniform RPC style) and return the success envelope `{ data, meta }` (PROJECT.md §8.2). Caller allowlists follow PROJECT.md §5.7.4; the service re-verifies the JWT, role and tenant ownership itself (FR-AUTH-06).
+servers:
+  - url: http://{host}:8087
+    description: In-cluster Service (PROJECT.md §5.4 port).
+    variables:
+      host:
+        default: aegispulse-scanner
+tags:
+  - name: sensitivity-scanner
+    description: AegisPulse Sensitivity Scanner internal API
+security:
+  - bearerJwt: []
+x-aegis-consumer-actions: []
+paths:
+  /internal/v1/scan:
+    post:
+      operationId: scan
+      summary: Run a Stage-2 sensitivity scan
+      description: |-
+        Callers use a 10 s timeout with a circuit breaker (50% failures over 20 calls opens for 30 s). FR-CLS-03 names the route POST /v1/scan; this contract uses the uniform internal convention.
+
+        Internal action `scanner.scan`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `scan`.
+      tags:
+        - sensitivity-scanner
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ScanResult"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - events
+      x-aegis-fr:
+        - FR-CLS-03
+        - FR-CLS-04
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+components:
+  securitySchemes:
+    bearerJwt:
+      $ref: ./components/common.yaml#/components/securitySchemes/bearerJwt
+  schemas:
+    ScanRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        eventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        revision:
+          type: integer
+          minimum: 0
+          description: classificationRevision of the archived event.
+        eventType:
+          type: string
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+          description: Redacted text fields only (e.g. title, summary, body, textExcerpt); never raw payloads (FR-CLS-03).
+      required:
+        - tenantId
+        - eventId
+        - revision
+        - fields
+    ScanSpan:
+      type: object
+      properties:
+        field:
+          type: string
+        start:
+          type: integer
+          minimum: 0
+        end:
+          type: integer
+          minimum: 0
+        category:
+          $ref: ./components/common.yaml#/components/schemas/SensitivityCategory
+      required:
+        - field
+        - start
+        - end
+    ScanResult:
+      type: object
+      properties:
+        sensitivity:
+          $ref: ./components/common.yaml#/components/schemas/Sensitivity
+        categories:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/SensitivityCategory
+          uniqueItems: true
+        severity:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        classifierVersion:
+          type: string
+        spans:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanSpan"
+      required:
+        - sensitivity
+        - categories
+        - severity
+        - confidence
+        - classifierVersion
+        - spans
+      description: Validated by Pydantic (FR-CLS-04).

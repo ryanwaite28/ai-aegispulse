@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/ops.audit.source_trust_changed.v1.schema.json",
+  "title": "ops.audit.source_trust_changed payload (v1)",
+  "description": "Webhook source trust level changed (affects final_severity); audited. Producer: ingestion. Exchange: aegispulse.intelligence. FRs: FR-WHK-07, FR-AUD-02. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/opsEvent"
+    }
+  ],
+  "required": ["sourceId", "before", "after", "actorId"],
+  "properties": {
+    "sourceId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "sourceKey": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{3,60}$"
+    },
+    "before": {
+      "$ref": "_shared.v1.schema.json#/$defs/trustLevel"
+    },
+    "after": {
+      "$ref": "_shared.v1.schema.json#/$defs/trustLevel"
+    },
+    "actorId": {
+      "$ref": "_shared.v1.schema.json#/$defs/opsEvent/properties/actorId"
+    }
+  },
+  "additionalProperties": true
+}

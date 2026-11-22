@@ -1,0 +1,3114 @@
+asyncapi: 3.0.0
+info:
+  title: AegisPulse Events
+  version: 1.1.0
+  description: "AegisPulse RabbitMQ event contracts (single source of truth: [PROJECT.md §6.4–§6.7](../../../PROJECT.md)). Canonical envelope and AMQP properties: PROJECT.md §6.4. Topology and consumer kit: §6.5 and §5.5. Event catalog: §6.7. Envelope schemaVersion 1.1.0; payload schemas in ../events/. AMQP properties: messageId = eventId, correlationId, type = eventType, contentType = application/json, deliveryMode = 2, timestamp."
+defaultContentType: application/json
+servers:
+  local:
+    host: rabbitmq:5672
+    protocol: amqp
+    protocolVersion: 0.9.1
+    pathname: /aegispulse-local
+    description: Docker Compose broker (AMQP_URL=amqp://svc_<runtime>:<secret>@rabbitmq:5672/aegispulse-local).
+  dev:
+    host: rabbitmq.rabbitmq.svc:5672
+    protocol: amqp
+    protocolVersion: 0.9.1
+    pathname: /aegispulse-dev
+    description: Shared homelab k3s broker (namespace `rabbitmq`), vhost aegispulse-dev. Host is in-cluster only.
+  prod:
+    host: rabbitmq.rabbitmq.svc:5672
+    protocol: amqp
+    protocolVersion: 0.9.1
+    pathname: /aegispulse-prod
+    description: Shared homelab k3s broker (namespace `rabbitmq`), vhost aegispulse-prod. Host is in-cluster only.
+channels:
+  external.regulatory.published:
+    address: external.regulatory.published
+    title: external.regulatory.published
+    description: Regulatory publication event emitted by ingestion for category REGULATION_PUBLISHED (webhook or connector item). Pointers/excerpts only; raw body stays in object storage. Primary exchange aegispulse.ingress.
+    messages:
+      external.regulatory.published:
+        $ref: "#/components/messages/external.regulatory.published"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.ingress
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  external.ipo.filed:
+    address: external.ipo.filed
+    title: external.ipo.filed
+    description: IPO filing event emitted by ingestion for category IPO_FILED (webhook or connector item). Pointers/excerpts only; raw body stays in object storage. Primary exchange aegispulse.ingress.
+    messages:
+      external.ipo.filed:
+        $ref: "#/components/messages/external.ipo.filed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.ingress
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  external.acquisition.announced:
+    address: external.acquisition.announced
+    title: external.acquisition.announced
+    description: Acquisition announcement event emitted by ingestion for category ACQUISITION_ANNOUNCED (webhook or connector item). Pointers/excerpts only; raw body stays in object storage. Primary exchange aegispulse.ingress.
+    messages:
+      external.acquisition.announced:
+        $ref: "#/components/messages/external.acquisition.announced"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.ingress
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  external.market.alert:
+    address: external.market.alert
+    title: external.market.alert
+    description: Market alert event emitted by ingestion for category MARKET_ALERT (webhook or connector item). Pointers/excerpts only; raw body stays in object storage. Primary exchange aegispulse.ingress.
+    messages:
+      external.market.alert:
+        $ref: "#/components/messages/external.market.alert"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.ingress
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  external.compliance.disclosed:
+    address: external.compliance.disclosed
+    title: external.compliance.disclosed
+    description: Compliance disclosure event emitted by ingestion for category COMPLIANCE_DISCLOSURE (webhook or connector item). Pointers/excerpts only; raw body stays in object storage. Primary exchange aegispulse.ingress.
+    messages:
+      external.compliance.disclosed:
+        $ref: "#/components/messages/external.compliance.disclosed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.ingress
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  txn.submitted:
+    address: txn.submitted
+    title: txn.submitted
+    description: Transaction accepted by ingestion (transaction_submissions + outbox, atomic). Consumed by the ScoreTransactionSaga. Primary exchange aegispulse.ingress.
+    messages:
+      txn.submitted:
+        $ref: "#/components/messages/txn.submitted"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.ingress
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  file.uploaded:
+    address: file.uploaded
+    title: file.uploaded
+    description: File upload completed (INITIATED→UPLOADED) or remote file registered; triggers validation. Pointers only. Primary exchange aegispulse.ingress.
+    messages:
+      file.uploaded:
+        $ref: "#/components/messages/file.uploaded"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.ingress
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  file.status.changed:
+    address: file.status.changed
+    title: file.status.changed
+    description: File lifecycle transition (files.file_status_history). Primary exchange aegispulse.enrichment.
+    messages:
+      file.status.changed:
+        $ref: "#/components/messages/file.status.changed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.enrichment
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  doc.file.ready:
+    address: doc.file.ready
+    title: doc.file.ready
+    description: File passed validation (VALIDATED); triggers doc extraction. Primary exchange aegispulse.enrichment.
+    messages:
+      doc.file.ready:
+        $ref: "#/components/messages/doc.file.ready"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.enrichment
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  doc.extraction.completed:
+    address: doc.extraction.completed
+    title: doc.extraction.completed
+    description: Extraction finished with confidence ≥ 0.70 (recordExtractionResult status=COMPLETED). Emitted by files on behalf of doc-extraction. Excerpt only. Primary exchange aegispulse.enrichment.
+    messages:
+      doc.extraction.completed:
+        $ref: "#/components/messages/doc.extraction.completed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.enrichment
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  doc.extraction.review_required:
+    address: doc.extraction.review_required
+    title: doc.extraction.review_required
+    description: Extraction confidence < 0.70 or schema violation (status=REVIEW_REQUIRED); opens an EXTRACTION_REVIEW case via the orchestrator. Emitted by files on behalf of doc-extraction. Primary exchange aegispulse.enrichment.
+    messages:
+      doc.extraction.review_required:
+        $ref: "#/components/messages/doc.extraction.review_required"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.enrichment
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  classification.scan.requested:
+    address: classification.scan.requested
+    title: classification.scan.requested
+    description: Stage 2 scan request written to the Mongo outbox when Stage 1 says a scan is required. Pointer to the archived event only. Primary exchange aegispulse.enrichment.
+    messages:
+      classification.scan.requested:
+        $ref: "#/components/messages/classification.scan.requested"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.enrichment
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  classification.finalized:
+    address: classification.finalized
+    title: classification.finalized
+    description: Authoritative classification snapshot after Stage 1/2 resolution (severity-resolver-v1). Never re-scanned (classification.* is exempt from Stage 2). Primary exchange aegispulse.enrichment.
+    messages:
+      classification.finalized:
+        $ref: "#/components/messages/classification.finalized"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.enrichment
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  classification.overridden:
+    address: classification.overridden
+    title: classification.overridden
+    description: Analyst override of final_severity and/or sensitivity (only path that can lower severity, §1.4.3); consumed into the audit chain. Primary exchange aegispulse.enrichment.
+    messages:
+      classification.overridden:
+        $ref: "#/components/messages/classification.overridden"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.enrichment
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  risk.evaluation.recorded:
+    address: risk.evaluation.recorded
+    title: risk.evaluation.recorded
+    description: Risk evaluation persisted by cases (cases.risk_evaluations). Primary exchange aegispulse.domain.
+    messages:
+      risk.evaluation.recorded:
+        $ref: "#/components/messages/risk.evaluation.recorded"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  case.opened:
+    address: case.opened
+    title: case.opened
+    description: Case opened (OPEN). Emitted by cases via the transactional outbox with the case state change. Primary exchange aegispulse.domain.
+    messages:
+      case.opened:
+        $ref: "#/components/messages/case.opened"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  case.transitioned:
+    address: case.transitioned
+    title: case.transitioned
+    description: Case status transition. Emitted by cases via the transactional outbox with the case state change. Primary exchange aegispulse.domain.
+    messages:
+      case.transitioned:
+        $ref: "#/components/messages/case.transitioned"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  case.escalated:
+    address: case.escalated
+    title: case.escalated
+    description: Case escalated after policy evaluation (≥ 75). Emitted by cases via the transactional outbox with the case state change. Primary exchange aegispulse.domain.
+    messages:
+      case.escalated:
+        $ref: "#/components/messages/case.escalated"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  case.resolved:
+    address: case.resolved
+    title: case.resolved
+    description: Case resolved (terminal). Emitted by cases via the transactional outbox with the case state change. Primary exchange aegispulse.domain.
+    messages:
+      case.resolved:
+        $ref: "#/components/messages/case.resolved"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  case.disposition.recorded:
+    address: case.disposition.recorded
+    title: case.disposition.recorded
+    description: Analyst disposition recorded. Emitted by cases via the transactional outbox with the case state change. Primary exchange aegispulse.domain.
+    messages:
+      case.disposition.recorded:
+        $ref: "#/components/messages/case.disposition.recorded"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  case.evidence.attached:
+    address: case.evidence.attached
+    title: case.evidence.attached
+    description: Evidence attached to a case. Emitted by cases via the transactional outbox with the case state change. Primary exchange aegispulse.domain.
+    messages:
+      case.evidence.attached:
+        $ref: "#/components/messages/case.evidence.attached"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  correlation.requested:
+    address: correlation.requested
+    title: correlation.requested
+    description: Case escalated to severity ≥ HIGH; asks the CaseCorrelationSaga to attach related evidence. Primary exchange aegispulse.domain.
+    messages:
+      correlation.requested:
+        $ref: "#/components/messages/correlation.requested"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  registry.tenant.created:
+    address: registry.tenant.created
+    title: registry.tenant.created
+    description: Tenant created. Ids and changed field names only; no secrets or password data. Primary exchange aegispulse.domain.
+    messages:
+      registry.tenant.created:
+        $ref: "#/components/messages/registry.tenant.created"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  registry.tenant.suspended:
+    address: registry.tenant.suspended
+    title: registry.tenant.suspended
+    description: Tenant suspended. Ids and changed field names only; no secrets or password data. Primary exchange aegispulse.domain.
+    messages:
+      registry.tenant.suspended:
+        $ref: "#/components/messages/registry.tenant.suspended"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  registry.tenant.restored:
+    address: registry.tenant.restored
+    title: registry.tenant.restored
+    description: Tenant restored. Ids and changed field names only; no secrets or password data. Primary exchange aegispulse.domain.
+    messages:
+      registry.tenant.restored:
+        $ref: "#/components/messages/registry.tenant.restored"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  registry.tenant.settings_changed:
+    address: registry.tenant.settings_changed
+    title: registry.tenant.settings_changed
+    description: Tenant settings changed (highValueThresholdUsd, highRiskCountries, retentionDays, demoMode). Ids and changed field names only; no secrets or password data. Primary exchange aegispulse.domain.
+    messages:
+      registry.tenant.settings_changed:
+        $ref: "#/components/messages/registry.tenant.settings_changed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  registry.user.changed:
+    address: registry.user.changed
+    title: registry.user.changed
+    description: User created/updated/role-changed/disabled. Ids and changed field names only; no secrets or password data. Primary exchange aegispulse.domain.
+    messages:
+      registry.user.changed:
+        $ref: "#/components/messages/registry.user.changed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  registry.entity.changed:
+    address: registry.entity.changed
+    title: registry.entity.changed
+    description: Tracked entity changed. Ids and changed field names only; no secrets or password data. Primary exchange aegispulse.domain.
+    messages:
+      registry.entity.changed:
+        $ref: "#/components/messages/registry.entity.changed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  registry.watchlist.changed:
+    address: registry.watchlist.changed
+    title: registry.watchlist.changed
+    description: Watchlist or its entries changed. Ids and changed field names only; no secrets or password data. Primary exchange aegispulse.domain.
+    messages:
+      registry.watchlist.changed:
+        $ref: "#/components/messages/registry.watchlist.changed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  notification.requested:
+    address: notification.requested
+    title: notification.requested
+    description: "Notification request rendered and delivered to ntfy by the orchestrator. Variables are ids, severities, counts and console links only: no PII, payload text or secrets. Published on domain, enrichment or intelligence depending on the emitter. Primary exchange aegispulse.domain; also published on aegispulse.enrichment, aegispulse.intelligence depending on the emitter (§6.7)."
+    messages:
+      notification.requested:
+        $ref: "#/components/messages/notification.requested"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+    x-aegis-exchanges:
+      - aegispulse.domain
+      - aegispulse.enrichment
+      - aegispulse.intelligence
+  intel.rollup.completed:
+    address: intel.rollup.completed
+    title: intel.rollup.completed
+    description: Rollup batch completed. Platform-level or tenant-scoped (envelope tenantId may be null). Primary exchange aegispulse.intelligence.
+    messages:
+      intel.rollup.completed:
+        $ref: "#/components/messages/intel.rollup.completed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.intelligence
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  intel.drift.detected:
+    address: intel.drift.detected
+    title: intel.drift.detected
+    description: Drift threshold breached (PSI, extraction confidence, disagreement). Platform-level or tenant-scoped (envelope tenantId may be null). Primary exchange aegispulse.intelligence.
+    messages:
+      intel.drift.detected:
+        $ref: "#/components/messages/intel.drift.detected"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.intelligence
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  intel.eval.completed:
+    address: intel.eval.completed
+    title: intel.eval.completed
+    description: Evaluation run recorded. Platform-level or tenant-scoped (envelope tenantId may be null). Primary exchange aegispulse.intelligence.
+    messages:
+      intel.eval.completed:
+        $ref: "#/components/messages/intel.eval.completed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.intelligence
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  ops.dead_letter.recorded:
+    address: ops.dead_letter.recorded
+    title: ops.dead_letter.recorded
+    description: "Dead letter stored in Mongo dead_letters. Operational ids only: the dead-lettered envelope is not copied. Primary exchange aegispulse.intelligence."
+    messages:
+      ops.dead_letter.recorded:
+        $ref: "#/components/messages/ops.dead_letter.recorded"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.intelligence
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  ops.replay.started:
+    address: ops.replay.started
+    title: ops.replay.started
+    description: Replay job started; consumed into the audit chain. Primary exchange aegispulse.intelligence.
+    messages:
+      ops.replay.started:
+        $ref: "#/components/messages/ops.replay.started"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.intelligence
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  ops.replay.completed:
+    address: ops.replay.completed
+    title: ops.replay.completed
+    description: Replay job reached a terminal state. Primary exchange aegispulse.intelligence.
+    messages:
+      ops.replay.completed:
+        $ref: "#/components/messages/ops.replay.completed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.intelligence
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  ops.audit.quarantine_download:
+    address: ops.audit.quarantine_download
+    title: ops.audit.quarantine_download
+    description: TENANT_ADMIN downloaded a QUARANTINED file with acknowledgement (audited). Primary exchange aegispulse.intelligence.
+    messages:
+      ops.audit.quarantine_download:
+        $ref: "#/components/messages/ops.audit.quarantine_download"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.intelligence
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  ops.audit.source_trust_changed:
+    address: ops.audit.source_trust_changed
+    title: ops.audit.source_trust_changed
+    description: Webhook source trust level changed (affects final_severity); audited. Primary exchange aegispulse.intelligence.
+    messages:
+      ops.audit.source_trust_changed:
+        $ref: "#/components/messages/ops.audit.source_trust_changed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.intelligence
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  archive_all_ingress:
+    address: "#"
+    title: aegispulse.ingress (all routing keys)
+    description: Wildcard binding `#` on aegispulse.ingress used by events.archive.q (§5.5). Member messages listed for reference only; the archive validates every envelope against its schemaVersion (FR-EVT-01).
+    messages:
+      external.regulatory.published:
+        $ref: "#/components/messages/external.regulatory.published"
+      external.ipo.filed:
+        $ref: "#/components/messages/external.ipo.filed"
+      external.acquisition.announced:
+        $ref: "#/components/messages/external.acquisition.announced"
+      external.market.alert:
+        $ref: "#/components/messages/external.market.alert"
+      external.compliance.disclosed:
+        $ref: "#/components/messages/external.compliance.disclosed"
+      txn.submitted:
+        $ref: "#/components/messages/txn.submitted"
+      file.uploaded:
+        $ref: "#/components/messages/file.uploaded"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.ingress
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  archive_all_enrichment:
+    address: "#"
+    title: aegispulse.enrichment (all routing keys)
+    description: Wildcard binding `#` on aegispulse.enrichment used by events.archive.q (§5.5). Member messages listed for reference only; the archive validates every envelope against its schemaVersion (FR-EVT-01).
+    messages:
+      file.status.changed:
+        $ref: "#/components/messages/file.status.changed"
+      doc.file.ready:
+        $ref: "#/components/messages/doc.file.ready"
+      doc.extraction.completed:
+        $ref: "#/components/messages/doc.extraction.completed"
+      doc.extraction.review_required:
+        $ref: "#/components/messages/doc.extraction.review_required"
+      classification.scan.requested:
+        $ref: "#/components/messages/classification.scan.requested"
+      classification.finalized:
+        $ref: "#/components/messages/classification.finalized"
+      classification.overridden:
+        $ref: "#/components/messages/classification.overridden"
+      notification.requested:
+        $ref: "#/components/messages/notification.requested"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.enrichment
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  archive_all_domain:
+    address: "#"
+    title: aegispulse.domain (all routing keys)
+    description: Wildcard binding `#` on aegispulse.domain used by events.archive.q (§5.5). Member messages listed for reference only; the archive validates every envelope against its schemaVersion (FR-EVT-01).
+    messages:
+      risk.evaluation.recorded:
+        $ref: "#/components/messages/risk.evaluation.recorded"
+      case.opened:
+        $ref: "#/components/messages/case.opened"
+      case.transitioned:
+        $ref: "#/components/messages/case.transitioned"
+      case.escalated:
+        $ref: "#/components/messages/case.escalated"
+      case.resolved:
+        $ref: "#/components/messages/case.resolved"
+      case.disposition.recorded:
+        $ref: "#/components/messages/case.disposition.recorded"
+      case.evidence.attached:
+        $ref: "#/components/messages/case.evidence.attached"
+      correlation.requested:
+        $ref: "#/components/messages/correlation.requested"
+      registry.tenant.created:
+        $ref: "#/components/messages/registry.tenant.created"
+      registry.tenant.suspended:
+        $ref: "#/components/messages/registry.tenant.suspended"
+      registry.tenant.restored:
+        $ref: "#/components/messages/registry.tenant.restored"
+      registry.tenant.settings_changed:
+        $ref: "#/components/messages/registry.tenant.settings_changed"
+      registry.user.changed:
+        $ref: "#/components/messages/registry.user.changed"
+      registry.entity.changed:
+        $ref: "#/components/messages/registry.entity.changed"
+      registry.watchlist.changed:
+        $ref: "#/components/messages/registry.watchlist.changed"
+      notification.requested:
+        $ref: "#/components/messages/notification.requested"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  archive_all_intelligence:
+    address: "#"
+    title: aegispulse.intelligence (all routing keys)
+    description: Wildcard binding `#` on aegispulse.intelligence used by events.archive.q (§5.5). Member messages listed for reference only; the archive validates every envelope against its schemaVersion (FR-EVT-01).
+    messages:
+      notification.requested:
+        $ref: "#/components/messages/notification.requested"
+      intel.rollup.completed:
+        $ref: "#/components/messages/intel.rollup.completed"
+      intel.drift.detected:
+        $ref: "#/components/messages/intel.drift.detected"
+      intel.eval.completed:
+        $ref: "#/components/messages/intel.eval.completed"
+      ops.dead_letter.recorded:
+        $ref: "#/components/messages/ops.dead_letter.recorded"
+      ops.replay.started:
+        $ref: "#/components/messages/ops.replay.started"
+      ops.replay.completed:
+        $ref: "#/components/messages/ops.replay.completed"
+      ops.audit.quarantine_download:
+        $ref: "#/components/messages/ops.audit.quarantine_download"
+      ops.audit.source_trust_changed:
+        $ref: "#/components/messages/ops.audit.source_trust_changed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.intelligence
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+operations:
+  send.ingestion.external.regulatory.published:
+    action: send
+    channel:
+      $ref: "#/channels/external.regulatory.published"
+    title: ingestion publishes external.regulatory.published
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/external.regulatory.published/messages/external.regulatory.published"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: ingestion
+  send.ingestion.external.ipo.filed:
+    action: send
+    channel:
+      $ref: "#/channels/external.ipo.filed"
+    title: ingestion publishes external.ipo.filed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/external.ipo.filed/messages/external.ipo.filed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: ingestion
+  send.ingestion.external.acquisition.announced:
+    action: send
+    channel:
+      $ref: "#/channels/external.acquisition.announced"
+    title: ingestion publishes external.acquisition.announced
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/external.acquisition.announced/messages/external.acquisition.announced"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: ingestion
+  send.ingestion.external.market.alert:
+    action: send
+    channel:
+      $ref: "#/channels/external.market.alert"
+    title: ingestion publishes external.market.alert
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/external.market.alert/messages/external.market.alert"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: ingestion
+  send.ingestion.external.compliance.disclosed:
+    action: send
+    channel:
+      $ref: "#/channels/external.compliance.disclosed"
+    title: ingestion publishes external.compliance.disclosed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/external.compliance.disclosed/messages/external.compliance.disclosed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: ingestion
+  send.ingestion.txn.submitted:
+    action: send
+    channel:
+      $ref: "#/channels/txn.submitted"
+    title: ingestion publishes txn.submitted
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/txn.submitted/messages/txn.submitted"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: ingestion
+  send.files.file.uploaded:
+    action: send
+    channel:
+      $ref: "#/channels/file.uploaded"
+    title: files publishes file.uploaded
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/file.uploaded/messages/file.uploaded"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: files
+  send.files.file.status.changed:
+    action: send
+    channel:
+      $ref: "#/channels/file.status.changed"
+    title: files publishes file.status.changed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/file.status.changed/messages/file.status.changed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: files
+  send.files.doc.file.ready:
+    action: send
+    channel:
+      $ref: "#/channels/doc.file.ready"
+    title: files publishes doc.file.ready
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/doc.file.ready/messages/doc.file.ready"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: files
+  send.files.doc.extraction.completed:
+    action: send
+    channel:
+      $ref: "#/channels/doc.extraction.completed"
+    title: files publishes doc.extraction.completed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/doc.extraction.completed/messages/doc.extraction.completed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: files
+  send.files.doc.extraction.review_required:
+    action: send
+    channel:
+      $ref: "#/channels/doc.extraction.review_required"
+    title: files publishes doc.extraction.review_required
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/doc.extraction.review_required/messages/doc.extraction.review_required"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: files
+  send.events.classification.scan.requested:
+    action: send
+    channel:
+      $ref: "#/channels/classification.scan.requested"
+    title: events publishes classification.scan.requested
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/classification.scan.requested/messages/classification.scan.requested"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: events
+  send.events.classification.finalized:
+    action: send
+    channel:
+      $ref: "#/channels/classification.finalized"
+    title: events publishes classification.finalized
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/classification.finalized/messages/classification.finalized"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: events
+  send.events.classification.overridden:
+    action: send
+    channel:
+      $ref: "#/channels/classification.overridden"
+    title: events publishes classification.overridden
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/classification.overridden/messages/classification.overridden"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: events
+  send.cases.risk.evaluation.recorded:
+    action: send
+    channel:
+      $ref: "#/channels/risk.evaluation.recorded"
+    title: cases publishes risk.evaluation.recorded
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/risk.evaluation.recorded/messages/risk.evaluation.recorded"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: cases
+  send.cases.case.opened:
+    action: send
+    channel:
+      $ref: "#/channels/case.opened"
+    title: cases publishes case.opened
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/case.opened/messages/case.opened"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: cases
+  send.cases.case.transitioned:
+    action: send
+    channel:
+      $ref: "#/channels/case.transitioned"
+    title: cases publishes case.transitioned
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/case.transitioned/messages/case.transitioned"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: cases
+  send.cases.case.escalated:
+    action: send
+    channel:
+      $ref: "#/channels/case.escalated"
+    title: cases publishes case.escalated
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/case.escalated/messages/case.escalated"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: cases
+  send.cases.case.resolved:
+    action: send
+    channel:
+      $ref: "#/channels/case.resolved"
+    title: cases publishes case.resolved
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/case.resolved/messages/case.resolved"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: cases
+  send.cases.case.disposition.recorded:
+    action: send
+    channel:
+      $ref: "#/channels/case.disposition.recorded"
+    title: cases publishes case.disposition.recorded
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/case.disposition.recorded/messages/case.disposition.recorded"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: cases
+  send.cases.case.evidence.attached:
+    action: send
+    channel:
+      $ref: "#/channels/case.evidence.attached"
+    title: cases publishes case.evidence.attached
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/case.evidence.attached/messages/case.evidence.attached"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: cases
+  send.cases.correlation.requested:
+    action: send
+    channel:
+      $ref: "#/channels/correlation.requested"
+    title: cases publishes correlation.requested
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/correlation.requested/messages/correlation.requested"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: cases
+  send.registry.registry.tenant.created:
+    action: send
+    channel:
+      $ref: "#/channels/registry.tenant.created"
+    title: registry publishes registry.tenant.created
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/registry.tenant.created/messages/registry.tenant.created"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: registry
+  send.registry.registry.tenant.suspended:
+    action: send
+    channel:
+      $ref: "#/channels/registry.tenant.suspended"
+    title: registry publishes registry.tenant.suspended
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/registry.tenant.suspended/messages/registry.tenant.suspended"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: registry
+  send.registry.registry.tenant.restored:
+    action: send
+    channel:
+      $ref: "#/channels/registry.tenant.restored"
+    title: registry publishes registry.tenant.restored
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/registry.tenant.restored/messages/registry.tenant.restored"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: registry
+  send.registry.registry.tenant.settings_changed:
+    action: send
+    channel:
+      $ref: "#/channels/registry.tenant.settings_changed"
+    title: registry publishes registry.tenant.settings_changed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/registry.tenant.settings_changed/messages/registry.tenant.settings_changed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: registry
+  send.registry.registry.user.changed:
+    action: send
+    channel:
+      $ref: "#/channels/registry.user.changed"
+    title: registry publishes registry.user.changed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/registry.user.changed/messages/registry.user.changed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: registry
+  send.registry.registry.entity.changed:
+    action: send
+    channel:
+      $ref: "#/channels/registry.entity.changed"
+    title: registry publishes registry.entity.changed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/registry.entity.changed/messages/registry.entity.changed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: registry
+  send.registry.registry.watchlist.changed:
+    action: send
+    channel:
+      $ref: "#/channels/registry.watchlist.changed"
+    title: registry publishes registry.watchlist.changed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/registry.watchlist.changed/messages/registry.watchlist.changed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: registry
+  send.cases.notification.requested:
+    action: send
+    channel:
+      $ref: "#/channels/notification.requested"
+    title: cases publishes notification.requested
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/notification.requested/messages/notification.requested"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: cases
+  send.events.notification.requested:
+    action: send
+    channel:
+      $ref: "#/channels/notification.requested"
+    title: events publishes notification.requested
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/notification.requested/messages/notification.requested"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: events
+  send.files.notification.requested:
+    action: send
+    channel:
+      $ref: "#/channels/notification.requested"
+    title: files publishes notification.requested
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/notification.requested/messages/notification.requested"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: files
+  send.ingestion.notification.requested:
+    action: send
+    channel:
+      $ref: "#/channels/notification.requested"
+    title: ingestion publishes notification.requested
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/notification.requested/messages/notification.requested"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: ingestion
+  send.data-intel.notification.requested:
+    action: send
+    channel:
+      $ref: "#/channels/notification.requested"
+    title: data-intel publishes notification.requested
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/notification.requested/messages/notification.requested"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: data-intel
+  send.data-intel.intel.rollup.completed:
+    action: send
+    channel:
+      $ref: "#/channels/intel.rollup.completed"
+    title: data-intel publishes intel.rollup.completed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/intel.rollup.completed/messages/intel.rollup.completed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: data-intel
+  send.data-intel.intel.drift.detected:
+    action: send
+    channel:
+      $ref: "#/channels/intel.drift.detected"
+    title: data-intel publishes intel.drift.detected
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/intel.drift.detected/messages/intel.drift.detected"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: data-intel
+  send.data-intel.intel.eval.completed:
+    action: send
+    channel:
+      $ref: "#/channels/intel.eval.completed"
+    title: data-intel publishes intel.eval.completed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/intel.eval.completed/messages/intel.eval.completed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: data-intel
+  send.events.ops.dead_letter.recorded:
+    action: send
+    channel:
+      $ref: "#/channels/ops.dead_letter.recorded"
+    title: events publishes ops.dead_letter.recorded
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/ops.dead_letter.recorded/messages/ops.dead_letter.recorded"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: events
+  send.events.ops.replay.started:
+    action: send
+    channel:
+      $ref: "#/channels/ops.replay.started"
+    title: events publishes ops.replay.started
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/ops.replay.started/messages/ops.replay.started"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: events
+  send.events.ops.replay.completed:
+    action: send
+    channel:
+      $ref: "#/channels/ops.replay.completed"
+    title: events publishes ops.replay.completed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/ops.replay.completed/messages/ops.replay.completed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: events
+  send.files.ops.audit.quarantine_download:
+    action: send
+    channel:
+      $ref: "#/channels/ops.audit.quarantine_download"
+    title: files publishes ops.audit.quarantine_download
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/ops.audit.quarantine_download/messages/ops.audit.quarantine_download"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: files
+  send.ingestion.ops.audit.source_trust_changed:
+    action: send
+    channel:
+      $ref: "#/channels/ops.audit.source_trust_changed"
+    title: ingestion publishes ops.audit.source_trust_changed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/ops.audit.source_trust_changed/messages/ops.audit.source_trust_changed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: ingestion
+  events.classification.q.classification.scan.requested:
+    action: receive
+    channel:
+      $ref: "#/channels/classification.scan.requested"
+    title: events.classification.q consumes classification.scan.requested
+    messages:
+      - $ref: "#/channels/classification.scan.requested/messages/classification.scan.requested"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: events
+    x-aegis-queue: events.classification.q
+    x-aegis-prefetch: 5
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: events.classification.q.dlq
+  files.validation.q.file.uploaded:
+    action: receive
+    channel:
+      $ref: "#/channels/file.uploaded"
+    title: files.validation.q consumes file.uploaded
+    messages:
+      - $ref: "#/channels/file.uploaded/messages/file.uploaded"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: files
+    x-aegis-queue: files.validation.q
+    x-aegis-prefetch: 4
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: files.validation.q.dlq
+  doc.extraction.q.doc.file.ready:
+    action: receive
+    channel:
+      $ref: "#/channels/doc.file.ready"
+    title: doc.extraction.q consumes doc.file.ready
+    messages:
+      - $ref: "#/channels/doc.file.ready/messages/doc.file.ready"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: doc-extraction
+    x-aegis-queue: doc.extraction.q
+    x-aegis-prefetch: 2
+    x-aegis-retry-tiers: 5s/30s/30s
+    x-aegis-dlq: doc.extraction.q.dlq
+  orchestrator.txn.q.txn.submitted:
+    action: receive
+    channel:
+      $ref: "#/channels/txn.submitted"
+    title: orchestrator.txn.q consumes txn.submitted
+    messages:
+      - $ref: "#/channels/txn.submitted/messages/txn.submitted"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: orchestrator
+    x-aegis-queue: orchestrator.txn.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: orchestrator.txn.q.dlq
+  orchestrator.correlation.q.classification.finalized:
+    action: receive
+    channel:
+      $ref: "#/channels/classification.finalized"
+    title: orchestrator.correlation.q consumes classification.finalized
+    messages:
+      - $ref: "#/channels/classification.finalized/messages/classification.finalized"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: orchestrator
+    x-aegis-queue: orchestrator.correlation.q
+    x-aegis-prefetch: 10
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: orchestrator.correlation.q.dlq
+  orchestrator.correlation-request.q.correlation.requested:
+    action: receive
+    channel:
+      $ref: "#/channels/correlation.requested"
+    title: orchestrator.correlation-request.q consumes correlation.requested
+    messages:
+      - $ref: "#/channels/correlation.requested/messages/correlation.requested"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: orchestrator
+    x-aegis-queue: orchestrator.correlation-request.q
+    x-aegis-prefetch: 10
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: orchestrator.correlation-request.q.dlq
+  orchestrator.review.q.doc.extraction.review_required:
+    action: receive
+    channel:
+      $ref: "#/channels/doc.extraction.review_required"
+    title: orchestrator.review.q consumes doc.extraction.review_required
+    messages:
+      - $ref: "#/channels/doc.extraction.review_required/messages/doc.extraction.review_required"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: orchestrator
+    x-aegis-queue: orchestrator.review.q
+    x-aegis-prefetch: 10
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: orchestrator.review.q.dlq
+  orchestrator.notify.q.notification.requested:
+    action: receive
+    channel:
+      $ref: "#/channels/notification.requested"
+    title: orchestrator.notify.q consumes notification.requested
+    messages:
+      - $ref: "#/channels/notification.requested/messages/notification.requested"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: orchestrator
+    x-aegis-queue: orchestrator.notify.q
+    x-aegis-prefetch: 10
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: orchestrator.notify.q.dlq
+  cases.audit-ingest.q.registry.tenant.created:
+    action: receive
+    channel:
+      $ref: "#/channels/registry.tenant.created"
+    title: cases.audit-ingest.q consumes registry.tenant.created
+    messages:
+      - $ref: "#/channels/registry.tenant.created/messages/registry.tenant.created"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.registry.tenant.suspended:
+    action: receive
+    channel:
+      $ref: "#/channels/registry.tenant.suspended"
+    title: cases.audit-ingest.q consumes registry.tenant.suspended
+    messages:
+      - $ref: "#/channels/registry.tenant.suspended/messages/registry.tenant.suspended"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.registry.tenant.restored:
+    action: receive
+    channel:
+      $ref: "#/channels/registry.tenant.restored"
+    title: cases.audit-ingest.q consumes registry.tenant.restored
+    messages:
+      - $ref: "#/channels/registry.tenant.restored/messages/registry.tenant.restored"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.registry.tenant.settings_changed:
+    action: receive
+    channel:
+      $ref: "#/channels/registry.tenant.settings_changed"
+    title: cases.audit-ingest.q consumes registry.tenant.settings_changed
+    messages:
+      - $ref: "#/channels/registry.tenant.settings_changed/messages/registry.tenant.settings_changed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.registry.user.changed:
+    action: receive
+    channel:
+      $ref: "#/channels/registry.user.changed"
+    title: cases.audit-ingest.q consumes registry.user.changed
+    messages:
+      - $ref: "#/channels/registry.user.changed/messages/registry.user.changed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.registry.entity.changed:
+    action: receive
+    channel:
+      $ref: "#/channels/registry.entity.changed"
+    title: cases.audit-ingest.q consumes registry.entity.changed
+    messages:
+      - $ref: "#/channels/registry.entity.changed/messages/registry.entity.changed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.registry.watchlist.changed:
+    action: receive
+    channel:
+      $ref: "#/channels/registry.watchlist.changed"
+    title: cases.audit-ingest.q consumes registry.watchlist.changed
+    messages:
+      - $ref: "#/channels/registry.watchlist.changed/messages/registry.watchlist.changed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.classification.overridden:
+    action: receive
+    channel:
+      $ref: "#/channels/classification.overridden"
+    title: cases.audit-ingest.q consumes classification.overridden
+    messages:
+      - $ref: "#/channels/classification.overridden/messages/classification.overridden"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.ops.replay.started:
+    action: receive
+    channel:
+      $ref: "#/channels/ops.replay.started"
+    title: cases.audit-ingest.q consumes ops.replay.started
+    messages:
+      - $ref: "#/channels/ops.replay.started/messages/ops.replay.started"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.ops.replay.completed:
+    action: receive
+    channel:
+      $ref: "#/channels/ops.replay.completed"
+    title: cases.audit-ingest.q consumes ops.replay.completed
+    messages:
+      - $ref: "#/channels/ops.replay.completed/messages/ops.replay.completed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.ops.audit.quarantine_download:
+    action: receive
+    channel:
+      $ref: "#/channels/ops.audit.quarantine_download"
+    title: cases.audit-ingest.q consumes ops.audit.quarantine_download
+    messages:
+      - $ref: "#/channels/ops.audit.quarantine_download/messages/ops.audit.quarantine_download"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.ops.audit.source_trust_changed:
+    action: receive
+    channel:
+      $ref: "#/channels/ops.audit.source_trust_changed"
+    title: cases.audit-ingest.q consumes ops.audit.source_trust_changed
+    messages:
+      - $ref: "#/channels/ops.audit.source_trust_changed/messages/ops.audit.source_trust_changed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  intel.facts.q.risk.evaluation.recorded:
+    action: receive
+    channel:
+      $ref: "#/channels/risk.evaluation.recorded"
+    title: intel.facts.q consumes risk.evaluation.recorded
+    messages:
+      - $ref: "#/channels/risk.evaluation.recorded/messages/risk.evaluation.recorded"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.case.opened:
+    action: receive
+    channel:
+      $ref: "#/channels/case.opened"
+    title: intel.facts.q consumes case.opened
+    messages:
+      - $ref: "#/channels/case.opened/messages/case.opened"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.case.transitioned:
+    action: receive
+    channel:
+      $ref: "#/channels/case.transitioned"
+    title: intel.facts.q consumes case.transitioned
+    messages:
+      - $ref: "#/channels/case.transitioned/messages/case.transitioned"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.case.escalated:
+    action: receive
+    channel:
+      $ref: "#/channels/case.escalated"
+    title: intel.facts.q consumes case.escalated
+    messages:
+      - $ref: "#/channels/case.escalated/messages/case.escalated"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.case.resolved:
+    action: receive
+    channel:
+      $ref: "#/channels/case.resolved"
+    title: intel.facts.q consumes case.resolved
+    messages:
+      - $ref: "#/channels/case.resolved/messages/case.resolved"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.case.disposition.recorded:
+    action: receive
+    channel:
+      $ref: "#/channels/case.disposition.recorded"
+    title: intel.facts.q consumes case.disposition.recorded
+    messages:
+      - $ref: "#/channels/case.disposition.recorded/messages/case.disposition.recorded"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.case.evidence.attached:
+    action: receive
+    channel:
+      $ref: "#/channels/case.evidence.attached"
+    title: intel.facts.q consumes case.evidence.attached
+    messages:
+      - $ref: "#/channels/case.evidence.attached/messages/case.evidence.attached"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.classification.finalized:
+    action: receive
+    channel:
+      $ref: "#/channels/classification.finalized"
+    title: intel.facts.q consumes classification.finalized
+    messages:
+      - $ref: "#/channels/classification.finalized/messages/classification.finalized"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.classification.overridden:
+    action: receive
+    channel:
+      $ref: "#/channels/classification.overridden"
+    title: intel.facts.q consumes classification.overridden
+    messages:
+      - $ref: "#/channels/classification.overridden/messages/classification.overridden"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.doc.extraction.completed:
+    action: receive
+    channel:
+      $ref: "#/channels/doc.extraction.completed"
+    title: intel.facts.q consumes doc.extraction.completed
+    messages:
+      - $ref: "#/channels/doc.extraction.completed/messages/doc.extraction.completed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.doc.extraction.review_required:
+    action: receive
+    channel:
+      $ref: "#/channels/doc.extraction.review_required"
+    title: intel.facts.q consumes doc.extraction.review_required
+    messages:
+      - $ref: "#/channels/doc.extraction.review_required/messages/doc.extraction.review_required"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.file.status.changed:
+    action: receive
+    channel:
+      $ref: "#/channels/file.status.changed"
+    title: intel.facts.q consumes file.status.changed
+    messages:
+      - $ref: "#/channels/file.status.changed/messages/file.status.changed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  intel.facts.q.ops.dead_letter.recorded:
+    action: receive
+    channel:
+      $ref: "#/channels/ops.dead_letter.recorded"
+    title: intel.facts.q consumes ops.dead_letter.recorded
+    messages:
+      - $ref: "#/channels/ops.dead_letter.recorded/messages/ops.dead_letter.recorded"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: data-intel
+    x-aegis-queue: intel.facts.q
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: intel.facts.q.dlq
+  gateway.sse._podId_.case.opened:
+    action: receive
+    channel:
+      $ref: "#/channels/case.opened"
+    title: gateway.sse.{podId} consumes case.opened
+    messages:
+      - $ref: "#/channels/case.opened/messages/case.opened"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  gateway.sse._podId_.case.transitioned:
+    action: receive
+    channel:
+      $ref: "#/channels/case.transitioned"
+    title: gateway.sse.{podId} consumes case.transitioned
+    messages:
+      - $ref: "#/channels/case.transitioned/messages/case.transitioned"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  gateway.sse._podId_.case.escalated:
+    action: receive
+    channel:
+      $ref: "#/channels/case.escalated"
+    title: gateway.sse.{podId} consumes case.escalated
+    messages:
+      - $ref: "#/channels/case.escalated/messages/case.escalated"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  gateway.sse._podId_.case.resolved:
+    action: receive
+    channel:
+      $ref: "#/channels/case.resolved"
+    title: gateway.sse.{podId} consumes case.resolved
+    messages:
+      - $ref: "#/channels/case.resolved/messages/case.resolved"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  gateway.sse._podId_.case.disposition.recorded:
+    action: receive
+    channel:
+      $ref: "#/channels/case.disposition.recorded"
+    title: gateway.sse.{podId} consumes case.disposition.recorded
+    messages:
+      - $ref: "#/channels/case.disposition.recorded/messages/case.disposition.recorded"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  gateway.sse._podId_.case.evidence.attached:
+    action: receive
+    channel:
+      $ref: "#/channels/case.evidence.attached"
+    title: gateway.sse.{podId} consumes case.evidence.attached
+    messages:
+      - $ref: "#/channels/case.evidence.attached/messages/case.evidence.attached"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  gateway.sse._podId_.risk.evaluation.recorded:
+    action: receive
+    channel:
+      $ref: "#/channels/risk.evaluation.recorded"
+    title: gateway.sse.{podId} consumes risk.evaluation.recorded
+    messages:
+      - $ref: "#/channels/risk.evaluation.recorded/messages/risk.evaluation.recorded"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  gateway.sse._podId_.file.status.changed:
+    action: receive
+    channel:
+      $ref: "#/channels/file.status.changed"
+    title: gateway.sse.{podId} consumes file.status.changed
+    messages:
+      - $ref: "#/channels/file.status.changed/messages/file.status.changed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  gateway.sse._podId_.classification.finalized:
+    action: receive
+    channel:
+      $ref: "#/channels/classification.finalized"
+    title: gateway.sse.{podId} consumes classification.finalized
+    messages:
+      - $ref: "#/channels/classification.finalized/messages/classification.finalized"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  gateway.sse._podId_.doc.extraction.completed:
+    action: receive
+    channel:
+      $ref: "#/channels/doc.extraction.completed"
+    title: gateway.sse.{podId} consumes doc.extraction.completed
+    messages:
+      - $ref: "#/channels/doc.extraction.completed/messages/doc.extraction.completed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  gateway.sse._podId_.doc.extraction.review_required:
+    action: receive
+    channel:
+      $ref: "#/channels/doc.extraction.review_required"
+    title: gateway.sse.{podId} consumes doc.extraction.review_required
+    messages:
+      - $ref: "#/channels/doc.extraction.review_required/messages/doc.extraction.review_required"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: gateway
+    x-aegis-queue: gateway.sse.{podId}
+    x-aegis-prefetch: 100
+    x-aegis-retry-tiers: none
+    x-aegis-dlq: null
+    x-aegis-queue-properties: exclusive, auto-delete, x-max-length 1000, drop-head (§5.5)
+  events.archive.q.ingress:
+    action: receive
+    channel:
+      $ref: "#/channels/archive_all_ingress"
+    title: events.archive.q consumes everything on aegispulse.ingress
+    messages:
+      - $ref: "#/channels/archive_all_ingress/messages/external.regulatory.published"
+      - $ref: "#/channels/archive_all_ingress/messages/external.ipo.filed"
+      - $ref: "#/channels/archive_all_ingress/messages/external.acquisition.announced"
+      - $ref: "#/channels/archive_all_ingress/messages/external.market.alert"
+      - $ref: "#/channels/archive_all_ingress/messages/external.compliance.disclosed"
+      - $ref: "#/channels/archive_all_ingress/messages/txn.submitted"
+      - $ref: "#/channels/archive_all_ingress/messages/file.uploaded"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: events
+    x-aegis-queue: events.archive.q
+    x-aegis-binding: "#"
+    x-aegis-exchange: aegispulse.ingress
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: events.archive.q.dlq
+  events.archive.q.enrichment:
+    action: receive
+    channel:
+      $ref: "#/channels/archive_all_enrichment"
+    title: events.archive.q consumes everything on aegispulse.enrichment
+    messages:
+      - $ref: "#/channels/archive_all_enrichment/messages/file.status.changed"
+      - $ref: "#/channels/archive_all_enrichment/messages/doc.file.ready"
+      - $ref: "#/channels/archive_all_enrichment/messages/doc.extraction.completed"
+      - $ref: "#/channels/archive_all_enrichment/messages/doc.extraction.review_required"
+      - $ref: "#/channels/archive_all_enrichment/messages/classification.scan.requested"
+      - $ref: "#/channels/archive_all_enrichment/messages/classification.finalized"
+      - $ref: "#/channels/archive_all_enrichment/messages/classification.overridden"
+      - $ref: "#/channels/archive_all_enrichment/messages/notification.requested"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: events
+    x-aegis-queue: events.archive.q
+    x-aegis-binding: "#"
+    x-aegis-exchange: aegispulse.enrichment
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: events.archive.q.dlq
+  events.archive.q.domain:
+    action: receive
+    channel:
+      $ref: "#/channels/archive_all_domain"
+    title: events.archive.q consumes everything on aegispulse.domain
+    messages:
+      - $ref: "#/channels/archive_all_domain/messages/risk.evaluation.recorded"
+      - $ref: "#/channels/archive_all_domain/messages/case.opened"
+      - $ref: "#/channels/archive_all_domain/messages/case.transitioned"
+      - $ref: "#/channels/archive_all_domain/messages/case.escalated"
+      - $ref: "#/channels/archive_all_domain/messages/case.resolved"
+      - $ref: "#/channels/archive_all_domain/messages/case.disposition.recorded"
+      - $ref: "#/channels/archive_all_domain/messages/case.evidence.attached"
+      - $ref: "#/channels/archive_all_domain/messages/correlation.requested"
+      - $ref: "#/channels/archive_all_domain/messages/registry.tenant.created"
+      - $ref: "#/channels/archive_all_domain/messages/registry.tenant.suspended"
+      - $ref: "#/channels/archive_all_domain/messages/registry.tenant.restored"
+      - $ref: "#/channels/archive_all_domain/messages/registry.tenant.settings_changed"
+      - $ref: "#/channels/archive_all_domain/messages/registry.user.changed"
+      - $ref: "#/channels/archive_all_domain/messages/registry.entity.changed"
+      - $ref: "#/channels/archive_all_domain/messages/registry.watchlist.changed"
+      - $ref: "#/channels/archive_all_domain/messages/notification.requested"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: events
+    x-aegis-queue: events.archive.q
+    x-aegis-binding: "#"
+    x-aegis-exchange: aegispulse.domain
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: events.archive.q.dlq
+  events.archive.q.intelligence:
+    action: receive
+    channel:
+      $ref: "#/channels/archive_all_intelligence"
+    title: events.archive.q consumes everything on aegispulse.intelligence
+    messages:
+      - $ref: "#/channels/archive_all_intelligence/messages/notification.requested"
+      - $ref: "#/channels/archive_all_intelligence/messages/intel.rollup.completed"
+      - $ref: "#/channels/archive_all_intelligence/messages/intel.drift.detected"
+      - $ref: "#/channels/archive_all_intelligence/messages/intel.eval.completed"
+      - $ref: "#/channels/archive_all_intelligence/messages/ops.dead_letter.recorded"
+      - $ref: "#/channels/archive_all_intelligence/messages/ops.replay.started"
+      - $ref: "#/channels/archive_all_intelligence/messages/ops.replay.completed"
+      - $ref: "#/channels/archive_all_intelligence/messages/ops.audit.quarantine_download"
+      - $ref: "#/channels/archive_all_intelligence/messages/ops.audit.source_trust_changed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: events
+    x-aegis-queue: events.archive.q
+    x-aegis-binding: "#"
+    x-aegis-exchange: aegispulse.intelligence
+    x-aegis-prefetch: 50
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: events.archive.q.dlq
+components:
+  messages:
+    external.regulatory.published:
+      name: external.regulatory.published
+      title: external.regulatory.published
+      summary: Regulatory publication event emitted by ingestion for category REGULATION_PUBLISHED (webhook or connector item)
+      description: "FRs: FR-WHK-04, FR-WHK-05, FR-CON-03. Payload schema: events/external.regulatory.published.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/external.regulatory.published.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: external.regulatory.published
+          bindingVersion: 0.3.0
+    external.ipo.filed:
+      name: external.ipo.filed
+      title: external.ipo.filed
+      summary: IPO filing event emitted by ingestion for category IPO_FILED (webhook or connector item)
+      description: "FRs: FR-WHK-04, FR-WHK-05, FR-CON-03. Payload schema: events/external.ipo.filed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/external.ipo.filed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: external.ipo.filed
+          bindingVersion: 0.3.0
+    external.acquisition.announced:
+      name: external.acquisition.announced
+      title: external.acquisition.announced
+      summary: Acquisition announcement event emitted by ingestion for category ACQUISITION_ANNOUNCED (webhook or connector item)
+      description: "FRs: FR-WHK-04, FR-WHK-05, FR-CON-03. Payload schema: events/external.acquisition.announced.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/external.acquisition.announced.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: external.acquisition.announced
+          bindingVersion: 0.3.0
+    external.market.alert:
+      name: external.market.alert
+      title: external.market.alert
+      summary: Market alert event emitted by ingestion for category MARKET_ALERT (webhook or connector item)
+      description: "FRs: FR-WHK-04, FR-WHK-05, FR-CON-03. Payload schema: events/external.market.alert.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/external.market.alert.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: external.market.alert
+          bindingVersion: 0.3.0
+    external.compliance.disclosed:
+      name: external.compliance.disclosed
+      title: external.compliance.disclosed
+      summary: Compliance disclosure event emitted by ingestion for category COMPLIANCE_DISCLOSURE (webhook or connector item)
+      description: "FRs: FR-WHK-04, FR-WHK-05, FR-CON-03. Payload schema: events/external.compliance.disclosed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/external.compliance.disclosed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: external.compliance.disclosed
+          bindingVersion: 0.3.0
+    txn.submitted:
+      name: txn.submitted
+      title: txn.submitted
+      summary: Transaction accepted by ingestion (transaction_submissions + outbox, atomic)
+      description: "FRs: FR-TXN-01, FR-TXN-03. Payload schema: events/txn.submitted.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/txn.submitted.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: txn.submitted
+          bindingVersion: 0.3.0
+    file.uploaded:
+      name: file.uploaded
+      title: file.uploaded
+      summary: File upload completed (INITIATED→UPLOADED) or remote file registered; triggers validation
+      description: "FRs: FR-FILE-04, FR-FILE-05, FR-FILE-11. Payload schema: events/file.uploaded.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/file.uploaded.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: file.uploaded
+          bindingVersion: 0.3.0
+    file.status.changed:
+      name: file.status.changed
+      title: file.status.changed
+      summary: File lifecycle transition (files.file_status_history).
+      description: "FRs: FR-FILE-04, FR-FILE-06, FR-FILE-10. Payload schema: events/file.status.changed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/file.status.changed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: file.status.changed
+          bindingVersion: 0.3.0
+    doc.file.ready:
+      name: doc.file.ready
+      title: doc.file.ready
+      summary: File passed validation (VALIDATED); triggers doc extraction.
+      description: "FRs: FR-FILE-05, FR-DOC-01. Payload schema: events/doc.file.ready.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/doc.file.ready.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: doc.file.ready
+          bindingVersion: 0.3.0
+    doc.extraction.completed:
+      name: doc.extraction.completed
+      title: doc.extraction.completed
+      summary: Extraction finished with confidence ≥ 0.70 (recordExtractionResult status=COMPLETED)
+      description: "FRs: FR-DOC-04, FR-DOC-06, FR-FILE-06. Payload schema: events/doc.extraction.completed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/doc.extraction.completed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: doc.extraction.completed
+          bindingVersion: 0.3.0
+    doc.extraction.review_required:
+      name: doc.extraction.review_required
+      title: doc.extraction.review_required
+      summary: Extraction confidence < 0.70 or schema violation (status=REVIEW_REQUIRED); opens an EXTRACTION_REVIEW case via the orchestrator
+      description: "FRs: FR-DOC-04, FR-DOC-06, FR-FILE-06. Payload schema: events/doc.extraction.review_required.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/doc.extraction.review_required.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: doc.extraction.review_required
+          bindingVersion: 0.3.0
+    classification.scan.requested:
+      name: classification.scan.requested
+      title: classification.scan.requested
+      summary: Stage 2 scan request written to the Mongo outbox when Stage 1 says a scan is required
+      description: "FRs: FR-CLS-03, FR-CLS-06. Payload schema: events/classification.scan.requested.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/classification.scan.requested.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: classification.scan.requested
+          bindingVersion: 0.3.0
+    classification.finalized:
+      name: classification.finalized
+      title: classification.finalized
+      summary: Authoritative classification snapshot after Stage 1/2 resolution (severity-resolver-v1)
+      description: "FRs: FR-CLS-02, FR-CLS-05, FR-COR-02. Payload schema: events/classification.finalized.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/classification.finalized.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: classification.finalized
+          bindingVersion: 0.3.0
+    classification.overridden:
+      name: classification.overridden
+      title: classification.overridden
+      summary: Analyst override of final_severity and/or sensitivity (only path that can lower severity, §1.4.3); consumed into the audit chain.
+      description: "FRs: FR-CLS-07, FR-AUD-02. Payload schema: events/classification.overridden.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/classification.overridden.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: classification.overridden
+          bindingVersion: 0.3.0
+    risk.evaluation.recorded:
+      name: risk.evaluation.recorded
+      title: risk.evaluation.recorded
+      summary: Risk evaluation persisted by cases (cases.risk_evaluations).
+      description: "FRs: FR-TXN-04, FR-TXN-05. Payload schema: events/risk.evaluation.recorded.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/risk.evaluation.recorded.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: risk.evaluation.recorded
+          bindingVersion: 0.3.0
+    case.opened:
+      name: case.opened
+      title: case.opened
+      summary: Case opened (OPEN)
+      description: "FRs: FR-CASE-01, FR-CASE-03. Payload schema: events/case.opened.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/case.opened.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: case.opened
+          bindingVersion: 0.3.0
+    case.transitioned:
+      name: case.transitioned
+      title: case.transitioned
+      summary: Case status transition
+      description: "FRs: FR-CASE-02, FR-CASE-03. Payload schema: events/case.transitioned.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/case.transitioned.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: case.transitioned
+          bindingVersion: 0.3.0
+    case.escalated:
+      name: case.escalated
+      title: case.escalated
+      summary: Case escalated after policy evaluation (≥ 75)
+      description: "FRs: FR-CASE-03, FR-CASE-04. Payload schema: events/case.escalated.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/case.escalated.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: case.escalated
+          bindingVersion: 0.3.0
+    case.resolved:
+      name: case.resolved
+      title: case.resolved
+      summary: Case resolved (terminal)
+      description: "FRs: FR-CASE-02, FR-CASE-03. Payload schema: events/case.resolved.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/case.resolved.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: case.resolved
+          bindingVersion: 0.3.0
+    case.disposition.recorded:
+      name: case.disposition.recorded
+      title: case.disposition.recorded
+      summary: Analyst disposition recorded
+      description: "FRs: FR-CASE-06, FR-INTEL-04. Payload schema: events/case.disposition.recorded.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/case.disposition.recorded.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: case.disposition.recorded
+          bindingVersion: 0.3.0
+    case.evidence.attached:
+      name: case.evidence.attached
+      title: case.evidence.attached
+      summary: Evidence attached to a case
+      description: "FRs: FR-CASE-08. Payload schema: events/case.evidence.attached.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/case.evidence.attached.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: case.evidence.attached
+          bindingVersion: 0.3.0
+    correlation.requested:
+      name: correlation.requested
+      title: correlation.requested
+      summary: Case escalated to severity ≥ HIGH; asks the CaseCorrelationSaga to attach related evidence.
+      description: "FRs: FR-CASE-04, FR-COR-01. Payload schema: events/correlation.requested.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/correlation.requested.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: correlation.requested
+          bindingVersion: 0.3.0
+    registry.tenant.created:
+      name: registry.tenant.created
+      title: registry.tenant.created
+      summary: Tenant created
+      description: "FRs: FR-TEN-01. Payload schema: events/registry.tenant.created.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/registry.tenant.created.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: registry.tenant.created
+          bindingVersion: 0.3.0
+    registry.tenant.suspended:
+      name: registry.tenant.suspended
+      title: registry.tenant.suspended
+      summary: Tenant suspended
+      description: "FRs: FR-TEN-02. Payload schema: events/registry.tenant.suspended.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/registry.tenant.suspended.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: registry.tenant.suspended
+          bindingVersion: 0.3.0
+    registry.tenant.restored:
+      name: registry.tenant.restored
+      title: registry.tenant.restored
+      summary: Tenant restored
+      description: "FRs: FR-TEN-02. Payload schema: events/registry.tenant.restored.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/registry.tenant.restored.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: registry.tenant.restored
+          bindingVersion: 0.3.0
+    registry.tenant.settings_changed:
+      name: registry.tenant.settings_changed
+      title: registry.tenant.settings_changed
+      summary: Tenant settings changed (highValueThresholdUsd, highRiskCountries, retentionDays, demoMode)
+      description: "FRs: FR-TEN-08. Payload schema: events/registry.tenant.settings_changed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/registry.tenant.settings_changed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: registry.tenant.settings_changed
+          bindingVersion: 0.3.0
+    registry.user.changed:
+      name: registry.user.changed
+      title: registry.user.changed
+      summary: User created/updated/role-changed/disabled
+      description: "FRs: FR-TEN-04, FR-TEN-05, FR-AUD-02. Payload schema: events/registry.user.changed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/registry.user.changed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: registry.user.changed
+          bindingVersion: 0.3.0
+    registry.entity.changed:
+      name: registry.entity.changed
+      title: registry.entity.changed
+      summary: Tracked entity changed
+      description: "FRs: FR-ENT-01, FR-ENT-02. Payload schema: events/registry.entity.changed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/registry.entity.changed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: registry.entity.changed
+          bindingVersion: 0.3.0
+    registry.watchlist.changed:
+      name: registry.watchlist.changed
+      title: registry.watchlist.changed
+      summary: Watchlist or its entries changed
+      description: "FRs: FR-ENT-04, FR-ENT-05, FR-AUD-02. Payload schema: events/registry.watchlist.changed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/registry.watchlist.changed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: registry.watchlist.changed
+          bindingVersion: 0.3.0
+    notification.requested:
+      name: notification.requested
+      title: notification.requested
+      summary: Notification request rendered and delivered to ntfy by the orchestrator
+      description: "FRs: FR-NOTIF-01, FR-NOTIF-02, FR-CASE-04, FR-CLS-05, FR-FILE-05, FR-CON-04, FR-AUD-03, FR-MSG-04, FR-INTEL-03. Payload schema: events/notification.requested.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/notification.requested.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: notification.requested
+          bindingVersion: 0.3.0
+    intel.rollup.completed:
+      name: intel.rollup.completed
+      title: intel.rollup.completed
+      summary: Rollup batch completed
+      description: "FRs: FR-INTEL-02. Payload schema: events/intel.rollup.completed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/intel.rollup.completed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: intel.rollup.completed
+          bindingVersion: 0.3.0
+    intel.drift.detected:
+      name: intel.drift.detected
+      title: intel.drift.detected
+      summary: Drift threshold breached (PSI, extraction confidence, disagreement)
+      description: "FRs: FR-INTEL-03. Payload schema: events/intel.drift.detected.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/intel.drift.detected.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: intel.drift.detected
+          bindingVersion: 0.3.0
+    intel.eval.completed:
+      name: intel.eval.completed
+      title: intel.eval.completed
+      summary: Evaluation run recorded
+      description: "FRs: FR-EVAL-02, FR-EVAL-04. Payload schema: events/intel.eval.completed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/intel.eval.completed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: intel.eval.completed
+          bindingVersion: 0.3.0
+    ops.dead_letter.recorded:
+      name: ops.dead_letter.recorded
+      title: ops.dead_letter.recorded
+      summary: Dead letter stored in Mongo dead_letters
+      description: "FRs: FR-MSG-02. Payload schema: events/ops.dead_letter.recorded.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/ops.dead_letter.recorded.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: ops.dead_letter.recorded
+          bindingVersion: 0.3.0
+    ops.replay.started:
+      name: ops.replay.started
+      title: ops.replay.started
+      summary: Replay job started; consumed into the audit chain.
+      description: "FRs: FR-RPL-01, FR-RPL-02, FR-AUD-02. Payload schema: events/ops.replay.started.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/ops.replay.started.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: ops.replay.started
+          bindingVersion: 0.3.0
+    ops.replay.completed:
+      name: ops.replay.completed
+      title: ops.replay.completed
+      summary: Replay job reached a terminal state.
+      description: "FRs: FR-RPL-02, FR-RPL-04, FR-AUD-02. Payload schema: events/ops.replay.completed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/ops.replay.completed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: ops.replay.completed
+          bindingVersion: 0.3.0
+    ops.audit.quarantine_download:
+      name: ops.audit.quarantine_download
+      title: ops.audit.quarantine_download
+      summary: TENANT_ADMIN downloaded a QUARANTINED file with acknowledgement (audited).
+      description: "FRs: FR-FILE-08, FR-AUD-02. Payload schema: events/ops.audit.quarantine_download.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/ops.audit.quarantine_download.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: ops.audit.quarantine_download
+          bindingVersion: 0.3.0
+    ops.audit.source_trust_changed:
+      name: ops.audit.source_trust_changed
+      title: ops.audit.source_trust_changed
+      summary: Webhook source trust level changed (affects final_severity); audited.
+      description: "FRs: FR-WHK-07, FR-AUD-02. Payload schema: events/ops.audit.source_trust_changed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/ops.audit.source_trust_changed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: ops.audit.source_trust_changed
+          bindingVersion: 0.3.0
+  schemas:
+    AmqpHeaders:
+      type: object
+      required:
+        - traceparent
+      properties:
+        traceparent:
+          type: string
+          description: W3C trace context.
+        tracestate:
+          type: string
+        x-aegis-tenant:
+          type: string
+          description: Tenant UUID (informational routing/logging header).
+        x-aegis-schema-version:
+          type: string
+          pattern: ^1\.[0-9]+\.[0-9]+$
+        x-retry-count:
+          type: integer
+          minimum: 0
+        x-aegis-replay-job:
+          type: string
+          description: Present on replayed messages (FR-RPL-02).
+        x-aegis-replay-generation:
+          type: integer
+          minimum: 0
+        x-aegis-error-code:
+          type: string
+          description: DLQ messages only.
+        x-aegis-original-queue:
+          type: string
+          description: DLQ messages only.
+x-aegis-topology-note:
+  exchanges:
+    topic_durable:
+      - aegispulse.ingress
+      - aegispulse.enrichment
+      - aegispulse.domain
+      - aegispulse.intelligence
+    direct:
+      - aegispulse.retry
+      - aegispulse.dlx
+  retry: Consumers retry by republishing to aegispulse.retry with routing key {queue}.retry.{tier} and x-retry-count+1; retry queues are classic TTL queues dead-lettering back to {queue} (§5.5, §6.5).
+  dlx: "Dead letters are published to aegispulse.dlx with routing key {queue}; {queue}.dlq is bound with {queue}; events.deadletter.q is bound with # (FR-MSG-02). DLQ messages carry x-aegis-error-code and x-aegis-original-queue."
+  notModelled:
+    - "events.deadletter.q (dlx → #, internal dead-letter registry; not a business event key)"
+    - cases.enrichment-timer.q (delayed self-messages via aegispulse.retry, routing cases.enrichment-timeout; not a catalogued event)
+  notificationRequested: notification.requested is published on aegispulse.domain, aegispulse.enrichment or aegispulse.intelligence depending on the emitter; the channel binding names domain and x-aegis-exchanges lists all three.

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/file.uploaded.v1.schema.json",
+  "title": "file.uploaded payload (v1)",
+  "description": "File upload completed (INITIATED→UPLOADED) or remote file registered; triggers validation. Pointers only. Producer: files. Exchange: aegispulse.ingress. FRs: FR-FILE-04, FR-FILE-05, FR-FILE-11. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "required": ["fileId", "storageKey", "sha256", "sizeBytes", "contentType", "purpose", "sourceType"],
+  "properties": {
+    "fileId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "storageKey": {
+      "$ref": "_shared.v1.schema.json#/$defs/storageKey"
+    },
+    "sha256": {
+      "$ref": "_shared.v1.schema.json#/$defs/sha256Hex"
+    },
+    "sizeBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 536870912
+    },
+    "contentType": {
+      "$ref": "_shared.v1.schema.json#/$defs/fileContentType"
+    },
+    "purpose": {
+      "$ref": "_shared.v1.schema.json#/$defs/filePurpose"
+    },
+    "sourceType": {
+      "$ref": "_shared.v1.schema.json#/$defs/fileSourceType"
+    }
+  },
+  "additionalProperties": true
+}

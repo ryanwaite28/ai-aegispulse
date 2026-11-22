@@ -89,8 +89,8 @@ test-unit: ## Unit suites (Vitest / JUnit / pytest)
 	@ci/test-python.sh
 	@ci/test-java.sh
 
-test-integration: ## Testcontainers suites
-	$(call not_yet,Phase 1 (platform kits))
+test-integration: ## Testcontainers suites (requires Docker; no compose stack needed)
+	pnpm -r --if-present run test:integration
 
 test-e2e: ## E2E against the compose stack
 	$(call not_yet,Phase 8 (MVP slice))
@@ -101,12 +101,13 @@ build: ## Build all workspaces
 
 # ---------------------------------------------------------------- data & contracts
 .PHONY: migrate seed contracts eval
-migrate: ## Flyway + migrate-mongo + RabbitMQ topology (local)
-	$(call not_yet,Phase 1 (data foundations))
+migrate: ## Flyway (5 schemas) + migrate-mongo + RabbitMQ topology (local)
+	$(COMPOSE) --profile tools run --rm --build migrate
+	@scripts/dev/migrate-local.sh
 seed: ## Seed demo tenants/users/entities
 	$(call not_yet,Phase 2–3)
-contracts: ## Validate + regenerate contract types
-	$(call not_yet,Phase 1 (contracts))
+contracts: ## Validate contracts + regenerate TS/Python types (fails in CI on generated drift)
+	@ci/contract.sh
 eval: ## Golden-dataset evaluation
 	$(call not_yet,Phase 16)
 

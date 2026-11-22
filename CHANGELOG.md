@@ -13,6 +13,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 1a (contracts + data foundations): canonical envelope v1.1 schema + examples; RabbitMQ topology contract (6 exchanges, 58 queues, 71 bindings) + `topology-assert` CLI; 38 event payload schemas + AsyncAPI 3.0; OpenAPI 3.1 public gateway (79 ops) + 8 internal service specs (103 HTTP ops + consumer actions); `make contracts` (validate → deterministic TS/Pydantic codegen → drift gate, `ci/contract.sh`, CI `contract` stage); V1 baseline migrations for 5 schemas + Flyway runner image + `make migrate`; Events Service Mongo migrations; `tests/` system-test workspace (25 migration integration tests).
 - Phase 0 scaffold: Node workspace (pnpm 12, TS 6.0.3, ESLint 10, Prettier, Vitest), uv workspace (Ruff, mypy strict, pytest), Gradle 9.9.2 wrapper (Java 25, checksum-pinned), `Makefile` (§9.5 targets; later-phase targets fail loudly).
 - Local compose infrastructure: PostgreSQL 18 (schema-per-service roles), MongoDB 8 rs0 (keyFile, scoped users), Redis 8 (per-service ACLs), RabbitMQ 4 (least-privilege users), SeaweedFS 4.54, ClamAV, OpenObserve; `scripts/dev/gen-local-secrets.sh`, `scripts/dev/compose-wait.sh`, `make env|up|down|reset`.
 - CI guardrails: `ci/check-boundaries.sh`, `ci/check-migrations.sh`, `ci/check-resource-budget.sh`, `ci/check-layer-sizes.sh`, plus `ci/tests/run.sh` (10 self-tests); lint/test runners; `.gitlab-ci.yml` skeleton (.pre/lint/test); Gitleaks pre-commit hook.
@@ -27,6 +28,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0001 through ADR-0012, plus spec and evidence templates.
 
 ### Changed
+- PROJECT.md (Phase 1a): uniform internal RPC route `POST /internal/v1/{action}`; `aegispulse.dlx` is a topic exchange; one retry queue per distinct delay; enrichment-timer delay queue; `mig_events` Mongo principal; RLS helpers + history-protection callback; added actions `registry.listServiceAccounts`, `cases.getTransactionEvaluation`; gateway SERVICE-token cases and unauthenticated `issueClientCredentialsToken`; `/v1/openapi.json` route.
+- Dependencies: `amqplib` pinned to 2.4.0 (2.4.1 was hours old and tripped pnpm's minimum-release-age policy; the auto-added bypass was removed); pnpm build scripts allowed for `esbuild` only.
 - ADR-0011 accepted: SeaweedFS 4.54 (MinIO community image no longer published). Version baselines updated: NestJS 12, TypeScript 6.0.3 (TS 7 deferred, typescript-eslint peer range <6.1), pnpm 12, Spring Boot 4.2.
 - ADR-0013: the gateway is now NestJS on `@nestjs/platform-fastify`, renamed `gateway/fastify-http` → `gateway/nest-http` everywhere (PROJECT.md §6.1/§6.3/§12, CLAUDE.md, AGENTS.md, steering, skills, agents, ADR-0001/0002). Internal service adapters stay plain Fastify.
 - `docs/PROJECT_TEMPLATE_GUIDE.md`: new "AI Governance & Consistency Constructs" section, plus checklist and quality-bar items.
@@ -34,4 +37,5 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 1: slice 1a `INTEGRATION-VERIFIED` (contracts + data foundations) — [evidence](docs/evidence/phase-01a.md); slices 1b–1e pending.
 - Phase 0: `SOURCE-IMPLEMENTED`, local runtime verified on macOS. First GitLab pipeline and a Linux `make up` run are pending ([evidence](docs/evidence/phase-00.md)). All FRs: `PENDING`.

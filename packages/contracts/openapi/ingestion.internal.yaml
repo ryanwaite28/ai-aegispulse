@@ -1,0 +1,1670 @@
+openapi: 3.1.0
+info:
+  title: AegisPulse Ingestion internal API
+  version: 1.0.0
+  description: |-
+    Internal RPC contract for services/ingestion (Node 24 / Fastify): webhook ingestion, webhook sources, connectors and transaction intake. Operations are POST /internal/v1/{action}; operationId equals the ServiceAction name (PROJECT.md §6.2).
+
+    All operations are `POST /internal/v1/{actionName}` (uniform RPC style) and return the success envelope `{ data, meta }` (PROJECT.md §8.2). Caller allowlists follow PROJECT.md §5.7.4; the service re-verifies the JWT, role and tenant ownership itself (FR-AUTH-06).
+servers:
+  - url: http://{host}:8081
+    description: In-cluster Service (PROJECT.md §5.4 port).
+    variables:
+      host:
+        default: aegispulse-ingestion
+tags:
+  - name: ingestion
+    description: AegisPulse Ingestion internal API
+security:
+  - bearerJwt: []
+x-aegis-consumer-actions: []
+paths:
+  /internal/v1/ingestWebhookDelivery:
+    post:
+      operationId: ingestWebhookDelivery
+      summary: Verify and ingest a webhook delivery
+      description: |-
+        Called with the gateway SERVICE token (no user token exists yet). Order: source lookup, signature (HMAC-SHA256 over {timestamp}.{deliveryId}.{rawBody}, constant-time, current and previous secret), timestamp skew <= 300 s, replay guard, then schema validation (422 only after signature verification).
+
+        Internal action `ingestion.ingestWebhookDelivery`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `ingestWebhookDelivery`.
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestWebhookDeliveryInput"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/WebhookAccepted"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-WHK-02
+        - FR-WHK-03
+        - FR-WHK-04
+        - FR-WHK-05
+      x-aegis-error-codes:
+        - WEBHOOK_SOURCE_NOT_FOUND
+        - WEBHOOK_SIGNATURE_INVALID
+        - WEBHOOK_TIMESTAMP_SKEW
+        - WEBHOOK_REPLAY_DETECTED
+        - PAYLOAD_TOO_LARGE
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/createWebhookSource:
+    post:
+      operationId: createWebhookSource
+      summary: Register a webhook source
+      description: "Internal action `ingestion.createWebhookSource`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `createWebhookSource`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookSourceInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/WebhookSourceWithSecret"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-WHK-01
+      x-aegis-error-codes:
+        - WEBHOOK_SOURCE_KEY_TAKEN
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listWebhookSources:
+    post:
+      operationId: listWebhookSources
+      summary: List webhook sources
+      description: "Internal action `ingestion.listWebhookSources`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listWebhookSources`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./components/common.yaml#/components/schemas/PageQuery
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WebhookSource"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-WHK-07
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/updateWebhookSource:
+    post:
+      operationId: updateWebhookSource
+      summary: Update a webhook source
+      description: "Internal action `ingestion.updateWebhookSource`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `updateWebhookSource`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWebhookSourceInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/WebhookSource"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-WHK-07
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/rotateWebhookSecret:
+    post:
+      operationId: rotateWebhookSecret
+      summary: Rotate a webhook signing secret
+      description: "Internal action `ingestion.rotateWebhookSecret`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `rotateWebhookSecret`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RotateWebhookSecretInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/WebhookSecretRotation"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-WHK-07
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/deleteWebhookSource:
+    post:
+      operationId: deleteWebhookSource
+      summary: Soft-delete a webhook source
+      description: "Internal action `ingestion.deleteWebhookSource`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `deleteWebhookSource`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteWebhookSourceInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-WHK-07
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listWebhookDeliveries:
+    post:
+      operationId: listWebhookDeliveries
+      summary: List webhook delivery metadata
+      description: "Internal action `ingestion.listWebhookDeliveries`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listWebhookDeliveries`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListDeliveriesQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WebhookDelivery"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-WHK-07
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/expirePreviousSecrets:
+    post:
+      operationId: expirePreviousSecrets
+      summary: Clear expired previous webhook secrets and sweep orphan raw objects
+      description: |-
+        Scheduled by scheduler-trigger. Clears previous secrets older than 72 h; sweeps raw webhook objects with no delivery row older than 1 h.
+
+        Internal action `ingestion.expirePreviousSecrets`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `expirePreviousSecrets`.
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpirePreviousSecretsInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-WHK-08
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/createConnector:
+    post:
+      operationId: createConnector
+      summary: Register a connector
+      description: "Internal action `ingestion.createConnector`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `createConnector`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConnectorInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Connector"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CON-01
+      x-aegis-error-codes:
+        - CONFLICT
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listConnectors:
+    post:
+      operationId: listConnectors
+      summary: List connectors
+      description: "Internal action `ingestion.listConnectors`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listConnectors`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./components/common.yaml#/components/schemas/PageQuery
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Connector"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CON-01
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/updateConnector:
+    post:
+      operationId: updateConnector
+      summary: Update, enable or disable a connector
+      description: "Internal action `ingestion.updateConnector`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `updateConnector`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConnectorInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Connector"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CON-01
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/deleteConnector:
+    post:
+      operationId: deleteConnector
+      summary: Soft-delete a connector
+      description: "Internal action `ingestion.deleteConnector`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `deleteConnector`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteConnectorInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CON-01
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/runConnectorNow:
+    post:
+      operationId: runConnectorNow
+      summary: Trigger an immediate connector run
+      description: |-
+        Rate limited to 1 per minute per connector. Returns the connector state after the run was triggered.
+
+        Internal action `ingestion.runConnectorNow`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `runConnectorNow`.
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunConnectorNowInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Connector"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CON-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONNECTOR_RUN_THROTTLED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/runDueConnectors:
+    post:
+      operationId: runDueConnectors
+      summary: Run all due connectors
+      description: |-
+        Scheduled every 15 min by scheduler-trigger. Advisory lock per connector prevents concurrent runs.
+
+        Internal action `ingestion.runDueConnectors`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `runDueConnectors`.
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunDueConnectorsInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-CON-02
+        - FR-CON-03
+        - FR-CON-04
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/submitTransaction:
+    post:
+      operationId: submitTransaction
+      summary: Submit a transaction
+      description: "Internal action `ingestion.submitTransaction`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `submitTransaction`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitTransactionInput"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TransactionAccepted"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TXN-01
+      x-aegis-error-codes:
+        - IDEMPOTENCY_KEY_REUSED
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/submitTransactionBatch:
+    post:
+      operationId: submitTransactionBatch
+      summary: Submit a chunk of batch-file transactions
+      description: |-
+        Called by doc-extraction in chunks of <= 500 rows; row idempotency key = {fileId}:{rowNumber}.
+
+        Internal action `ingestion.submitTransactionBatch`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `submitTransactionBatch`.
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitTransactionBatchInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TransactionBatchResult"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - doc-extraction
+      x-aegis-fr:
+        - FR-TXN-02
+      x-aegis-error-codes:
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getTransaction:
+    post:
+      operationId: getTransaction
+      summary: Get a transaction submission
+      description: "Internal action `ingestion.getTransaction`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getTransaction`."
+      tags:
+        - ingestion
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetTransactionInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TransactionSubmission"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TXN-06
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+components:
+  securitySchemes:
+    bearerJwt:
+      $ref: ./components/common.yaml#/components/securitySchemes/bearerJwt
+  schemas:
+    TrustLevel:
+      type: string
+      enum:
+        - TRUSTED
+        - UNTRUSTED
+      default: UNTRUSTED
+      description: TRUSTED sources may raise final_severity to the publisher-stated severity (PROJECT.md §1.4.3).
+    MarketEventCategory:
+      type: string
+      enum:
+        - REGULATION_PUBLISHED
+        - IPO_FILED
+        - ACQUISITION_ANNOUNCED
+        - MARKET_ALERT
+        - COMPLIANCE_DISCLOSURE
+    WebhookHeaders:
+      type: object
+      additionalProperties: false
+      properties:
+        X-Aegis-Signature:
+          type: string
+          description: v1=<hex>; comma-separated list allowed during rotation. Absent/malformed => 401 WEBHOOK_SIGNATURE_INVALID.
+        X-Aegis-Timestamp:
+          type: string
+          description: Unix seconds as received.
+        X-Aegis-Delivery-Id:
+          type: string
+          maxLength: 128
+      description: Verbatim signature headers; all optional at the schema level so that the service (not the transport) produces WEBHOOK_SIGNATURE_INVALID for missing headers.
+    IngestWebhookDeliveryInput:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceKey:
+          type: string
+          pattern: ^[a-z0-9-]{3,60}$
+        headers:
+          $ref: "#/components/schemas/WebhookHeaders"
+        rawBodyBase64:
+          type: string
+          contentEncoding: base64
+          maxLength: 1398104
+          description: Raw request bytes (<= 1 MiB) before JSON parsing; the HMAC is computed over these bytes.
+        receivedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        clientIp:
+          type: string
+          description: IPv4 or IPv6 literal.
+      required:
+        - sourceKey
+        - headers
+        - rawBodyBase64
+        - receivedAt
+        - clientIp
+    WebhookAccepted:
+      type: object
+      properties:
+        deliveryId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        eventId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        duplicate:
+          type: boolean
+      required:
+        - deliveryId
+        - eventId
+        - duplicate
+      description: 202 body. eventId is null when duplicate = true (nothing emitted).
+    PayloadProfile:
+      type: string
+      enum:
+        - AEGIS_MARKET_EVENT_V1
+      default: AEGIS_MARKET_EVENT_V1
+    CreateWebhookSourceInput:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceKey:
+          type: string
+          pattern: ^[a-z0-9-]{3,60}$
+          description: Globally unique; appears in the public URL.
+        displayName:
+          type: string
+          minLength: 1
+        trustLevel:
+          $ref: "#/components/schemas/TrustLevel"
+        payloadProfile:
+          $ref: "#/components/schemas/PayloadProfile"
+        allowedAttachmentHosts:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 253
+            description: Hostname (no scheme/path).
+          uniqueItems: true
+      required:
+        - sourceKey
+        - displayName
+    WebhookSource:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        sourceKey:
+          type: string
+        displayName:
+          type: string
+        trustLevel:
+          $ref: "#/components/schemas/TrustLevel"
+        payloadProfile:
+          $ref: "#/components/schemas/PayloadProfile"
+        allowedAttachmentHosts:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 253
+            description: Hostname (no scheme/path).
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - DISABLED
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        updatedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - tenantId
+        - sourceKey
+        - displayName
+        - trustLevel
+        - payloadProfile
+        - allowedAttachmentHosts
+        - status
+        - createdAt
+        - updatedAt
+    WebhookSourceWithSecret:
+      allOf:
+        - $ref: "#/components/schemas/WebhookSource"
+        - type: object
+          properties:
+            signingSecret:
+              type: string
+              description: 32 random bytes, base64url. Returned once.
+          required:
+            - signingSecret
+    UpdateWebhookSourceInput:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        displayName:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - DISABLED
+        trustLevel:
+          $ref: "#/components/schemas/TrustLevel"
+        allowedAttachmentHosts:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 253
+            description: Hostname (no scheme/path).
+          uniqueItems: true
+      required:
+        - sourceId
+      minProperties: 2
+      description: Trust-level changes are audited (they affect final_severity).
+    RotateWebhookSecretInput:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - sourceId
+    WebhookSecretRotation:
+      type: object
+      properties:
+        sourceId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        signingSecret:
+          type: string
+          description: New current secret, returned once.
+        previousSecretExpiresAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - sourceId
+        - signingSecret
+        - previousSecretExpiresAt
+      description: The old secret becomes PREVIOUS for 72 h (dual-key window).
+    DeleteWebhookSourceInput:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - sourceId
+    ListDeliveriesQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+        sourceId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        outcome:
+          type: string
+          enum:
+            - ACCEPTED
+            - DUPLICATE
+        from:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        to:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - sourceId
+    WebhookDelivery:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        sourceId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        deliveryId:
+          type: string
+        idempotencyKey:
+          type: string
+        eventId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        outcome:
+          type: string
+          enum:
+            - ACCEPTED
+            - DUPLICATE
+        externalId:
+          type: string
+        category:
+          type: string
+        rawSha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        signatureSlot:
+          type: string
+          enum:
+            - CURRENT
+            - PREVIOUS
+        attachmentNotes:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            description: Rejected/registered attachment record (e.g. status attachment_rejected).
+        receivedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        correlationId:
+          type: string
+      required:
+        - id
+        - sourceId
+        - deliveryId
+        - idempotencyKey
+        - outcome
+        - externalId
+        - category
+        - signatureSlot
+        - receivedAt
+        - correlationId
+      description: Delivery metadata only; the raw body and its storage key are never returned (FR-WHK-07).
+    ConnectorKind:
+      type: string
+      enum:
+        - RSS
+        - ATOM
+        - SEC_EDGAR_ATOM
+        - JSON_FEED
+    ConnectorSchedule:
+      type: object
+      additionalProperties: false
+      properties:
+        intervalMinutes:
+          type: integer
+          minimum: 15
+          maximum: 1440
+      required:
+        - intervalMinutes
+    CreateConnectorInput:
+      type: object
+      additionalProperties: false
+      properties:
+        connectorKey:
+          type: string
+          pattern: ^[a-z0-9-]{3,60}$
+          description: Unique per tenant.
+        kind:
+          $ref: "#/components/schemas/ConnectorKind"
+        url:
+          type: string
+          format: uri
+          pattern: ^https://
+          maxLength: 2048
+        schedule:
+          $ref: "#/components/schemas/ConnectorSchedule"
+        category:
+          $ref: "#/components/schemas/MarketEventCategory"
+          description: Default category for items.
+        trustLevel:
+          $ref: "#/components/schemas/TrustLevel"
+        mapping:
+          type: object
+          additionalProperties:
+            type: string
+            description: JSONPath expression.
+          description: JSONPath per canonical field; required for JSON_FEED.
+      required:
+        - connectorKey
+        - kind
+        - url
+        - schedule
+        - category
+      description: The url host is added to the connector allowlist (FR-CON-01).
+    Connector:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        connectorKey:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ConnectorKind"
+        url:
+          type: string
+        allowedHosts:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 253
+            description: Hostname (no scheme/path).
+        schedule:
+          $ref: "#/components/schemas/ConnectorSchedule"
+        category:
+          $ref: "#/components/schemas/MarketEventCategory"
+        trustLevel:
+          $ref: "#/components/schemas/TrustLevel"
+        mapping:
+          oneOf:
+            - type: object
+              additionalProperties:
+                type: string
+            - type: "null"
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - DISABLED
+            - PAUSED_ERROR
+        lastRunAt:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+            - type: "null"
+        nextRunAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        consecutiveFailures:
+          type: integer
+          minimum: 0
+        lastError:
+          oneOf:
+            - type: string
+            - type: "null"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        updatedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - tenantId
+        - connectorKey
+        - kind
+        - url
+        - schedule
+        - category
+        - trustLevel
+        - status
+        - nextRunAt
+        - consecutiveFailures
+        - createdAt
+        - updatedAt
+    UpdateConnectorInput:
+      type: object
+      additionalProperties: false
+      properties:
+        connectorId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        url:
+          type: string
+          format: uri
+          pattern: ^https://
+          maxLength: 2048
+        schedule:
+          $ref: "#/components/schemas/ConnectorSchedule"
+        category:
+          $ref: "#/components/schemas/MarketEventCategory"
+        trustLevel:
+          $ref: "#/components/schemas/TrustLevel"
+        mapping:
+          type: object
+          additionalProperties:
+            type: string
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - DISABLED
+          description: Enable/disable (also resumes a PAUSED_ERROR connector when set to ACTIVE).
+      required:
+        - connectorId
+      minProperties: 2
+    DeleteConnectorInput:
+      type: object
+      additionalProperties: false
+      properties:
+        connectorId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - connectorId
+    RunConnectorNowInput:
+      type: object
+      additionalProperties: false
+      properties:
+        connectorId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - connectorId
+    RunDueConnectorsInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty payload (Record<string, never>).
+    ExpirePreviousSecretsInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty payload (Record<string, never>).
+    TransactionChannel:
+      type: string
+      enum:
+        - WIRE
+        - ACH
+        - CARD
+        - CRYPTO
+        - INTERNAL
+    SubmitTransactionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        idempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 128
+        accountId:
+          type: string
+          minLength: 1
+          maxLength: 64
+        counterpartyId:
+          type: string
+          minLength: 1
+          maxLength: 64
+        counterpartyName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        amount:
+          type: string
+          pattern: ^(?=.*[1-9])[0-9]{1,18}\.[0-9]{2,4}$
+          description: Decimal string > 0, <= 18 integer digits, 2-4 decimals (FR-TXN-01). Never a JSON number.
+        currency:
+          type: string
+          pattern: ^[A-Z]{3}$
+          description: ISO 4217 code present in the static FX table (fx-static-v1).
+        country:
+          type: string
+          pattern: ^[A-Z]{2}$
+        channel:
+          $ref: "#/components/schemas/TransactionChannel"
+        occurredAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Free-form object, <= 4 KiB serialized.
+      required:
+        - idempotencyKey
+        - accountId
+        - counterpartyId
+        - counterpartyName
+        - amount
+        - currency
+        - country
+        - channel
+        - occurredAt
+      description: occurredAt more than 24 h in the future is rejected (422).
+    TransactionAccepted:
+      type: object
+      properties:
+        transactionId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        eventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - transactionId
+        - eventId
+      description: Same idempotency key + same body hash returns the original response.
+    SubmitTransactionBatchInput:
+      type: object
+      additionalProperties: false
+      properties:
+        fileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubmitTransactionInput"
+          minItems: 1
+          maxItems: 500
+        startRow:
+          type: integer
+          minimum: 1
+          description: Row number of rows[0]; row idempotency key = {fileId}:{rowNumber}.
+      required:
+        - fileId
+        - rows
+        - startRow
+    TransactionBatchResult:
+      type: object
+      properties:
+        rowsAccepted:
+          type: integer
+          minimum: 0
+        rowsRejected:
+          type: integer
+          minimum: 0
+        rowErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              rowNumber:
+                type: integer
+                minimum: 1
+              field:
+                type: string
+              issue:
+                type: string
+            required:
+              - rowNumber
+              - issue
+      required:
+        - rowsAccepted
+        - rowsRejected
+        - rowErrors
+    GetTransactionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        transactionId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - transactionId
+    TransactionSubmission:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        eventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        correlationId:
+          type: string
+        accountId:
+          type: string
+        counterpartyId:
+          type: string
+        counterpartyName:
+          type: string
+        amount:
+          type: string
+          description: Decimal string.
+        currency:
+          type: string
+        country:
+          type: string
+        channel:
+          $ref: "#/components/schemas/TransactionChannel"
+        occurredAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        metadata:
+          type: object
+          additionalProperties: true
+        sourceFileId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        sourceRow:
+          oneOf:
+            - type: integer
+            - type: "null"
+        submittedBy:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - eventId
+        - correlationId
+        - accountId
+        - counterpartyId
+        - counterpartyName
+        - amount
+        - currency
+        - country
+        - channel
+        - occurredAt
+        - submittedBy
+        - createdAt
+      description: Persisted submission. Processing status, evaluation and case link are composed by the gateway (FR-TXN-06).

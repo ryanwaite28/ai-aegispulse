@@ -10,3 +10,11 @@ packages:
   - "packages/contracts"
   - "apps/*"
   - "scripts"
+  - "tests"
+# Only esbuild (tsx/vitest) may run install scripts; everything else is denied (supply-chain hygiene).
+allowBuilds:
+  "@scarf/scarf": false
+  cpu-features: false
+  esbuild: true
+  protobufjs: false
+  ssh2: false

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/case.disposition.recorded.v1.schema.json",
+  "title": "case.disposition.recorded payload (v1)",
+  "description": "Analyst disposition recorded. Emitted by cases via the transactional outbox with the case state change. Producer: cases. Exchange: aegispulse.domain. FRs: FR-CASE-06, FR-INTEL-04. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/caseEvent"
+    }
+  ],
+  "required": ["disposition"],
+  "properties": {
+    "analystId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "modelVersions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "ruleVersions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "disposition": {
+      "$ref": "_shared.v1.schema.json#/$defs/caseEvent/properties/disposition"
+    }
+  },
+  "additionalProperties": true
+}

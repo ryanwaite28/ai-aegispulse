@@ -1,0 +1,40 @@
+{
+  "name": "@aegispulse/contracts",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Wire contracts: canonical envelope, event payloads, AsyncAPI, OpenAPI, RabbitMQ topology (PROJECT.md §6.2–§6.7). Source of truth for generated TS/Python types.",
+  "type": "module",
+  "exports": {
+    "./generated/ts/*": "./generated/ts/*",
+    "./topology": "./topology/aegispulse.topology.json",
+    "./envelope": "./envelope/canonical-envelope.v1.schema.json"
+  },
+  "scripts": {
+    "validate": "tsx scripts/validate.ts",
+    "generate": "tsx scripts/generate.ts",
+    "topology:assert": "tsx scripts/topology-assert.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --dir tests --exclude '**/*.integration.test.ts'",
+    "test:integration": "vitest run --dir tests .integration.test"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "amqplib": "2.4.0",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@apidevtools/json-schema-ref-parser": "16.0.8",
+    "@asyncapi/parser": "3.6.6",
+    "@redocly/cli": "2.82.0",
+    "@testcontainers/rabbitmq": "12.2.2",
+    "@types/amqplib": "0.10.8",
+    "@types/node": "26.6.6",
+    "json-schema-to-typescript": "16.0.0",
+    "openapi-typescript": "7.13.0",
+    "testcontainers": "12.2.2",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "vitest": "5.1.1"
+  }
+}

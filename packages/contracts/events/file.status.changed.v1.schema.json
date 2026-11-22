@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/file.status.changed.v1.schema.json",
+  "title": "file.status.changed payload (v1)",
+  "description": "File lifecycle transition (files.file_status_history). Producer: files. Exchange: aegispulse.enrichment. FRs: FR-FILE-04, FR-FILE-06, FR-FILE-10. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "required": ["fileId", "from", "to"],
+  "properties": {
+    "fileId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "from": {
+      "anyOf": [
+        {
+          "$ref": "_shared.v1.schema.json#/$defs/fileStatus"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "to": {
+      "$ref": "_shared.v1.schema.json#/$defs/fileStatus"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Short reason code/text (e.g. failureReason). Never file contents."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": true
+}

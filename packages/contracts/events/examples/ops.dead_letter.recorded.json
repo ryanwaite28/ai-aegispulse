@@ -1,0 +1,6 @@
+{
+  "queue": "events.archive.q",
+  "errorCode": "ENVELOPE_INVALID",
+  "originalEventId": "019352b8-7110-7b22-8c33-1a2b3c4d5e6f",
+  "retryCount": 0
+}

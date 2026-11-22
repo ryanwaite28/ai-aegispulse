@@ -1,0 +1,7 @@
+{
+  "metric": "psi_risk_score",
+  "scope": "tenant",
+  "value": 0.34,
+  "threshold": 0.3,
+  "window": "7d"
+}

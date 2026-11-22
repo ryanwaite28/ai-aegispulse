@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/case.escalated.v1.schema.json",
+  "title": "case.escalated payload (v1)",
+  "description": "Case escalated after policy evaluation (≥ 75). Emitted by cases via the transactional outbox with the case state change. Producer: cases. Exchange: aegispulse.domain. FRs: FR-CASE-03, FR-CASE-04. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/caseEvent"
+    }
+  ],
+  "required": ["to", "policyScore", "policyVersion"],
+  "properties": {
+    "to": {
+      "$ref": "_shared.v1.schema.json#/$defs/caseEvent/properties/to"
+    },
+    "policyScore": {
+      "$ref": "_shared.v1.schema.json#/$defs/caseEvent/properties/policyScore"
+    },
+    "policyVersion": {
+      "$ref": "_shared.v1.schema.json#/$defs/caseEvent/properties/policyVersion"
+    }
+  },
+  "additionalProperties": true
+}

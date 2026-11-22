@@ -16,6 +16,9 @@ dev = [
   "requests==2.34.2",
   "pyyaml==6.0.4",
   "types-PyYAML==6.0.12.20261122",
+  "datamodel-code-generator==0.100.0",
+  "jsonschema[format]==4.26.0",
+  "types-jsonschema==4.26.0.20261006",
 ]
 
 [tool.uv]
@@ -46,3 +49,7 @@ ignore_missing_imports = false
 [[tool.mypy.overrides]]
 module = ["boto3", "botocore.*", "requests"]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["packages/contracts/tests"]
+addopts = "-q"

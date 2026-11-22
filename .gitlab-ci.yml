@@ -1,7 +1,7 @@
 # AegisPulse pipeline (PROJECT.md §9.2). Phase 0 skeleton: .pre, lint, test.
 # Later phases add contract, build, scan, sign, deploy-dev, verify-dev, deploy-prod, verify-prod, release.
 # Logic lives in ci/*.sh (cluster standard K3S_CONTEXT §3.2); keep this file declarative.
-stages: [.pre, lint, test]
+stages: [.pre, lint, test, contract]
 
 workflow:
   rules:
@@ -91,3 +91,12 @@ test:java:
   <<: *java
   stage: test
   script: [./ci/test-java.sh]
+
+contract:
+  <<: *node
+  stage: contract
+  before_script:
+    - apk add --no-cache bash git curl
+    - corepack enable pnpm
+    - curl -LsSf https://astral.sh/uv/0.13.9/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+  script: [./ci/contract.sh]

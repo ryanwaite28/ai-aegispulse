@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/registry.tenant.settings_changed.v1.schema.json",
+  "title": "registry.tenant.settings_changed payload (v1)",
+  "description": "Tenant settings changed (highValueThresholdUsd, highRiskCountries, retentionDays, demoMode). Ids and changed field names only; no secrets or password data. Producer: registry. Exchange: aegispulse.domain. FRs: FR-TEN-08. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/registryChange"
+    }
+  ],
+  "required": ["tenantId", "changedFields"],
+  "properties": {
+    "tenantId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "changedFields": {
+      "$ref": "_shared.v1.schema.json#/$defs/registryChange/properties/changedFields"
+    }
+  },
+  "additionalProperties": true
+}

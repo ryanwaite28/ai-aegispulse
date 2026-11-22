@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/intel.drift.detected.v1.schema.json",
+  "title": "intel.drift.detected payload (v1)",
+  "description": "Drift threshold breached (PSI, extraction confidence, disagreement). Platform-level or tenant-scoped (envelope tenantId may be null). Producer: data-intel. Exchange: aegispulse.intelligence. FRs: FR-INTEL-03. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/intelMetric"
+    }
+  ],
+  "required": ["threshold"],
+  "properties": {
+    "threshold": {
+      "$ref": "_shared.v1.schema.json#/$defs/intelMetric/properties/threshold"
+    }
+  },
+  "additionalProperties": true
+}

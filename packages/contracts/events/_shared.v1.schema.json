@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/_shared.v1.schema.json",
+  "title": "AegisPulse shared event payload definitions",
+  "description": "Shared payload value types and base shapes referenced by the per-routing-key payload schemas (PROJECT.md §6.7). Each routing key still has its own schema file. Payloads carry pointers/excerpts only: never binary data or full document text (§6.4, FR-DOC-06).",
+  "$defs": {
+    "sha256Hex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 (files.files.sha256_checksum CHAR(64))."
+    },
+    "storageKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Object-store key pointer (PROJECT.md §7.8); never the object content."
+    },
+    "fileStatus": {
+      "type": "string",
+      "enum": ["INITIATED", "UPLOADED", "VALIDATED", "PROCESSING", "PROCESSED", "FAILED", "QUARANTINED", "EXPIRED"],
+      "description": "files.files.status (§7.3)."
+    },
+    "filePurpose": {
+      "type": "string",
+      "enum": ["FILING", "REGULATORY_DOCUMENT", "TRANSACTION_BATCH", "OTHER"],
+      "description": "FR-FILE-01."
+    },
+    "fileContentType": {
+      "type": "string",
+      "enum": ["application/pdf", "text/html", "text/csv", "application/json", "text/plain"],
+      "description": "FR-FILE-01 allowlist."
+    },
+    "fileSourceType": {
+      "type": "string",
+      "enum": ["AD_HOC_UPLOAD", "WEBHOOK_ATTACHMENT", "CONNECTOR_FETCH"],
+      "description": "files.files.source_type (§7.3)."
+    },
+    "riskBand": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+      "description": "Risk bands, §1.4.4."
+    },
+    "caseSeverity": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+      "description": "cases.cases.severity CHECK (§7.4); INFO is not a case severity."
+    },
+    "caseStatus": {
+      "type": "string",
+      "enum": ["OPEN", "ENRICHING", "POLICY_EVALUATED", "ESCALATED", "CLEARED", "RESOLVED"],
+      "description": "FR-CASE-02."
+    },
+    "caseType": {
+      "type": "string",
+      "enum": ["TRANSACTION_RISK", "DOCUMENT_RISK", "EXTRACTION_REVIEW", "CORRELATED"],
+      "description": "FR-CASE-01."
+    },
+    "disposition": {
+      "type": "string",
+      "enum": ["TRUE_POSITIVE", "FALSE_POSITIVE", "NEEDS_REVIEW"],
+      "description": "FR-CASE-06."
+    },
+    "trustLevel": {
+      "type": "string",
+      "enum": ["TRUSTED", "UNTRUSTED"],
+      "description": "FR-WHK-01."
+    },
+    "externalMarketEvent": {
+      "type": "object",
+      "description": "Shared body of the five external.* routing keys (producer: ingestion; FR-WHK-04/05, FR-CON-03). Mirrors AEGIS_MARKET_EVENT_V1 without the raw `body` (full text is never put on the bus; see rawStorageKey).",
+      "required": ["externalId", "category", "title", "publishedAt"],
+      "anyOf": [
+        {
+          "required": ["deliveryId"],
+          "properties": {
+            "deliveryId": true
+          }
+        },
+        {
+          "required": ["connectorId"],
+          "properties": {
+            "connectorId": true
+          }
+        }
+      ],
+      "properties": {
+        "externalId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "REGULATION_PUBLISHED",
+            "IPO_FILED",
+            "ACQUISITION_ANNOUNCED",
+            "MARKET_ALERT",
+            "COMPLIANCE_DISCLOSURE"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "publishedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "https only (FR-WHK-04)."
+        },
+        "mentionedEntities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "maxItems": 50
+        },
+        "tickers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Payload version; part of idempotencyKey {sourceKey}:{externalId}:v{version}."
+        },
+        "rawStorageKey": {
+          "$ref": "#/$defs/storageKey",
+          "description": "Pointer to the raw webhook/connector object (raw/webhooks/{tenantId}/{yyyy}/{mm}/{dd}/{deliveryUuid}.json)."
+        },
+        "deliveryId": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid",
+          "description": "ingestion.webhook_deliveries id; set for webhook-sourced events (one of deliveryId|connectorId required)."
+        },
+        "connectorId": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid",
+          "description": "ingestion.connectors id; set for connector-sourced events."
+        },
+        "fileId": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+        },
+        "storageKey": {
+          "$ref": "#/$defs/storageKey"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256Hex"
+        }
+      }
+    },
+    "caseEvent": {
+      "type": "object",
+      "description": "Shared base of the case.* family (producer: cases; FR-CASE-01..08).",
+      "required": ["caseId", "caseNumber", "type", "severity"],
+      "properties": {
+        "caseId": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+        },
+        "caseNumber": {
+          "type": "string",
+          "pattern": "^AP-[0-9]{4}-[0-9]{6}$",
+          "description": "Per-tenant sequence AP-{yyyy}-{000001}."
+        },
+        "type": {
+          "$ref": "#/$defs/caseType"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/caseStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Previous status; null on open."
+        },
+        "to": {
+          "$ref": "#/$defs/caseStatus"
+        },
+        "severity": {
+          "$ref": "#/$defs/caseSeverity"
+        },
+        "policyScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "policyVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entityIds": {
+          "type": "array",
+          "items": {
+            "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+          },
+          "description": "cases.cases.primary_entity_ids."
+        },
+        "disposition": {
+          "$ref": "#/$defs/disposition"
+        },
+        "triggerEventId": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+        },
+        "triggerFileId": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "cases.cases.version after the change (optimistic lock); consumers order by version, not arrival."
+        }
+      }
+    },
+    "registryChange": {
+      "type": "object",
+      "description": "Shared base of registry.* events (producer: registry): ids plus changed field NAMES only. No secrets, password data, tokens or hashes (property names matching them are rejected).",
+      "propertyNames": {
+        "not": {
+          "pattern": "[Pp]assword|[Ss]ecret|[Tt]oken|[Hh]ash"
+        }
+      },
+      "properties": {
+        "changedFields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Names of changed fields (names only, not values)."
+        },
+        "actorId": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid",
+          "description": "User or service account that made the change."
+        }
+      }
+    },
+    "intelMetric": {
+      "type": "object",
+      "description": "Shared body of intel.* events (producer: data-intel; FR-INTEL-02/03, FR-EVAL).",
+      "required": ["metric", "scope", "value", "window"],
+      "properties": {
+        "metric": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Metric name, e.g. psi_risk_score, rollup_entity_risk_daily."
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Scope label, e.g. tenant, source key, model version."
+        },
+        "value": {
+          "type": "number"
+        },
+        "threshold": {
+          "type": "number"
+        },
+        "window": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Evaluation window label, e.g. 7d, 2026-11-21."
+        }
+      }
+    },
+    "opsEvent": {
+      "type": "object",
+      "description": "Shared base of ops.* events (producers: events/files/ingestion): operational ids plus actor. No payload bodies.",
+      "properties": {
+        "actorId": {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid",
+          "description": "Acting user/service account; absent for system actions."
+        }
+      }
+    }
+  }
+}
