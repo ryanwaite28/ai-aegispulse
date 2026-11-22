@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-22 (ADR-0013: NestJS gateway) |
+| **Last updated** | 2026-11-22 (ADR-0013: NestJS gateway; ADR-0014: dev/prod environments) |
 
 ---
 
@@ -213,7 +213,7 @@ case_threshold       = 70  → opens TRANSACTION_RISK case
 ```
 - Currency conversion uses a static, versioned FX table (`fx-static-v1`, seeded) — no live FX calls.
 - Velocity/new-counterparty features are kept in Risk Scoring's Redis keyspace (sorted sets, 30-day TTL).
-- **Demo override (local and homelab-demo tenants only):** `metadata.demoScenario = "FORCE_CRITICAL"` adds a 100-point factor named `demo_override`. Ignored unless `tenant.demo_mode = true`.
+- **Demo override (demo-mode tenants only, any environment):** `metadata.demoScenario = "FORCE_CRITICAL"` adds a 100-point factor named `demo_override`. Ignored unless `tenant.demo_mode = true`.
 - Phase 12 adds an IsolationForest anomaly model (`risk-iforest-vN`); final score = `max(heuristic, round(100 × anomaly_score))`, both factor sets returned for explainability.
 
 #### 1.4.5 Case Policy Evaluation (`policy-v1.0.0`)
@@ -256,19 +256,23 @@ Red-flag clause lexicon (`clauses-v1`): *material weakness, going concern, resta
 | Project name | AegisPulse |
 | Repository | `aegispulse` monorepo on self-hosted GitLab (`gitlab.rmwhs.com`) |
 | Domain | Risk, regulatory & market intelligence (FinTech / RegTech) |
-| Console URL (homelab) | `https://aegispulse.rmwhs.com` |
-| API URL (homelab) | `https://aegispulse-api.rmwhs.com` |
-| Object upload URL (homelab) | `https://aegispulse-objects.rmwhs.com` (presigned S3 only) |
+| Console URL (prod) | `https://aegispulse.rmwhs.com` |
+| API URL (prod) | `https://aegispulse-api.rmwhs.com` |
+| Object upload URL (prod) | `https://aegispulse-objects.rmwhs.com` (presigned S3 only) |
+| Console URL (dev) | `https://aegispulse.rmwhs-dev.space` |
+| API URL (dev) | `https://aegispulse-api.rmwhs-dev.space` |
+| Object upload URL (dev) | `https://aegispulse-objects.rmwhs-dev.space` (presigned S3 only) |
+| Domains | `rmwhs.com` = **prod**, `rmwhs-dev.space` = **dev**; both proxied by Cloudflare to the same tunnel → same k3s cluster (ADR-0014) |
 | Local URLs | gateway `http://localhost:8080`, console `http://localhost:5173`, objects `http://localhost:9000` |
 | Kubernetes cluster | homelab k3s: `elitedesk-800` (compute) + `optiplex` (storage-dedicated) |
-| Kubernetes namespace | `aegispulse` |
+| Kubernetes namespaces | `aegispulse` (prod), `aegispulse-dev` (dev) |
 | Container registry | `registry.rmwhs.com/<group>/aegispulse/<image>` (`$CI_REGISTRY_IMAGE`) |
-| Environments | `local` (Docker Compose), `homelab` (k3s, the portfolio deployment); `production` is a documented reference architecture only |
+| Environments | `local` (Docker Compose), `dev` (homelab k3s, `*.rmwhs-dev.space`), `prod` (homelab k3s, `*.rmwhs.com`, the portfolio deployment); AWS production is a documented reference architecture only |
 | Resource prefix | `aegispulse-` (Kubernetes), `aegispulse.` (RabbitMQ exchanges), `aegispulse-<env>-` (buckets) |
-| RabbitMQ | shared cluster broker (`rabbitmq` namespace), dedicated vhost `aegispulse` |
-| Secrets | Infisical (`infisical.rmwhs.com`), project `aegispulse`, environments `local`, `homelab` |
-| Observability | OpenObserve (`openobserve.rmwhs.com`), stream prefix `aegispulse_` |
-| Notifications | ntfy topic `aegispulse-alerts` (access-token protected) |
+| RabbitMQ | shared cluster broker (`rabbitmq` namespace), vhosts `aegispulse-dev` and `aegispulse-prod` |
+| Secrets | Infisical (`infisical.rmwhs.com`), project `aegispulse`, environments `local`, `dev`, `prod` |
+| Observability | OpenObserve (`openobserve.rmwhs.com`), stream prefixes `aegispulse_dev_` / `aegispulse_prod_` |
+| Notifications | ntfy topics `aegispulse-alerts` (prod) and `aegispulse-alerts-dev` (dev), access-token protected |
 | Cloud account | None for portfolio (homelab). Reference production targets AWS (§5.8). |
 
 ### 1.6 Mission
@@ -483,7 +487,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 
 ### 2.21 Portfolio Demo Tooling (Owner: `scripts/demo/`)
 
-- **FR-DEMO-01**: `make demo` runs a scripted scenario against local or homelab: signed webhooks for a regulation, IPO, acquisition (mentioning a watchlisted entity), a transaction burst that crosses the case threshold, a filing PDF upload, and a CSV batch — printing correlation ids and console links.
+- **FR-DEMO-01**: `make demo` runs a scripted scenario against local, dev, or prod (`ENV=`): signed webhooks for a regulation, IPO, acquisition (mentioning a watchlisted entity), a transaction burst that crosses the case threshold, a filing PDF upload, and a CSV batch — printing correlation ids and console links.
 - **FR-DEMO-02**: `scripts/demo/webhook-sign.ts` signs arbitrary payloads for a source; `scripts/demo/upload.ts` performs the three-step upload; `scripts/demo/chaos/*.sh` produce duplicate webhook floods, consumer restarts, and scanner latency injection (Phase 18).
 
 ### 2.22 Explicitly Out of Scope (v1.0)
@@ -511,7 +515,7 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 
 ### NFR-03 — Cost Efficiency
 - Portfolio runs on owned homelab hardware: zero cloud spend for compute/data; optional LLM spend capped at USD 5/month via `SCANNER_LLM_MONTHLY_BUDGET_USD` (scanner refuses LLM calls when exceeded, falls back to classifier).
-- Elitedesk-800 app-tier requests ≤ 2.0 vCPU / 4.5 GiB total; optiplex storage-tier requests ≤ 1.0 vCPU / 4 GiB (§5.4).
+- Per-namespace request budgets (§5.4): **prod** elitedesk-800 ≤ 2.0 vCPU / 4.5 GiB, optiplex ≤ 1.0 vCPU / 4 GiB; **dev** elitedesk-800 ≤ 1.0 vCPU / 3.0 GiB, optiplex ≤ 0.5 vCPU / 2 GiB. Dev may be scaled to zero when idle (`make env-sleep ENV=dev`, nightly `env-sleep` scheduled pipeline at 01:00 local; any dev deploy wakes it).
 - Evidence: `kubectl describe node` allocation snapshot per release; `ci/check-resource-budget.sh` sums manifest requests and fails over budget.
 
 ### NFR-04 — Testability & Layering
@@ -520,12 +524,12 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 - Evidence: architecture tests in each runtime's unit suite; SonarQube gate status.
 
 ### NFR-05 — Local Dev Parity
-- `docker compose` brings up the same datastores and broker versions as homelab (PostgreSQL 18, MongoDB 8 replica set, Redis 8, RabbitMQ 4, S3-compatible object store, OpenObserve, ClamAV). Same migrations, same topology declarations (`packages/contracts/topology/aegispulse.topology.json`), same images.
+- `docker compose` brings up the same datastores and broker versions as dev and prod (PostgreSQL 18, MongoDB 8 replica set, Redis 8, RabbitMQ 4, S3-compatible object store, OpenObserve, ClamAV). Same migrations, same topology declarations (`packages/contracts/topology/aegispulse.topology.json`), same images.
 - No `if (env === 'local')` business branches; environment differences are configuration only (URLs, replica counts, budgets, feature flags listed in §10.4).
-- Evidence: CI `e2e-compose` job runs the E2E suite against compose; homelab smoke suite runs the same scenarios post-deploy.
+- Evidence: CI `e2e-compose` job runs the E2E suite against compose; dev runs the full smoke + security suites post-deploy and prod runs the smoke subset after promotion.
 
 ### NFR-06 — Environment Isolation
-- `local` and `homelab` share nothing: separate Infisical environments, separate RabbitMQ vhosts (`aegispulse-local` in compose, `aegispulse` on cluster), separate buckets (`aegispulse-local-*`, `aegispulse-homelab-*`), separate signing keys.
+- `local`, `dev`, and `prod` share nothing except cluster-level platform services: separate namespaces (`aegispulse-dev`, `aegispulse`), separate datastores (each namespace runs its own PostgreSQL/MongoDB/Redis/object-store StatefulSets), separate Infisical environments, separate RabbitMQ vhosts (`aegispulse-local` in compose, `aegispulse-dev` / `aegispulse-prod` on cluster) and users, separate buckets (`aegispulse-local-*`, `aegispulse-dev-*`, `aegispulse-prod-*`), separate JWT signing keys and webhook KEKs, separate OpenObserve streams and ntfy topics, separate domains. NetworkPolicies deny all traffic between `aegispulse-dev` and `aegispulse`. Tokens minted in dev are invalid in prod (different `iss` keys and `aud` claim `aegispulse-dev`).
 - Tenant isolation inside an environment: every query is tenant-filtered in repositories; PostgreSQL Row-Level Security on all tenant tables (`app.tenant_id` set with `SET LOCAL` per transaction); Mongo repository wrapper rejects queries without `tenantId`; Redis keys always contain `tenantId` where tenant-scoped; object keys always prefixed by `tenantId`.
 - Evidence: cross-tenant integration suite (tenant B token against tenant A ids → 404 for every route in §8.3).
 
@@ -561,7 +565,7 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 - Startup order is not assumed: each runtime retries dependency connections with backoff (max 60 s) before failing; readiness gates on (a) config + secrets validated, (b) datastore reachable, (c) schema version ≥ expected migration (Flyway history check / Mongo `schema_meta`), (d) broker topology asserted.
 - Probes: `GET /livez` (process alive, no dependency checks), `GET /readyz` (dependencies), `GET /healthz` (aggregated JSON for humans). Liveness never checks dependencies to avoid restart storms.
 - Graceful shutdown on `SIGTERM` (terminationGracePeriodSeconds 30): stop accepting HTTP, cancel consumers, finish in-flight messages (≤ 20 s), flush outbox relay batch, flush telemetry, close pools.
-- Migrations run as Kubernetes Jobs **before** the Deployment rollout (deploy script waits for Job success); apps never auto-migrate in homelab.
+- Migrations run as Kubernetes Jobs **before** the Deployment rollout (deploy script waits for Job success); apps never auto-migrate in dev or prod.
 - Evidence: rollout logs, `kubectl rollout restart` under load with zero lost messages.
 
 ### NFR-12 — Data Durability, Backup & Restore
@@ -596,16 +600,20 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 
 ### NFR-18 — Environment Behavior Matrix
 
-| Concern | Local | Homelab | Reference production |
-|---|---|---|---|
-| TLS | none (localhost) | Cloudflare edge | ALB/ACM + mesh mTLS |
-| Replicas | 1 | 1 (2 for gateway) | ≥ 2 + HPA |
-| Secrets | `.env` from `infisical export --env=local` | Infisical Operator | Infisical/AWS Secrets Manager |
-| LLM adjudicator | off | off (opt-in flag) | configurable |
-| ClamAV | on (compose) | on | on |
-| Backups | none | nightly CronJobs | managed snapshots + PITR |
-| DAST | manual | pipeline post-deploy | pre-prod gate |
-| Demo mode | seed tenant on | `tenant-acme-capital` only | off |
+| Concern | Local | Dev (homelab, `rmwhs-dev.space`) | Prod (homelab, `rmwhs.com`) | Reference production (AWS) |
+|---|---|---|---|---|
+| Deployed by | `make up` | automatically on every `main` pipeline | manual promotion of dev-verified digests, or `v*` tag | — |
+| TLS | none (localhost) | Cloudflare edge | Cloudflare edge | ALB/ACM + mesh mTLS |
+| Replicas | 1 | 1 (can scale to zero when idle) | 1 (2 for gateway) | ≥ 2 + HPA |
+| Resource requests | n/a | reduced (dev budget §5.4) | full (prod budget §5.4) | autoscaled |
+| Secrets | `.env` from `infisical export --env=local` | Infisical Operator (env `dev`) | Infisical Operator (env `prod`) | Infisical/AWS Secrets Manager |
+| LLM adjudicator | off | opt-in flag (budget $2) | off (opt-in flag) | configurable |
+| ClamAV | on (compose) | on | on | on |
+| Backups | none | weekly dump, 2 retained | nightly CronJobs (§NFR-12) | managed snapshots + PITR |
+| DAST (ZAP baseline + active API scan) | manual | pipeline post-deploy (blocking) | passive baseline only after promotion | pre-prod gate |
+| Chaos / load / soak | manual | yes (Phase 18) | **never** | game days |
+| Data | synthetic seed | synthetic seed, resettable (`make env-reset ENV=dev`) | demo tenant only, never reset | n/a |
+| Demo mode | seed tenant on | all seed tenants | `tenant-acme-capital` only | off |
 
 ---
 
@@ -682,10 +690,11 @@ Additional principles:
 Internet ─▶ Cloudflare (TLS, WAF, 100 MB body cap) ─▶ cloudflared tunnel
                                                         │ plain HTTP
                                          ingress-nginx (class nginx-external)
-            ┌──────────────────────────┬────────────────┴───────────────┐
-  aegispulse.rmwhs.com      aegispulse-api.rmwhs.com      aegispulse-objects.rmwhs.com
-  (console, nginx static)   (gateway)                     (object store S3 API, presigned only)
-┌─────────────────────────────── namespace: aegispulse ─────────────────────────────────────┐
+          Host-based routing (same tunnel, same ingress controller, two domains):
+   PROD  aegispulse.rmwhs.com        aegispulse-api.rmwhs.com        aegispulse-objects.rmwhs.com      → ns aegispulse
+   DEV   aegispulse.rmwhs-dev.space  aegispulse-api.rmwhs-dev.space  aegispulse-objects.rmwhs-dev.space → ns aegispulse-dev
+         (console, nginx static)     (gateway)                       (object store S3 API, presigned only)
+┌──────────── namespace: aegispulse (prod)  ·  namespace: aegispulse-dev (dev, same shape, reduced) ─────────────┐
 │ NODE elitedesk-800 (stateless)                                                           │
 │   gateway ─▶ ingestion · files · events · registry · cases · orchestrator                │
 │             risk-scoring · sensitivity-scanner · doc-extraction · data-intel · clamav    │
@@ -693,12 +702,12 @@ Internet ─▶ Cloudflare (TLS, WAF, 100 MB body cap) ─▶ cloudflared tunnel
 │ NODE optiplex (dedicated=storage taint; StatefulSets with nodeSelector + toleration)      │
 │   postgresql-18 · mongodb-8 (1-node replica set) · redis-8 · object-store (S3 API)       │
 └───────────────────────────────────────────┬──────────────────────────────────────────────┘
-      shared cluster services: rabbitmq (vhost aegispulse) · infisical (+ operator)
+      shared cluster services: rabbitmq (vhosts aegispulse-prod, aegispulse-dev) · infisical (+ operator; envs prod, dev)
       openobserve (logs/metrics/traces) · trivy-operator · gitlab + runner (kaniko)
       uptime-kuma + ntfy (installed in Phase 18 if absent)
 ```
 
-| Concern | Production (reference) | Portfolio (homelab) |
+| Concern | Production (reference) | Portfolio (homelab dev + prod) |
 |---|---|---|
 | Compute | EKS, 3 AZ, HPA/KEDA/Karpenter | k3s, 2 nodes, fixed capacity, replicas 1 (gateway 2) |
 | Ingress/TLS | ALB + ACM + WAF, mesh mTLS | Cloudflare edge TLS/WAF → tunnel → ingress-nginx (HTTP); JWT on every hop |
@@ -712,6 +721,7 @@ Internet ─▶ Cloudflare (TLS, WAF, 100 MB body cap) ─▶ cloudflared tunnel
 | Image policy | Kyverno verify-images | cosign verify in deploy script |
 | Observability | OTel Collector + managed backend | OpenObserve in cluster |
 | Availability | 99.9% target | best effort; single points of failure accepted and documented |
+| Environments | separate AWS accounts per env | two namespaces on one cluster, separated by domain, NetworkPolicy, credentials, and datastores (ADR-0014) |
 
 ### 4.4 Async Event Flows
 
@@ -822,7 +832,7 @@ Pattern: `aegispulse-{component}[-{descriptor}]`.
 
 | Kind | Example |
 |---|---|
-| Namespace | `aegispulse` (restore drills: `aegispulse-restore-test`) |
+| Namespace | `aegispulse` (prod), `aegispulse-dev` (dev); restore drills: `aegispulse-restore-test` |
 | Deployment / Service | `aegispulse-gateway`, `aegispulse-cases` |
 | StatefulSet | `aegispulse-postgres`, `aegispulse-mongo`, `aegispulse-redis`, `aegispulse-objectstore` |
 | CronJob | `aegispulse-cron-connectors`, `aegispulse-cron-file-sweep`, `aegispulse-cron-rollups-15m`, `aegispulse-cron-rollups-nightly`, `aegispulse-cron-backup-postgres`, `aegispulse-cron-backup-mongo`, `aegispulse-cron-audit-verify`, `aegispulse-cron-retention` |
@@ -832,9 +842,10 @@ Pattern: `aegispulse-{component}[-{descriptor}]`.
 | ConfigMap | `aegispulse-{component}-config` |
 | NetworkPolicy | `aegispulse-{component}-ingress`, `aegispulse-default-deny` |
 | Ingress | `aegispulse-console`, `aegispulse-api`, `aegispulse-objects` |
-| Buckets | `aegispulse-homelab-raw`, `-artifacts`, `-quarantine`, `-archive`, `-analytics`, `-backups` |
-| RabbitMQ | vhost `aegispulse`; exchanges `aegispulse.{ingress,enrichment,domain,intelligence,retry,dlx}`; queues `{owner}.{purpose}.q` |
-| OpenObserve | streams `aegispulse_logs`, `aegispulse_traces`, `aegispulse_metrics` |
+| Buckets | `aegispulse-{dev\|prod}-raw`, `-artifacts`, `-quarantine`, `-archive`, `-analytics`, `-backups` (each in its namespace's own object store) |
+| RabbitMQ | vhosts `aegispulse-dev`, `aegispulse-prod`; exchanges `aegispulse.{ingress,enrichment,domain,intelligence,retry,dlx}`; queues `{owner}.{purpose}.q` |
+| OpenObserve | streams `aegispulse_{dev\|prod}_logs`, `_traces`, `_metrics` |
+| Hostnames | `aegispulse[-api\|-objects].rmwhs.com` (prod), `aegispulse[-api\|-objects].rmwhs-dev.space` (dev). Always one label under the domain (Cloudflare Universal SSL covers first-level subdomains only) |
 
 ### 5.2 Standard Labels & Annotations
 
@@ -857,29 +868,30 @@ metadata:
 
 | Category | Resource | Purpose |
 |---|---|---|
-| Namespace | `aegispulse` | all AegisPulse workloads; `ResourceQuota` (requests.cpu 3.5, requests.memory 9Gi, limits.memory 18Gi) + `LimitRange` defaults |
-| Ingress | `aegispulse-console` → `aegispulse.rmwhs.com` | console static site |
-| Ingress | `aegispulse-api` → `aegispulse-api.rmwhs.com` | gateway (incl. `/webhooks/*`, SSE with `proxy-buffering: off`, `proxy-read-timeout: 3600`) |
-| Ingress | `aegispulse-objects` → `aegispulse-objects.rmwhs.com` | object store S3 API for presigned PUT/GET only (`proxy-body-size: 100m`) |
+| Namespace | `aegispulse` (prod) | prod workloads; `ResourceQuota` (requests.cpu 3.5, requests.memory 9Gi, limits.memory 18Gi) + `LimitRange` defaults |
+| Namespace | `aegispulse-dev` (dev) | dev workloads; `ResourceQuota` (requests.cpu 1.5, requests.memory 5Gi, limits.memory 10Gi) + `LimitRange` defaults |
+| Ingress | `aegispulse-console` → `aegispulse.rmwhs.com` (prod) / `aegispulse.rmwhs-dev.space` (dev) | console static site |
+| Ingress | `aegispulse-api` → `aegispulse-api.rmwhs.com` (prod) / `aegispulse-api.rmwhs-dev.space` (dev) | gateway (incl. `/webhooks/*`, SSE with `proxy-buffering: off`, `proxy-read-timeout: 3600`) |
+| Ingress | `aegispulse-objects` → `aegispulse-objects.rmwhs.com` (prod) / `aegispulse-objects.rmwhs-dev.space` (dev) | object store S3 API for presigned PUT/GET only (`proxy-body-size: 100m`) |
 | Deployments | 12 (§5.4) | application runtimes |
 | StatefulSets | postgres, mongo, redis, objectstore | data stores pinned to `optiplex` |
 | CronJobs | 8 (§5.1) | schedules via `workers/scheduler-trigger` and backup images |
-| Jobs | per-service Flyway migrations, Mongo index migrations, RabbitMQ topology assert, seed (homelab demo tenant) | pre-rollout |
+| Jobs | per-service Flyway migrations, Mongo index migrations, RabbitMQ topology assert, seed (dev: all seed tenants; prod: demo tenant only) | pre-rollout |
 | PVCs (`local-path`) | postgres 20Gi, mongo 20Gi, redis 1Gi, objectstore 60Gi, clamav-db 2Gi (elitedesk) | persistent data |
 | NetworkPolicies | default-deny ingress+egress; explicit allows (§5.7.5) | zero-trust network |
 | InfisicalSecret CRs | one per component | runtime secret sync |
 | RabbitMQ (shared) | vhost, users, policies (quorum queues, max-length on DLQs 100k) | messaging |
-| Infisical (shared) | project `aegispulse`, envs `local`/`homelab`, machine identity for operator | secrets |
+| Infisical (shared) | project `aegispulse`, envs `local`/`dev`/`prod`, one operator machine identity per env (read-only to that env) | secrets |
 | OpenObserve (shared) | org `aegispulse`, streams, alerts, dashboards | observability |
 | GitLab | project, protected branches/tags, CI variables, container registry | CI/CD |
-| Cloudflare | 3 proxied DNS records + tunnel public hostnames, WAF rate rule on `/webhooks/*` and `/v1/auth/*` | edge |
-| Uptime Kuma + ntfy | monitors (§9.7), topic `aegispulse-alerts` | synthetic checks + push |
+| Cloudflare | 6 proxied DNS records (3 per domain) + tunnel public hostnames, WAF rate rule on `/webhooks/*` and `/v1/auth/*` | edge |
+| Uptime Kuma + ntfy | monitors (§9.7), topics `aegispulse-alerts` / `aegispulse-alerts-dev` | synthetic checks + push |
 
 ### 5.4 Workload Configuration
 
 All containers: `runAsNonRoot: true`, `readOnlyRootFilesystem: true` (writable `emptyDir` at `/tmp` only), `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`, `automountServiceAccountToken: false`. Probes: liveness `/livez` (period 10 s, failure 3), readiness `/readyz` (period 5 s, failure 2), startup `/livez` (failure 30 × 2 s; JVM 60 × 2 s).
 
-| Workload | Runtime | Port | Replicas (H) | CPU req/lim | Mem req/lim | Node | Trigger |
+| Workload | Runtime | Port | Replicas (prod) | CPU req/lim (prod) | Mem req/lim (prod) | Node | Trigger |
 |---|---|---|---|---|---|---|---|
 | `aegispulse-gateway` | Node 24 | 8080 | 2 | 100m / 500m | 128Mi / 384Mi | elitedesk | Ingress |
 | `aegispulse-ingestion` | Node 24 | 8081 | 1 | 100m / 500m | 128Mi / 384Mi | elitedesk | HTTP + outbox relay |
@@ -900,7 +912,9 @@ All containers: `runAsNonRoot: true`, `readOnlyRootFilesystem: true` (writable `
 | `aegispulse-redis` | Redis 8 | 6379 | 1 | 50m / 250m | 64Mi / 256Mi | optiplex | — |
 | `aegispulse-objectstore` | S3-compatible | 9000 | 1 | 100m / 500m | 256Mi / 768Mi | optiplex | — |
 
-Budget totals (requests): elitedesk ≈ 1.77 vCPU / 4.4 GiB (gateway ×2 counted); optiplex ≈ 0.65 vCPU / 1.6 GiB — within NFR-03. Storage StatefulSets carry the `dedicated: storage` nodeSelector **and** the `dedicated=storage:NoSchedule` toleration on first deploy; no other workload tolerates that taint.
+Budget totals (prod requests): elitedesk ≈ 1.77 vCPU / 4.4 GiB (gateway ×2 counted); optiplex ≈ 0.65 vCPU / 1.6 GiB — within NFR-03.
+
+**Dev sizing (`overlays/dev`, namespace `aegispulse-dev`).** Same workloads and images with replicas 1 everywhere (gateway 1) and halved requests. **Limits stay identical to prod** so dev catches OOM and throttling issues that prod would hit. Examples: Node services 50m/96Mi, Java services 100m/256Mi, scanner 50m/256Mi, doc-extraction 100m/384Mi, ClamAV 50m/768Mi, data stores postgres 100m/256Mi, mongo 100m/384Mi, redis 25m/48Mi, objectstore 50m/128Mi. PVCs: postgres 5Gi, mongo 5Gi, redis 1Gi, objectstore 15Gi. Dev totals ≈ 0.9 vCPU / 2.9 GiB (elitedesk) and 0.3 vCPU / 0.8 GiB (optiplex), within the dev budget (NFR-03). Dev may be scaled to zero when idle (`env:sleep:dev`). **Capacity watch:** prod + awake dev ≈ 2.7 vCPU of CPU requests on elitedesk's 4 vCPU, alongside GitLab and platform services. Phase 9 records `kubectl describe node` allocations, and if CPU requests exceed 85% of allocatable, dev defaults to sleeping outside pipeline runs. Storage StatefulSets carry the `dedicated: storage` nodeSelector **and** the `dedicated=storage:NoSchedule` toleration on first deploy; no other workload tolerates that taint.
 
 ### 5.5 RabbitMQ Queue Configuration
 
@@ -934,15 +948,15 @@ Dead-letter routing note: `{queue}.dlq` queues are bound to `aegispulse.dlx` wit
 | Pooling | per-service pool max 10 (Node `pg`), Hikari 10 (Java), SQLAlchemy 5 (Python) | RDS Proxy |
 | MongoDB | 8.0, single-member replica set `rs0` (transactions), WiredTiger cache 0.5 GB, auth enabled | Atlas M30 3-node, PITR, encryption at rest |
 | Redis | 8, AOF `everysec`, `maxmemory 192mb`, `allkeys-lru` disabled → `volatile-ttl` (all keys have TTL), ACL users per service | ElastiCache Multi-AZ, TLS, AUTH |
-| RabbitMQ | shared cluster broker 4.x, vhost `aegispulse`, Prometheus plugin | Amazon MQ for RabbitMQ cluster deployment |
+| RabbitMQ | shared cluster broker 4.x, vhosts `aegispulse-dev` / `aegispulse-prod`, Prometheus plugin | Amazon MQ for RabbitMQ cluster deployment |
 | Object store | S3-compatible single node, versioning on `raw`/`backups`, lifecycle: `quarantine/` 30 d, `tmp/` 1 d | S3 SSE-KMS, Object Lock (governance) on `backups` |
-| Backups | nightly dumps → `aegispulse-homelab-backups`, weekly off-node copy | managed snapshots + cross-region copy |
+| Backups | prod: nightly dumps → `aegispulse-prod-backups`, weekly off-node copy; dev: weekly dump → `aegispulse-dev-backups` (2 retained) | managed snapshots + cross-region copy |
 
 ### 5.7 Identity, Least Privilege & Network Policy
 
 #### 5.7.1 Kubernetes ServiceAccounts
 - One ServiceAccount per workload, `automountServiceAccountToken: false` (no workload talks to the Kubernetes API).
-- `aegispulse-ci-deployer`: Role in `aegispulse` allowing `get/list/watch/create/update/patch` on Deployments, StatefulSets, Services, Ingresses, ConfigMaps, Jobs, CronJobs, NetworkPolicies, ServiceAccounts, PDBs, `InfisicalSecret` CRs; `delete` on Jobs only; **no** access to `Secret` objects (Infisical Operator manages them). Token stored as masked/protected GitLab variable `AEGIS_DEPLOY_SA_TOKEN`.
+- `aegispulse-ci-deployer`: one per namespace (`aegispulse`, `aegispulse-dev`), each a Role scoped to its own namespace, allowing `get/list/watch/create/update/patch` on Deployments, StatefulSets, Services, Ingresses, ConfigMaps, Jobs, CronJobs, NetworkPolicies, ServiceAccounts, PDBs, `InfisicalSecret` CRs; `delete` on Jobs only; **no** access to `Secret` objects (Infisical Operator manages them). Tokens stored as masked/protected GitLab variables `AEGIS_DEPLOY_SA_TOKEN_DEV` and `AEGIS_DEPLOY_SA_TOKEN_PROD` (the prod variable is scoped to the GitLab `prod` environment only).
 
 #### 5.7.2 PostgreSQL Roles
 | Role | Grants |
@@ -967,11 +981,11 @@ No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY`
 | Redis ACL `registry` | `~auth:* ~ratelimit:auth:*` |
 | RabbitMQ user per service | configure: `^$` (topology asserted by migration Job user `aegis_topology`), write: owning exchanges + `aegispulse.retry` + `aegispulse.dlx`, read: own queues only |
 | Object store `files` | `raw/*`, `quarantine/*`, `artifacts/*` (read) on its buckets; presign rights |
-| Object store `ingestion` | `aegispulse-homelab-raw/raw/webhooks/*` write |
+| Object store `ingestion` | `aegispulse-{env}-raw/raw/webhooks/*` write |
 | Object store `doc_extraction` | `artifacts/*` write; reads raw only via Files-issued presigned URLs |
-| Object store `events` | `aegispulse-homelab-archive/*` write |
-| Object store `data_intel` | `aegispulse-homelab-analytics/*` RW |
-| Object store `backup` | `aegispulse-homelab-backups/*` write |
+| Object store `events` | `aegispulse-{env}-archive/*` write |
+| Object store `data_intel` | `aegispulse-{env}-analytics/*` RW |
+| Object store `backup` | `aegispulse-{env}-backups/*` write |
 
 #### 5.7.4 Internal Service Action Allowlist (`act[]` claim)
 | Caller (SERVICE account) | Allowed callee actions |
@@ -987,6 +1001,7 @@ No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY`
 | scheduler-trigger | `ingestion.runDueConnectors`, `ingestion.expirePreviousSecrets`, `files.sweepOrphans`, `files.purgeRetention`, `events.sweepPendingScans`, `events.purgeRetention`, `cases.runEnrichmentTimeouts`, `cases.autoResolveCleared`, `cases.verifyAuditChain`, `dataIntel.runRollups`, `dataIntel.runDriftChecks`, `dataIntel.exportParquet` |
 
 #### 5.7.5 NetworkPolicies (default deny, explicit allow)
+- Identical policy sets in `aegispulse` and `aegispulse-dev`. Every allow rule selects pods **within its own namespace** (or named platform namespaces below). There are no rules between `aegispulse-dev` and `aegispulse`, so dev pods can't reach prod pods or datastores, and the reverse.
 - Ingress to gateway and console only from `ingress-nginx` namespace; objectstore port 9000 from `ingress-nginx` (presigned) and from files/ingestion/doc-extraction/events/data-intel/backup.
 - Service ingress (8081–8090) only from gateway, orchestrator, scheduler CronJobs, and the specific callers in §5.7.4.
 - Datastore ingress only from owners: postgres ← ingestion, files, registry, cases, data-intel, migration Jobs, backup; mongo ← events, mongo-migrate, backup; redis ← ingestion, files, registry, risk-scoring; clamav ← files.
@@ -1010,7 +1025,8 @@ No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY`
 | IaC | Terraform modules (`infra/terraform/aws-reference/`, documentation-grade, not applied) |
 
 ### 5.9 DNS & Edge
-- Cloudflare proxied records → tunnel: `aegispulse`, `aegispulse-api`, `aegispulse-objects` under `rmwhs.com`. No apex binding.
+- Cloudflare proxied records → the same tunnel: `aegispulse`, `aegispulse-api`, `aegispulse-objects` under `rmwhs.com` (**prod**) and under `rmwhs-dev.space` (**dev**). No apex binding on either domain, and hostnames stay one label deep so Universal SSL covers them.
+- ingress-nginx routes by `Host`: each namespace's Ingress objects declare only that environment's hostnames, so a request can never cross environments.
 - Ingress annotations: `nginx.ingress.kubernetes.io/ssl-redirect: "false"`; API host adds `limit-rps: "20"`, `limit-burst-multiplier: "3"`, `proxy-body-size: "2m"`; objects host `proxy-body-size: "100m"`, `proxy-request-buffering: "off"`.
 - Cloudflare WAF custom rules: rate limit `/v1/auth/login` (10/min/IP), `/webhooks/*` (120/min/IP); block non-`POST` on `/webhooks/*`.
 
@@ -1105,12 +1121,12 @@ aegispulse/
 ├── deploy/
 │   ├── compose/docker-compose.yml     # local stack
 │   ├── k8s/base/                      # namespace, quotas, netpols, deployments, statefulsets, cronjobs, ingresses
-│   ├── k8s/overlays/{homelab,k3d-local}/
+│   ├── k8s/overlays/{dev,prod,k3d-local}/
 │   └── observability/                 # OpenObserve dashboards + alert definitions as JSON
 ├── infra/
 │   └── terraform/aws-reference/       # documentation-grade reference only; never applied by CI
 └── tests/
-    ├── e2e/                           # Vitest + fetch E2E against compose/homelab
+    ├── e2e/                           # Vitest + fetch E2E against compose/dev/prod
     ├── contract/                      # Pact-style consumer contracts + schema conformance
     ├── load/                          # k6 scripts
     ├── security/                      # netpol, cross-tenant, adversarial webhooks
@@ -2275,8 +2291,9 @@ Collections use `$jsonSchema` validators (`validationLevel: strict`) generated f
 | Environment | API URL | Web App URL | Webhook URL pattern |
 |---|---|---|---|
 | local | `http://localhost:8080` | `http://localhost:5173` | `http://localhost:8080/webhooks/{sourceKey}` |
-| homelab | `https://aegispulse-api.rmwhs.com` | `https://aegispulse.rmwhs.com` | `https://aegispulse-api.rmwhs.com/webhooks/{sourceKey}` |
-| production (reference) | `https://api.aegispulse.<domain>` | `https://app.aegispulse.<domain>` | same pattern |
+| dev | `https://aegispulse-api.rmwhs-dev.space` | `https://aegispulse.rmwhs-dev.space` | `https://aegispulse-api.rmwhs-dev.space/webhooks/{sourceKey}` |
+| prod | `https://aegispulse-api.rmwhs.com` | `https://aegispulse.rmwhs.com` | `https://aegispulse-api.rmwhs.com/webhooks/{sourceKey}` |
+| AWS production (reference) | `https://api.aegispulse.<domain>` | `https://app.aegispulse.<domain>` | same pattern |
 
 Public contract: `packages/contracts/openapi/gateway.public.yaml` (served at `/v1/openapi.json`, used by ZAP API scan). Internal contracts: `{service}.internal.yaml`.
 
@@ -2495,8 +2512,9 @@ Error:
 |---|---|---|---|
 | `local` | development, integration and E2E tests | Docker Compose on developer machine (optional k3d) | `make up` |
 | `ci` | unit/integration tests with Testcontainers inside runner pods | GitLab Runner kubernetes executor (namespace `gitlab-runner`) | pipeline |
-| `homelab` | the portfolio deployment; DAST target; demo environment | k3s namespace `aegispulse` | pipeline on `main` |
-| `production` | reference only (documented, never provisioned) | EKS (§4.2, §5.8) | — |
+| `dev` | integration/runtime verification, DAST target, chaos/load/soak, resettable data | k3s namespace `aegispulse-dev`, `*.rmwhs-dev.space` | pipeline on every `main` commit (automatic) |
+| `prod` | the portfolio deployment and public demo; never chaos-tested or reset | k3s namespace `aegispulse`, `*.rmwhs.com` | manual promotion of dev-verified digests, or `v*` tag |
+| AWS production | reference only (documented, never provisioned) | EKS (§4.2, §5.8) | — |
 
 ### 9.2 CI/CD (GitLab)
 
@@ -2504,7 +2522,7 @@ Pipeline logic lives in `ci/*.sh` (cluster standard §3.2); `.gitlab-ci.yml` sta
 
 ```yaml
 # .gitlab-ci.yml (shape)
-stages: [.pre, lint, test, contract, build, scan, sign, deploy, verify, release]
+stages: [.pre, lint, test, contract, build, scan, sign, deploy-dev, verify-dev, deploy-prod, verify-prod, release]
 
 workflow:
   rules:
@@ -2537,40 +2555,46 @@ build:images:        { stage: build,   parallel: { matrix: [{ IMAGE: [gateway, i
 scan:trivy:          { stage: scan,    script: [./ci/scan-trivy.sh] }             # image + SBOM (syft) ; fail on CRITICAL/HIGH fixable
 check:layers:        { stage: scan,    script: [./ci/check-layer-sizes.sh] }      # every layer < 95 MB
 sign:images:         { stage: sign,    script: [./ci/sign.sh], rules: [{ if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH }, { if: $CI_COMMIT_TAG }] }
-deploy:homelab:      { stage: deploy,  script: [./ci/deploy.sh], environment: { name: homelab, url: https://aegispulse.rmwhs.com },
-                       resource_group: homelab, rules: [{ if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH }] }
-verify:smoke:        { stage: verify,  script: [./ci/smoke.sh] }                  # E2E smoke subset against homelab
-verify:zap:          { stage: verify,  script: [./ci/scan-zap.sh] }               # ZAP baseline (console) + API scan (openapi) ; fail on High
-verify:rollback:     { stage: verify,  script: [./ci/rollback.sh], when: manual } # redeploy previous digest set
-release:             { stage: release, script: [./ci/release.sh], rules: [{ if: $CI_COMMIT_TAG }] }  # promote digests, release notes from CHANGELOG
+deploy:dev:          { stage: deploy-dev, script: [./ci/deploy.sh dev], environment: { name: dev, url: https://aegispulse.rmwhs-dev.space },
+                       resource_group: dev, rules: [{ if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH }] }
+verify:dev:smoke:    { stage: verify-dev, script: [./ci/smoke.sh dev] }            # full E2E smoke against rmwhs-dev.space
+verify:dev:zap:      { stage: verify-dev, script: [./ci/scan-zap.sh dev] }         # ZAP baseline (console) + active API scan (openapi); fail on High
+verify:dev:netpol:   { stage: verify-dev, script: [./ci/netpol-test.sh dev] }      # incl. dev→prod isolation probe
+deploy:prod:         { stage: deploy-prod, script: [./ci/deploy.sh prod], environment: { name: prod, url: https://aegispulse.rmwhs.com },
+                       resource_group: prod, needs: [verify:dev:smoke, verify:dev:zap, verify:dev:netpol],
+                       rules: [{ if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH, when: manual }, { if: $CI_COMMIT_TAG }] }   # same digests as dev; never rebuilt
+verify:prod:smoke:   { stage: verify-prod, script: [./ci/smoke.sh prod] }          # read-mostly smoke subset; passive ZAP baseline only
+verify:prod:rollback: { stage: verify-prod, script: [./ci/rollback.sh prod], when: manual }
+env:sleep:dev:       { stage: deploy-dev, script: [./ci/env-sleep.sh dev], rules: [{ if: $CI_PIPELINE_SOURCE == "schedule" }] }   # scale dev to zero nightly
+release:             { stage: release, script: [./ci/release.sh], rules: [{ if: $CI_COMMIT_TAG }] }  # GitLab Release + notes from CHANGELOG
 ```
 
-Merge-request pipeline: `.pre → lint → test → contract → build → scan` (no sign/deploy). Main: full pipeline through `verify`. Tags: re-deploy the already-built digests for that commit and publish a GitLab Release.
+Merge-request pipeline: `.pre → lint → test → contract → build → scan` (no sign/deploy). `main`: sign → **auto-deploy to dev** → dev verification (smoke, active ZAP, NetworkPolicy) → **manual `deploy:prod`** (gated on dev verification, GitLab protected environment `prod`) → prod smoke. Tags `vX.Y.Z`: promote the already-verified digests of that commit to prod and publish a GitLab Release. Prod never receives a digest that hasn't passed dev verification (`ci/deploy.sh prod` checks `deploy/releases/dev/{sha}.json` exists and is marked verified).
 
 **Deploy script (`ci/deploy.sh`) sequence:**
-1. Configure kubectl with `AEGIS_DEPLOY_SA_TOKEN` (namespace-scoped; cluster standard §3.5).
+1. Resolve the target (`dev` → namespace `aegispulse-dev`, overlay `dev`, token `AEGIS_DEPLOY_SA_TOKEN_DEV`; `prod` → `aegispulse`, overlay `prod`, `AEGIS_DEPLOY_SA_TOKEN_PROD`) and configure kubectl (namespace-scoped; cluster standard §3.5).
 2. `cosign verify --key $COSIGN_PUBLIC_KEY` every image digest; abort on failure.
-3. `kustomize edit set image` with `@sha256:` digests in `deploy/k8s/overlays/homelab`.
+3. `kustomize edit set image` with `@sha256:` digests in `deploy/k8s/overlays/{dev|prod}`.
 4. Apply `InfisicalSecret` CRs + ConfigMaps; wait for Secrets to exist.
 5. Run `aegispulse-topology` Job (RabbitMQ assert), then migration Jobs (`aegispulse-migrate-{svc}-{sha}`) sequentially; wait `kubectl wait --for=condition=complete --timeout=300s`; abort on failure (no app rollout).
 6. `kubectl apply -k` overlay; `kubectl rollout status` each Deployment (timeout 300 s); on failure run `ci/rollback.sh` automatically for app Deployments (migrations are backward-compatible by NFR-13).
-7. Record deployed digests to `deploy/releases/{sha}.json` artifact (used by rollback).
+7. Record deployed digests to `deploy/releases/{env}/{sha}.json` artifact (used by rollback and by the prod promotion check).
 
-**Migration workflow:** Migrations are authored with the feature (`services/{svc}/db/migrations/V{n}__*.sql`), reviewed under the MR checklist (expand/contract, no edits to existing files — enforced by `ci/check-migrations.sh` comparing against `main`), executed in CI integration tests via Testcontainers, and applied in homelab only by the pre-rollout Jobs. Mongo index migrations follow the same flow with `migrate-mongo`.
+**Migration workflow:** Migrations are authored with the feature (`services/{svc}/db/migrations/V{n}__*.sql`), reviewed under the MR checklist (expand/contract, no edits to existing files — enforced by `ci/check-migrations.sh` comparing against `main`), executed in CI integration tests via Testcontainers, and applied in dev first, then in prod, only by the pre-rollout Jobs (a migration reaches prod only after passing in dev). Mongo index migrations follow the same flow with `migrate-mongo`.
 
-**Pipeline secrets (GitLab CI/CD variables, Protected + Masked):** `AEGIS_DEPLOY_SA_TOKEN`, `K8S_API_SERVER`, `COSIGN_PRIVATE_KEY` (file), `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `ZAP_AUTH_CLIENT_ID`/`ZAP_AUTH_CLIENT_SECRET` (homelab DAST service account), `NTFY_TOKEN` (pipeline failure notifications). Registry auth uses the built-in `$CI_REGISTRY_*` variables.
+**Pipeline secrets (GitLab CI/CD variables, Protected + Masked):** `AEGIS_DEPLOY_SA_TOKEN_DEV`, `AEGIS_DEPLOY_SA_TOKEN_PROD` (scoped to environment `prod`), `K8S_API_SERVER`, `COSIGN_PRIVATE_KEY` (file), `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `ZAP_AUTH_CLIENT_ID`/`ZAP_AUTH_CLIENT_SECRET` (dev DAST service account; active scans never target prod), `NTFY_TOKEN` (pipeline failure notifications). Registry auth uses the built-in `$CI_REGISTRY_*` variables.
 
 ### 9.3 Cluster Bootstrap (one-time, replaces Terraform remote-state bootstrap)
 
 Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read before running (cluster lesson §3.1).
-1. `kubectl create namespace aegispulse`; apply `ResourceQuota`, `LimitRange`, default-deny NetworkPolicy.
-2. Create `aegispulse-ci-deployer` ServiceAccount + Role + RoleBinding; mint a token; store as GitLab variable.
+1. `kubectl create namespace aegispulse` and `kubectl create namespace aegispulse-dev`; apply each namespace's `ResourceQuota`, `LimitRange`, and default-deny NetworkPolicy.
+2. Create `aegispulse-ci-deployer` ServiceAccount + Role + RoleBinding **in each namespace**; mint one token per namespace; store as `AEGIS_DEPLOY_SA_TOKEN_DEV` / `AEGIS_DEPLOY_SA_TOKEN_PROD` (prod scoped to the protected `prod` GitLab environment).
 3. Verify storage node labels/taints (`kubectl get node optiplex -o jsonpath='{.spec.taints}'`).
-4. Infisical: create project `aegispulse` with environments `local`, `homelab`; create machine identity for the Kubernetes Operator scoped read-only to `homelab`; confirm the Infisical Operator is installed (install via its Helm chart if absent — third-party ⇒ Helm per cluster convention).
-5. RabbitMQ: create vhost `aegispulse`, users per service (§5.7.3), `aegis_topology` user, policies (DLQ max-length), enable `rabbitmq_prometheus` if not enabled.
-6. Cloudflare: add public hostnames `aegispulse`, `aegispulse-api`, `aegispulse-objects` to the tunnel → `ingress-nginx`; WAF rules (§5.9).
+4. Infisical: create project `aegispulse` with environments `local`, `dev`, `prod`; create one machine identity per cluster environment for the Kubernetes Operator, each read-only to its env; confirm the Infisical Operator is installed (install via its Helm chart if absent — third-party ⇒ Helm per cluster convention).
+5. RabbitMQ: create vhosts `aegispulse-dev` and `aegispulse-prod`, users per service per vhost (§5.7.3, suffix `-dev` for dev users), `aegis_topology` user, policies (DLQ max-length), enable `rabbitmq_prometheus` if not enabled.
+6. Cloudflare: add public hostnames `aegispulse`, `aegispulse-api`, `aegispulse-objects` under **both** `rmwhs.com` (prod) and `rmwhs-dev.space` (dev) to the existing tunnel → `ingress-nginx`; WAF rules (§5.9) on both zones.
 7. OpenObserve: create org/streams, ingestion token (stored in Infisical), import dashboards/alerts from `deploy/observability/`.
-8. GitLab: protect `main` and `v*` tags, require MR approvals + passing pipeline, set CI variables (§9.2).
+8. GitLab: protect `main` and `v*` tags, require MR approvals + passing pipeline; create environments `dev` and `prod` (`prod` **protected**, deploy requires maintainer approval); set CI variables (§9.2) with environment scopes; add a nightly pipeline schedule for `env:sleep:dev`.
 9. Generate cosign key pair (`cosign generate-key-pair`), store private key + password in GitLab variables, commit public key to `deploy/cosign.pub`.
 
 ### 9.4 Tooling & Module Assessment
@@ -2604,15 +2628,18 @@ Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read befor
 | `make demo` / `make chaos SCENARIO=<name>` | demo + chaos scripts |
 | `make k3d-up` / `make k3d-down` | optional parity cluster |
 | `make trigger JOB=<job>` | run a scheduler-trigger job locally |
+| `make env-sleep ENV=dev` / `make env-wake ENV=dev` | scale the dev namespace to zero / back (prod is refused) |
+| `make env-reset ENV=dev` | wipe and reseed dev data (prod is refused) |
 
 ### 9.6 Release, Versioning & Rollback
 - SemVer tags `vMAJOR.MINOR.PATCH` for the platform; every MR adds a line under `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog). Release job moves Unreleased to the tag section.
-- Rollback: `ci/rollback.sh <previous-sha>` re-applies the digest set from `deploy/releases/{sha}.json`; database migrations are never rolled back (forward-fix only).
+- Promotion: dev → prod promotes identical digests (no rebuild); prod deploys are manual or tag-driven only.
+- Rollback: `ci/rollback.sh <env> <previous-sha>` re-applies the digest set from `deploy/releases/{env}/{sha}.json`; database migrations are never rolled back (forward-fix only).
 - Rollback drill once per phase from Phase 10 onward (evidence in `docs/evidence/`).
 
 ### 9.7 Monitoring & Alerting Configuration
-- **OpenObserve alerts** (as code in `deploy/observability/alerts/*.json`): DLQ spike (FR-MSG-04), outbox lag > 60 s/5 min, consumer error rate > 5%/5 min, webhook rejection rate > 20%/10 min, p95 API latency > 500 ms/10 min, archive write failures > 0/5 min, audit chain failure (log match), pod restarts > 3/15 min → ntfy webhook.
-- **Uptime Kuma monitors**: `https://aegispulse-api.rmwhs.com/livez` (60 s), `/readyz` via internal URL, console root, objects host TLS expiry (via Cloudflare), webhook health `POST /webhooks/_health-probe` (signed probe source, expects 202 duplicate), keyword monitor on `/healthz` JSON (`"status":"ok"`). All notify ntfy topic `aegispulse-alerts`.
+- **OpenObserve alerts** (as code in `deploy/observability/alerts/*.json`): DLQ spike (FR-MSG-04), outbox lag > 60 s/5 min, consumer error rate > 5%/5 min, webhook rejection rate > 20%/10 min, p95 API latency > 500 ms/10 min, archive write failures > 0/5 min, audit chain failure (log match), pod restarts > 3/15 min → ntfy webhook (prod alerts → `aegispulse-alerts`; dev alerts → `aegispulse-alerts-dev`, low priority).
+- **Uptime Kuma monitors**: prod `https://aegispulse-api.rmwhs.com/livez` (60 s) and dev `https://aegispulse-api.rmwhs-dev.space/livez` (5 min, paused while dev sleeps), `/readyz` via internal URL, console root, objects host TLS expiry (via Cloudflare), webhook health `POST /webhooks/_health-probe` (signed probe source, expects 202 duplicate), keyword monitor on `/healthz` JSON (`"status":"ok"`). Prod monitors notify `aegispulse-alerts`; dev monitors notify `aegispulse-alerts-dev`.
 - **Dashboards**: Pipeline Overview (ingress rate, latency, rejections), Messaging (queue depth, consumer lag, retries, DLQ), Classification (stage mix, disagreement, overrides), Cases (opened/escalated/resolved, policy outcomes), Platform (CPU/mem per pod vs limits, OOMs, restarts).
 
 ---
@@ -2699,7 +2726,7 @@ Every service declares `depends_on` with `condition: service_healthy` for its ow
 ### 10.4 Environment Variables (`.env.example`)
 ```dotenv
 # ── global ────────────────────────────────────────────────────────────
-AEGIS_ENV=local                                   # local | homelab
+AEGIS_ENV=local                                   # local | dev | prod
 LOG_LEVEL=info
 OTEL_SERVICE_NAMESPACE=aegispulse
 OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic <local-openobserve-token>   # [secret]
@@ -2710,8 +2737,8 @@ PUBLIC_OBJECTS_URL=http://localhost:9000          # host used in presigned URLs
 # ── auth (registry) ───────────────────────────────────────────────────
 REGISTRY_URL=http://registry:8084
 JWT_ISSUER=aegispulse-registry
-JWT_AUDIENCE=aegispulse
-JWT_SIGNING_KEY_CURRENT_PEM=<pem>                  # [secret] Infisical in homelab
+JWT_AUDIENCE=aegispulse                            # aegispulse-dev in dev, aegispulse in prod
+JWT_SIGNING_KEY_CURRENT_PEM=<pem>                  # [secret] Infisical (dev/prod envs)
 JWT_SIGNING_KEY_CURRENT_KID=local-2026-11
 JWT_SIGNING_KEY_PREVIOUS_PEM=                      # [secret] optional during rotation
 SERVICE_CLIENT_ID=svc-<runtime>                    # per runtime
@@ -2769,13 +2796,13 @@ EXTRACTION_CONFIDENCE_THRESHOLD=0.70
 
 # ── notifications ─────────────────────────────────────────────────────
 NTFY_URL=https://ntfy.example.invalid               # set per env
-NTFY_TOPIC=aegispulse-alerts-local
+NTFY_TOPIC=aegispulse-alerts-local                # aegispulse-alerts-dev (dev), aegispulse-alerts (prod)
 NTFY_TOKEN=<secret>                                 # [secret]
 
 # ── demo ──────────────────────────────────────────────────────────────
 DEMO_MODE_ALLOWED=true
 ```
-Local values come from `infisical export --env=local` (or the example file with generated dev secrets via `scripts/dev/gen-local-secrets.sh`). In homelab every `[secret]` value is synced from Infisical by the Operator into `aegispulse-{component}-secrets`; non-secret values live in ConfigMaps.
+Local values come from `infisical export --env=local` (or the example file with generated dev secrets via `scripts/dev/gen-local-secrets.sh`). In dev and prod every `[secret]` value is synced from the matching Infisical environment by the Operator into `aegispulse-{component}-secrets`; non-secret values live in ConfigMaps.
 
 ### 10.5 Testing the Async Flow Locally
 ```bash
@@ -2815,17 +2842,18 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 
 ### 11.0 Completion Gate, Evidence & Status Ledger
 
-**Status vocabulary** (per FR and per phase): `PENDING` → `SCAFFOLDED` (route/file shells) → `SOURCE-IMPLEMENTED` → `MIGRATION-ADDED` → `UNIT-VERIFIED` → `INTEGRATION-VERIFIED` (real Postgres/Mongo/Redis/RabbitMQ/object store via Testcontainers or compose) → `RUNTIME-VERIFIED` (running entrypoints in compose **and** homelab, exercised over HTTP/broker, evidence attached). Never mark a spec `[x]` because files or route shells exist.
+**Status vocabulary** (per FR and per phase): `PENDING` → `SCAFFOLDED` (route/file shells) → `SOURCE-IMPLEMENTED` → `MIGRATION-ADDED` → `UNIT-VERIFIED` → `INTEGRATION-VERIFIED` (real Postgres/Mongo/Redis/RabbitMQ/object store via Testcontainers or compose) → `RUNTIME-VERIFIED` (running entrypoints in compose **and** dev, promoted to prod with smoke passing, exercised over HTTP/broker, evidence attached). Never mark a spec `[x]` because files or route shells exist.
 
 **Runtime Completion Gate** — a phase is complete only when all apply:
 1. Source + migrations merged to `main`; contracts regenerated with no diff.
-2. Runnable entrypoints start from clean state (`make reset && make up && make migrate`), pass `/readyz`.
+2. Runnable entrypoints start from clean state (`make reset && make up && make migrate`), pass `/readyz`; from Phase 9 on, also deployed to dev and passing `/readyz` there.
 3. Real dependencies used (no mocks) in integration and E2E suites for every FR in the phase.
 4. Async behavior verified: outbox publication, consumer idempotency under 3× redelivery, retry → DLQ path.
 5. Security checks for the phase pass (authz matrix, cross-tenant, input limits, secret handling).
 6. Operations: logs/traces/metrics visible in OpenObserve for the phase's flows; alerts defined where §9.7 requires.
 7. UI/client items (if any) exercised by Playwright.
-8. Phase exit evidence committed to `docs/evidence/phase-{NN}.md` using the template (commands, outputs, endpoints exercised, environment, commit SHA, date, artifact links).
+8. From Phase 9 on: dev verification green and the same digests promoted to prod with prod smoke passing.
+9. Phase exit evidence committed to `docs/evidence/phase-{NN}.md` using the template (commands, outputs, endpoints exercised, environment, commit SHA, date, artifact links).
 
 **Status ledger** (update in the same MR that changes status; mirrored in `CHANGELOG.md`):
 
@@ -2840,7 +2868,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 6 | Events Archive & Stage-1 Classification | PENDING | — |
 | 7 | Messaging Resilience & Dead Letters | PENDING | — |
 | 8 | Transactions, Scoring & Risk Cases (MVP slice) | PENDING | — |
-| 9 | Kubernetes, IaC & Secrets (homelab) | PENDING | — |
+| 9 | Kubernetes, IaC & Secrets (homelab dev + prod) | PENDING | — |
 | 10 | CI/CD & DevSecOps Gates | PENDING | — |
 | 11 | Document ETL & Extraction | PENDING | — |
 | 12 | AI Scanner, Stage-2 Classification & ML Scoring | PENDING | — |
@@ -3116,7 +3144,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 #### FR-MSG-04 — DLQ alerting
 - [ ] OpenObserve alert definitions (`deploy/observability/alerts/dlq-spike.json`) + local equivalent check script
-- [ ] Tests: synthetic 11 dead letters in 5 min → alert fires (homelab, Phase 18 evidence)
+- [ ] Tests: synthetic 11 dead letters in 5 min → alert fires (dev, Phase 18 evidence)
 
 **Phase 7 exit evidence:** forced failure demo (scanner stub returning 500) showing retry timings and DLQ registry entry; replay of the dead letter.
 **Phase note:** status `PENDING`.
@@ -3168,7 +3196,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 ---
 
-### Phase 9 — Kubernetes, IaC & Secrets (homelab)
+### Phase 9 — Kubernetes, IaC & Secrets (homelab dev + prod)
 
 #### Workstream: Manifests (`deploy/k8s/base`, overlays)
 - [ ] Namespace, ResourceQuota, LimitRange, default-deny NetworkPolicy + per-component allows (§5.7.5)
@@ -3177,7 +3205,9 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [ ] CronJobs (§5.1) running `scheduler-trigger` with SERVICE credentials; backup CronJobs (`pg_dump`, `mongodump`) to backups bucket
 - [ ] Ingresses (`nginx-external`, `ssl-redirect: "false"`, SSE and body-size annotations §5.9)
 - [ ] Topology Job, migration Jobs, seed Job (demo tenant only)
-- [ ] `overlays/homelab` (images by digest, replicas, URLs) and `overlays/k3d-local`
+- [ ] `overlays/dev` (namespace `aegispulse-dev`, `*.rmwhs-dev.space` hosts, reduced requests, dev quota, `JWT_AUDIENCE=aegispulse-dev`), `overlays/prod` (namespace `aegispulse`, `*.rmwhs.com` hosts, full requests, gateway ×2), and `overlays/k3d-local`; a CI check fails if an overlay references the other environment's hostnames, namespace, vhost, or buckets
+- [ ] `ci/env-sleep.sh` / `env-wake` (dev only; refuses `prod`) + nightly schedule; `make env-reset ENV=dev`
+- [ ] Cross-environment isolation test: from a dev pod, connections to prod services and datastores fail; a dev-issued JWT is rejected by prod (`aud` and keys differ)
 - [ ] `ci/lint-k8s.sh`: `kustomize build | kubeconform -strict` + `trivy config` + `ci/check-resource-budget.sh`
 
 #### Workstream: Secrets (Infisical)
@@ -3188,12 +3218,12 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 #### Workstream: Bootstrap & edge
 - [ ] `deploy/bootstrap/*.sh` (§9.3) idempotent scripts; executed and logged
-- [ ] Cloudflare hostnames + WAF rules; verify via `curl -H "Host: …"` inside cluster first (cluster playbook)
+- [ ] Cloudflare hostnames for both domains + WAF rules; verify via `curl -H "Host: …"` inside cluster first (cluster playbook)
 
 #### Workstream: Backup & restore
-- [ ] Restore drill into `aegispulse-restore-test`; audit chain verify after restore (NFR-12)
+- [ ] Restore drill (from prod backups) into `aegispulse-restore-test`; audit chain verify after restore (NFR-12)
 
-**Phase 9 exit evidence:** `kubectl get pods -n aegispulse -o wide` (storage pods on optiplex), all `/readyz` 200 via ingress, MVP E2E suite passing against homelab URLs, `kubectl describe node` allocations within budget, restore drill log.
+**Phase 9 exit evidence:** `kubectl get pods -n aegispulse-dev -o wide` and `-n aegispulse -o wide` (storage pods on optiplex), all `/readyz` 200 via both domains, MVP E2E suite passing against `rmwhs-dev.space` and smoke against `rmwhs.com`, cross-environment isolation test output, `kubectl describe node` allocations within budget, restore drill log.
 **Phase note:** status `PENDING`.
 
 ---
@@ -3396,9 +3426,9 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [ ] Signed health-probe webhook source with dedicated secret
 
 #### Workstream: Chaos & resilience (NFR-02, NFR-10)
-- [ ] `scripts/demo/chaos/`: duplicate webhook flood (1,000 identical deliveries), consumer pod restarts mid-batch, scanner latency injection (toxiproxy in compose; scanner `CHAOS_LATENCY_MS` flag in homelab), Mongo restart, orphan upload flood
+- [ ] `scripts/demo/chaos/`: duplicate webhook flood (1,000 identical deliveries), consumer pod restarts mid-batch, scanner latency injection (toxiproxy in compose; scanner `CHAOS_LATENCY_MS` flag in dev; chaos never runs in prod), Mongo restart, orphan upload flood
 - [ ] `tests/chaos/` assertions: zero lost events (archive count = accepted count), zero duplicate transitions/audit entries, DLQ only for injected poison
-- [ ] 24 h soak at 2 req/s mixed traffic: 0 OOMKilled, outbox lag < 60 s
+- [ ] 24 h soak at 2 req/s mixed traffic **in dev** (prod unaffected; record node allocation for both namespaces): 0 OOMKilled, outbox lag < 60 s
 
 **Phase 18 exit evidence:** chaos report with counts; alert firing screenshots; soak metrics.
 **Phase note:** status `PENDING`.
@@ -3437,9 +3467,9 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 #### FR-FE-08 — Accessibility & responsiveness
 - [ ] axe-core zero serious/critical; keyboard-only run-through; 360 px layouts; theme toggle
-- [ ] Console image (`nginx-unprivileged`, CSP headers) deployed to `aegispulse.rmwhs.com`
+- [ ] Console image (`nginx-unprivileged`, CSP headers) deployed to `aegispulse.rmwhs-dev.space` (dev) and promoted to `aegispulse.rmwhs.com` (prod)
 
-**Phase 19 exit evidence:** Playwright report (local + homelab), axe report, screenshots.
+**Phase 19 exit evidence:** Playwright report (local + dev; smoke on prod), axe report, screenshots.
 **Phase note:** status `PENDING`.
 
 ---
@@ -3447,7 +3477,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 ### Phase 20 — Portfolio Demo & Evidence Pack
 
 #### FR-DEMO-01 / FR-DEMO-02 — Demo tooling
-- [ ] `scripts/demo/scenario.ts` (FR-DEMO-01) targeting local or homelab with printed correlation ids + links
+- [ ] `scripts/demo/scenario.ts` (FR-DEMO-01) targeting local, dev, or prod with printed correlation ids + links
 - [ ] Chaos scripts finalized (Phase 18) and documented
 - [ ] Tests: scenario runs green in CI against compose (`demo:compose` job, nightly)
 
@@ -3481,12 +3511,12 @@ These rules bind every contributor and every AI coding assistant. `CLAUDE.md`, `
 9. **Idempotency.** Every write that accepts an idempotency key enforces uniqueness in the database; every consumer is safe under redelivery and replay (NFR-02).
 10. **Test coverage.** Every service-layer function has unit tests; every repository has integration tests against a real database container; every FR has at least one integration or E2E acceptance test named with its FR id (`it('FR-CASE-03 …')`).
 11. **Migration discipline.** Never edit an existing migration (enforced by hook + CI); add a new `V{n}__` file. Expand/contract only.
-12. **Environment parity.** Local and homelab run the same images, migrations, topology, and code paths; differences are configuration only.
+12. **Environment parity.** Local, dev, and prod run the same images, migrations, topology, and code paths; differences are configuration only (overlays, Infisical environment). Prod only ever receives digests verified in dev; chaos, load, active DAST, and data resets target dev only.
 13. **Contracts first.** Change `packages/contracts` (OpenAPI/AsyncAPI/JSON Schema) before implementation; regenerate types; never hand-edit `generated/`. Breaking changes need an ADR and a version bump.
 14. **Envelope & messaging rules.** Every message uses the canonical envelope; binaries never go on the broker; publish only via outbox (or deterministic-id + confirms for storeless services); never declare topology at runtime.
 15. **Spec change protocol.** If implementation needs something this document does not define, stop and propose an amendment: update `PROJECT.md` (and an ADR when it is an architectural decision) in the same MR, bump the document's "Last updated", and add a `CHANGELOG.md` entry under `Docs`.
 16. **Evidence honesty.** Never mark a checklist item or FR status beyond what evidence proves (§11.0). Say "not verified" when it is not.
-17. **Cluster rules (from K3S_CONTEXT).** Subdomain-only ingress with `nginx-external`; GitLab CI only; images by SHA/digest from `$CI_REGISTRY_IMAGE`; namespace `aegispulse`; requests/limits on every container; no privileged containers/DinD; storage pods pinned to `optiplex` before first deploy; plain HTTP behind Cloudflare (no cert-manager annotations).
+17. **Cluster rules (from K3S_CONTEXT).** Subdomain-only ingress with `nginx-external`; GitLab CI only; images by SHA/digest from `$CI_REGISTRY_IMAGE`; namespaces `aegispulse` (prod) and `aegispulse-dev` (dev), with subdomains under `rmwhs.com` (prod) and `rmwhs-dev.space` (dev); requests/limits on every container; no privileged containers/DinD; storage pods pinned to `optiplex` before first deploy; plain HTTP behind Cloudflare (no cert-manager annotations).
 18. **AI guardrails — Claude/Cursor/Copilot/Codex must NOT:**
     - create new architectural patterns, services, queues, exchanges, tables, or env vars that are not defined here (propose an amendment instead);
     - put business logic, DB/cache/storage clients, or transactions in gateway handlers, consumer adapters, or CronJob triggers;
@@ -3512,7 +3542,7 @@ These rules bind every contributor and every AI coding assistant. `CLAUDE.md`, `
 | Compute (elitedesk-800 + optiplex, owned) | ~$8–12 | electricity only (~70–100 W combined average) |
 | Kubernetes, GitLab CE, registry, Infisical, OpenObserve, RabbitMQ | $0 | self-hosted, open-source |
 | Cloudflare (DNS, tunnel, WAF free tier) | $0 | free plan limits: 100 MB request bodies |
-| Domain (`rmwhs.com`, shared) | ~$1 | amortized annual renewal |
+| Domains (`rmwhs.com` prod, `rmwhs-dev.space` dev, shared) | ~$1–3 | amortized annual renewals |
 | ntfy | $0 | self-hosted or free public server with access token |
 | LLM adjudicator (optional) | ≤ $5 | hard budget cap; default off |
 | Off-node backup disk | ~$0–2 | amortized |
@@ -3554,7 +3584,7 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 - **Contract tests:** generated clients vs. provider stubs (schema conformance of every request/response/event against `packages/contracts`); AsyncAPI payload validation of every published message in integration runs.
 
 ### 14.3 End-to-End Tests
-- **Scope:** HTTP + broker-level journeys against the running compose stack (CI `e2e-compose`) and homelab (`verify:smoke` subset): webhook → archive → classification → correlation; transaction → case → disposition → audit verify; upload → validation → extraction → case; replay; DLQ replay; cross-tenant denial matrix; SSE delivery.
+- **Scope:** HTTP + broker-level journeys against the running compose stack (CI `e2e-compose`), dev (`verify:dev:smoke`, full) and prod (`verify:prod:smoke`, read-mostly subset): webhook → archive → classification → correlation; transaction → case → disposition → audit verify; upload → validation → extraction → case; replay; DLQ replay; cross-tenant denial matrix; SSE delivery.
 - **Tools:** Vitest + undici in `tests/e2e/`, Playwright for console (Phase 19), k6 for load (`tests/load/`), Schemathesis + ZAP for API robustness/security.
 
 ### 14.4 Specialized Suites
@@ -3563,9 +3593,9 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 | Adversarial webhooks | `tests/security/webhooks.spec.ts` | every MR touching ingestion/gateway |
 | Cross-tenant matrix | `tests/security/cross-tenant.spec.ts` | every MR |
 | SSRF | `tests/security/ssrf.spec.ts` | ingestion/files changes |
-| NetworkPolicy | `tests/security/netpol.sh` | post-deploy (homelab) |
+| NetworkPolicy + cross-env isolation | `tests/security/netpol.sh` | post-deploy (dev; prod after promotion) |
 | Idempotency/replay | `tests/e2e/idempotency.spec.ts` | nightly + release |
-| Chaos | `tests/chaos/` | release candidates (homelab) |
+| Chaos | `tests/chaos/` | release candidates (**dev only**) |
 | Golden-dataset eval | `eval/runner` | Python model changes + nightly |
 | Load | `tests/load/*.js` | release candidates |
 
@@ -3582,7 +3612,8 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 | `test` | unit + integration (Testcontainers in runner pods), console component tests, `eval:models` (conditional) |
 | `contract` | schema/OpenAPI/AsyncAPI validation + breaking-change diff, SonarQube gate |
 | `scan` | Trivy, SBOM, layer-size check |
-| `verify` (main) | homelab smoke E2E, ZAP baseline + API scan, NetworkPolicy test |
+| `verify-dev` (main) | dev smoke E2E, ZAP baseline + active API scan, NetworkPolicy + isolation test |
+| `verify-prod` (after promotion) | prod smoke subset, passive ZAP baseline |
 | nightly schedule | full E2E on compose, idempotency/replay suite, demo scenario, drift job sanity |
 | release candidate | chaos suite, load test, restore drill, rollback drill |
 
@@ -3607,6 +3638,7 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 | A13 | Cluster guide prefers plain manifests | Kustomize base + overlays (still plain manifests) | Two environments, minimal templating |
 | A14 | Template §9.3 Terraform remote state bootstrap | Replaced by cluster bootstrap scripts (§9.3) | No Terraform-managed cluster resources |
 | A15 | Template email notifications | ntfy push templates (FR-NOTIF) | Source specifies ntfy; no email in scope |
+| A17 | Single homelab environment in v1.0 | `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) on the same cluster and tunnel (ADR-0014) | Owner-provided second domain on the same Cloudflare tunnel |
 | A16 | v1.0 baseline gateway was plain Fastify (`gateway/fastify-http`) | NestJS on the Fastify adapter at `gateway/nest-http` (ADR-0013); internal service adapters stay plain Fastify | Owner decision; evaluated with no architectural risk |
 
 Open decisions (record outcome via ADR before the phase that needs it): SonarQube hosting (Phase 10), object-store implementation (Phase 0), kaniko vs. buildah (Phase 10), Uptime Kuma/ntfy hosting location (Phase 18).

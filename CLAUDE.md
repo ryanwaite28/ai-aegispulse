@@ -56,7 +56,7 @@ make demo             # end-to-end scenario
 - `make eval`: golden-dataset evaluation (Python model changes)
 - `make images`: build all container images locally
 - `make k3d-up`: optional parity cluster
-- Deployment happens only through the GitLab pipeline on `main`. Never `kubectl apply` by hand except for the bootstrap scripts.
+- Deployment happens only through the GitLab pipeline: `main` → dev automatically, then manual/tag promotion → prod. Never `kubectl apply` by hand except for the bootstrap scripts.
 
 ## File Conventions
 - Gateway module + controller: `gateway/nest-http/src/modules/{domain}/{domain}.module.ts`, `{domain}.controller.ts`
@@ -71,7 +71,7 @@ make demo             # end-to-end scenario
 - Python: `services/{svc}/src/aegis_{pkg}/{domain,service,adapters/http,adapters/amqp}/`; migrations `services/{svc}/db/migrations/V{n}__{desc}.sql`
 - Mongo migrations: `services/events/src/db/mongo-migrations/{timestamp}-{desc}.js`
 - Tests: unit co-located `{file}.test.ts` / `src/test/java/...` / `tests/unit/`; integration in `tests/integration/`; cross-service E2E in root `tests/e2e/`. Test names include FR ids.
-- K8s: `deploy/k8s/base/{component}/`, overlays in `deploy/k8s/overlays/{homelab,k3d-local}/`
+- K8s: `deploy/k8s/base/{component}/`, overlays in `deploy/k8s/overlays/{dev,prod,k3d-local}/`
 - CI logic: `ci/{verb}-{thing}.sh` (keep `.gitlab-ci.yml` declarative)
 
 ## Workflow for Any Change
@@ -97,11 +97,14 @@ make demo             # end-to-end scenario
 - Do not mock Postgres, Mongo, RabbitMQ, or Redis in integration tests (use Testcontainers).
 - Do not log secrets, raw webhook bodies, file contents, or unmasked PII.
 - Do not use `:latest` images, `privileged: true`, or cluster-admin credentials.
+- Do not point chaos, load, active DAST, or data-reset tooling at prod (`rmwhs.com` / namespace `aegispulse`). Use dev.
 - Do not mark FRs, checklist items, or phases complete without evidence (`PROJECT.md` §11.0).
 
 ## Environment Notes
 - **Local:** Docker Compose (`deploy/compose/`). Services reach infra by compose hostnames. Presigned URLs use `PUBLIC_OBJECTS_URL=http://localhost:9000`. OpenObserve UI: `http://localhost:5080`. RabbitMQ UI: `http://localhost:15672`.
-- **Homelab:** k3s namespace `aegispulse`. Ingress class `nginx-external`, plain HTTP behind Cloudflare Tunnel, hosts `aegispulse(.|-api.|-objects.)rmwhs.com`. Data stores are pinned to the `optiplex` storage node. Secrets come from the Infisical Operator. Images come from `registry.rmwhs.com` by digest. Use `KUBECONFIG=~/.kube/config` explicitly.
+- **Dev (homelab k3s):** namespace `aegispulse-dev`, hosts `aegispulse(.|-api.|-objects.)rmwhs-dev.space`. Auto-deployed from `main`. Active DAST, chaos, load, and data resets happen here only. Can be scaled to zero.
+- **Prod (homelab k3s):** namespace `aegispulse`, hosts `aegispulse(.|-api.|-objects.)rmwhs.com`. Receives only dev-verified digests by manual promotion or `v*` tag. Never chaos-tested or reset (ADR-0014).
+- **Both clusters:** ingress class `nginx-external`, plain HTTP behind the same Cloudflare Tunnel. Dev and prod share nothing above the platform layer and can't reach each other. Data stores are pinned to the `optiplex` storage node. Secrets come from the Infisical Operator. Images come from `registry.rmwhs.com` by digest. Use `KUBECONFIG=~/.kube/config` explicitly.
 - Service code doesn't know which environment it runs in. Same code and images, different config.
 - Cloudflare caps request bodies at 100 MB, so keep image layers under 95 MB and upload parts at 16 MiB.
 

@@ -36,4 +36,4 @@ Show `publisher_stated_severity` → `algorithm_severity` (source and version, c
 WCAG 2.2 AA: keyboard reachable, visible focus, labelled controls, 4.5:1 contrast, `aria-live` for streaming feeds (polite, throttled), and charts with table alternatives. Layouts work down to 360 px. Light and dark themes.
 
 ## Tests
-Vitest for hooks and components. Playwright E2E per FR-FE item against compose (and homelab smoke), with axe-core checks that allow zero serious or critical violations. Name tests with FR ids.
+Vitest for hooks and components. Playwright E2E per FR-FE item against compose (dev full, prod smoke), with axe-core checks that allow zero serious or critical violations. Name tests with FR ids.

@@ -15,9 +15,9 @@ Goal: produce `docs/evidence/phase-$ARGUMENTS.md` with **real** evidence, and up
    - async proofs: queue/DLQ inspection, redelivery ×3 results, outbox state queries
    - security checks named in the phase
    - observability: OpenObserve query results or screenshot paths in `docs/evidence/assets/phase-$ARGUMENTS/`
-   - homelab runs (from Phase 9 on): `kubectl get pods -n aegispulse -o wide`, smoke results against the `rmwhs.com` hosts
+   - cluster runs (from Phase 9 on): dev verification (`kubectl get pods -n aegispulse-dev -o wide`, full smoke against `*.rmwhs-dev.space`), then prod promotion (`-n aegispulse`, smoke against `*.rmwhs.com`) of the same digests
 4. If a command fails or can't run (missing environment, cluster unavailable), **record that**. Never substitute expected output.
 5. Update the status ledger in `PROJECT.md` §11.0 and each FR spec to the level actually proven:
-   - `RUNTIME-VERIFIED` requires gate items 1–8 with evidence in **both** compose and homelab (homelab from Phase 9 onward; earlier phases cap at local runtime with a note).
+   - `RUNTIME-VERIFIED` requires gate items 1–8 with evidence in compose **and** dev, plus a prod smoke test after promotion (from Phase 9 onward; earlier phases cap at local runtime with a note).
 6. Add a `CHANGELOG.md` `### Status` line linking the evidence file.
 7. Report: the status reached, gaps, and follow-ups.

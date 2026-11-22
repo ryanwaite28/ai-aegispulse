@@ -15,5 +15,6 @@
 | [0011](0011-object-store-selection.md) | S3-compatible object store selection | Proposed |
 | [0012](0012-secrets-infisical.md) | Infisical runtime secrets | Accepted |
 | [0013](0013-gateway-nestjs-fastify.md) | Gateway framework: NestJS on the Fastify adapter | Accepted |
+| [0014](0014-dev-prod-environments.md) | Dev and prod environments on one cluster, separated by domain | Accepted |
 
 New ADRs: copy `0000-template.md`, take the next number, and amend `PROJECT.md` in the same MR (`/new-adr`).

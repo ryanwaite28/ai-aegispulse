@@ -13,7 +13,7 @@ Source of truth: `PROJECT.md` §14 (testing plan), §11.0 (completion gate), eac
 | Unit | next to the code | Vitest / JUnit + jqwik / pytest + hypothesis | domain rules (table + property tests), service logic with fake ports, error mapping |
 | Integration | `services/{svc}/tests/integration/` | Testcontainers (PG18, Mongo8, Redis8, RabbitMQ4, object store, ClamAV) | repositories, RLS, grants, outbox relay, consumers (redelivery, retry, DLQ), internal routes |
 | Contract | `tests/contract/` | schema conformance, OpenAPI/AsyncAPI validation | every request, response, and event matches `packages/contracts` |
-| E2E | `tests/e2e/` | Vitest + undici against compose or homelab | FR journeys through the gateway and broker |
+| E2E | `tests/e2e/` | Vitest + undici against compose, dev (full), or prod (smoke subset) | FR journeys through the gateway and broker |
 | Security | `tests/security/` | Vitest, shell | adversarial webhooks, cross-tenant, SSRF, netpol |
 | Load / chaos | `tests/load/`, `tests/chaos/` | k6, scripts | NFR-01 latency, NFR-02/10 zero loss and zero duplicates |
 | UI | `apps/console/tests/` | Playwright + axe-core | FR-FE flows, a11y |
@@ -36,5 +36,5 @@ Source of truth: `PROJECT.md` §14 (testing plan), §11.0 (completion gate), eac
 Inject clocks and id generators. Seed the generators (`--seed 20261122`). No sleeps: poll with timeouts (`waitFor(condition, 10s)`). Synthetic PII lives under `tests/fixtures/secrets-synthetic/` only.
 
 ## Status discipline
-- Unit green → at most `UNIT-VERIFIED`. Testcontainers green → `INTEGRATION-VERIFIED`. Compose **and** homelab runtime with evidence → `RUNTIME-VERIFIED`.
+- Unit green → at most `UNIT-VERIFIED`. Testcontainers green → `INTEGRATION-VERIFIED`. Compose **and** dev runtime, plus a prod smoke test after promotion, with evidence → `RUNTIME-VERIFIED`. Chaos, load, and destructive tests target dev only.
 - Evidence: real commands and output in `docs/evidence/phase-NN.md` (`/phase-exit-evidence`). A flaky test is a failing test. Fix it or quarantine it with an issue, and never "retry until green" in evidence.

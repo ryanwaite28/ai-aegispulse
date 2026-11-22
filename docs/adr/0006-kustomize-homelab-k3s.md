@@ -9,7 +9,7 @@
 The template assumes AWS Lambda. The real target is the existing two-node homelab k3s cluster (`docs/K3S_CONTEXT.md`), whose standard prefers plain manifests over Helm for owned apps and requires GitLab CI.
 
 ## Decision
-- Deploy to namespace `aegispulse` on homelab k3s. Use a Kustomize `base` plus overlays `homelab` and `k3d-local`. No Helm for owned workloads. Third-party add-ons (the Infisical Operator, Uptime Kuma) use their official charts.
+- Deploy to homelab k3s: namespace `aegispulse` (prod) and, per ADR-0014, `aegispulse-dev` (dev). Use a Kustomize `base` plus overlays `dev`, `prod`, and `k3d-local`. No Helm for owned workloads. Third-party add-ons (the Infisical Operator, Uptime Kuma) use their official charts.
 - Stateful stores run as project-owned StatefulSets pinned to `optiplex`. We don't use Bitnami charts or operators in v1.
 - Document AWS production (EKS, RDS, Atlas, Amazon MQ, ElastiCache, S3) as a reference architecture only.
 
