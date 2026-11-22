@@ -31,3 +31,5 @@ eval/reports/
 docs/evidence/assets/**/*.tmp
 # session recorder internal errors
 docs/sessions/.errors.log
+# project-local tool shims (corepack)
+.tools/

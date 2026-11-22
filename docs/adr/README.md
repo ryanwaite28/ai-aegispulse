@@ -12,7 +12,7 @@
 | [0008](0008-severity-lineage-elevate-only.md) | Severity lineage, elevate-only | Accepted |
 | [0009](0009-files-outside-broker.md) | Files out of the broker | Accepted |
 | [0010](0010-identity-jwt-zero-trust.md) | Registry JWTs verified everywhere | Accepted |
-| [0011](0011-object-store-selection.md) | S3-compatible object store selection | Proposed |
+| [0011](0011-object-store-selection.md) | S3-compatible object store selection (SeaweedFS) | Accepted |
 | [0012](0012-secrets-infisical.md) | Infisical runtime secrets | Accepted |
 | [0013](0013-gateway-nestjs-fastify.md) | Gateway framework: NestJS on the Fastify adapter | Accepted |
 | [0014](0014-dev-prod-environments.md) | Dev and prod environments on one cluster, separated by domain | Accepted |

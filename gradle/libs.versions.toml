@@ -1,0 +1,8 @@
+# Java version catalog (pinned in Phase 0 after verifying current releases; docs/steering/tech.md).
+[versions]
+spring-boot = "4.2.0"
+flyway = "11.20.3"
+testcontainers-java = "2.0.5"
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

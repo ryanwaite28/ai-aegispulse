@@ -5,7 +5,6 @@
 set -euo pipefail
 
 input="$(cat)"
-tool="$(jq -r '.tool_name // empty' <<<"$input")"
 path="$(jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' <<<"$input")"
 [[ -z "$path" ]] && exit 0
 
@@ -18,7 +17,7 @@ block() { echo "BLOCKED by .claude/hooks/guard-files.sh: $1" >&2; exit 2; }
 case "$(basename "$rel")" in
   .env.example) ;;
   .env|.env.*) block "'$rel' holds secrets. Edit .env.example and use 'make env' (Infisical export) instead." ;;
-  *.pem|*.key|*.p12|*.pfx|id_rsa*|id_ed25519*|cosign.key) block "'$rel' looks like private key material. Keys live in Infisical / GitLab masked variables (ADR-0012)." ;;
+  *.pem|*.key|*.p12|*.pfx|id_rsa*|id_ed25519*) block "'$rel' looks like private key material. Keys live in Infisical / GitLab masked variables (ADR-0012)." ;;
 esac
 
 # 2) Generated contract code

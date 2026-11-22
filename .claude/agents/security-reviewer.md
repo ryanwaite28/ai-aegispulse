@@ -1,6 +1,7 @@
 ---
 name: security-reviewer
 description: Security review of an AegisPulse diff against the project's controls — authn/authz and tenant isolation, webhook HMAC/replay, SSRF, file upload safety, injection, secrets/PII handling and redaction, network policy, container/manifest hardening, and supply-chain rules. Use before opening an MR, especially for gateway, ingestion, files, registry, events, or deploy changes.
+model: opus
 tools: Read, Grep, Glob, Bash
 ---
 

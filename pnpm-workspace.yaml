@@ -1,0 +1,12 @@
+# Node workspaces (PROJECT.md §6.1). Members are added as their directories are created (Phase 1+).
+packages:
+  - "gateway/*"
+  - "services/ingestion"
+  - "services/files"
+  - "services/events"
+  - "services/orchestrator"
+  - "workers/*"
+  - "packages/ts-platform"
+  - "packages/contracts"
+  - "apps/*"
+  - "scripts"

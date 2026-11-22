@@ -12,6 +12,13 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+- Phase 0 scaffold: Node workspace (pnpm 12, TS 6.0.3, ESLint 10, Prettier, Vitest), uv workspace (Ruff, mypy strict, pytest), Gradle 9.9.2 wrapper (Java 25, checksum-pinned), `Makefile` (§9.5 targets; later-phase targets fail loudly).
+- Local compose infrastructure: PostgreSQL 18 (schema-per-service roles), MongoDB 8 rs0 (keyFile, scoped users), Redis 8 (per-service ACLs), RabbitMQ 4 (least-privilege users), SeaweedFS 4.54, ClamAV, OpenObserve; `scripts/dev/gen-local-secrets.sh`, `scripts/dev/compose-wait.sh`, `make env|up|down|reset`.
+- CI guardrails: `ci/check-boundaries.sh`, `ci/check-migrations.sh`, `ci/check-resource-budget.sh`, `ci/check-layer-sizes.sh`, plus `ci/tests/run.sh` (10 self-tests); lint/test runners; `.gitlab-ci.yml` skeleton (.pre/lint/test); Gitleaks pre-commit hook.
+- `scripts/dev/objectstore_compat.py` / `make objectstore-compat` (ADR-0011 S3 checks).
+- Model routing policy in `CLAUDE.md`; review agents pinned to models (architecture-reviewer → sonnet, security-reviewer → opus, spec-tracer → haiku).
+
 ### Docs
 - `PROJECT.md` v1.0: authoritative master document, built from `docs/AEGIS_PULSE.md` and `docs/PROJECT_TEMPLATE_GUIDE.md` and adapted to the homelab k3s and GitLab target in `docs/K3S_CONTEXT.md`. It defines 117 functional requirements across 21 domains, NFR-01–NFR-18, 21 implementation phases, full DDL, API and error contracts, messaging topology, and the event catalog.
 - AI governance: `CLAUDE.md`, `AGENTS.md`, `.claude/skills/` (12 role skills and 5 workflow skills), `.claude/agents/` (3 review agents), `.claude/hooks/` (migration, generated-code, and secret-file guards), and the GitLab merge request template.
@@ -20,10 +27,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0001 through ADR-0012, plus spec and evidence templates.
 
 ### Changed
+- ADR-0011 accepted: SeaweedFS 4.54 (MinIO community image no longer published). Version baselines updated: NestJS 12, TypeScript 6.0.3 (TS 7 deferred, typescript-eslint peer range <6.1), pnpm 12, Spring Boot 4.2.
 - ADR-0013: the gateway is now NestJS on `@nestjs/platform-fastify`, renamed `gateway/fastify-http` → `gateway/nest-http` everywhere (PROJECT.md §6.1/§6.3/§12, CLAUDE.md, AGENTS.md, steering, skills, agents, ADR-0001/0002). Internal service adapters stay plain Fastify.
 - `docs/PROJECT_TEMPLATE_GUIDE.md`: new "AI Governance & Consistency Constructs" section, plus checklist and quality-bar items.
 
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
-- All FRs and phases are `PENDING`. No implementation code exists yet.
+- Phase 0: `SOURCE-IMPLEMENTED`, local runtime verified on macOS. First GitLab pipeline and a Linux `make up` run are pending ([evidence](docs/evidence/phase-00.md)). All FRs: `PENDING`.

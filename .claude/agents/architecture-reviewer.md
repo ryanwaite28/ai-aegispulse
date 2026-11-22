@@ -1,6 +1,7 @@
 ---
 name: architecture-reviewer
 description: Reviews an AegisPulse diff or set of files for architectural conformance with PROJECT.md — layering (Service Layer Supremacy), gateway/service separation, data ownership, outbox/envelope/messaging rules, contracts-first, migration discipline, and undeclared patterns. Use before opening an MR or after implementing an FR.
+model: sonnet
 tools: Read, Grep, Glob, Bash
 ---
 

@@ -1,0 +1,48 @@
+# Python workspace root (uv). Service members are added in Phase 1+ (PROJECT.md §6.1).
+[project]
+name = "aegispulse-workspace"
+version = "0.0.0"
+description = "AegisPulse Python workspace root (tooling only; no runtime code)."
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "ruff==0.17.6",
+  "mypy==2.4.1",
+  "pytest==9.2.0",
+  "import-linter==2.17",
+  "boto3==1.44.9",
+  "requests==2.34.2",
+  "pyyaml==6.0.4",
+  "types-PyYAML==6.0.12.20261122",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = []
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+extend-exclude = ["docs", "**/generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "BLE", "RUF", "N", "SIM", "PT"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+".claude/hooks/*.py" = ["S603", "S607", "BLE001"]
+"scripts/dev/*.py" = ["S113"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = ["boto3", "botocore.*", "requests"]
+ignore_missing_imports = true

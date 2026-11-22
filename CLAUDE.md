@@ -108,6 +108,15 @@ make demo             # end-to-end scenario
 - Service code doesn't know which environment it runs in. Same code and images, different config.
 - Cloudflare caps request bodies at 100 MB, so keep image layers under 95 MB and upload parts at 16 MiB.
 
+## Model Routing (efficiency without losing quality)
+Pick the cheapest model that can still meet the quality bar in `docs/steering/quality.md`. Use `/model` to switch the main session.
+| Work | Model | Why |
+|---|---|---|
+| Architecture decisions, ADRs, `PROJECT.md` amendments, cross-service design, security-critical code (auth, webhooks, SSRF, RLS, audit chain), debugging hard failures | Opus | Judgment-heavy; mistakes are expensive and propagate |
+| Routine FR implementation from an existing spec, tests, migrations, manifests, CI scripts, refactors | Sonnet | Well-specified work; spec and review agents carry the constraints |
+| Mechanical tracing, grep and inventory, changelog and ledger updates, formatting, boilerplate | Haiku | Low reasoning, high volume |
+Subagent defaults (frontmatter): `architecture-reviewer` → sonnet, `security-reviewer` → opus, `spec-tracer` → haiku. Never downgrade the model to save cost on security review or on `PROJECT.md` changes.
+
 ## Skills & Agents
 Role skills live in `.claude/skills/`: `systems-architect`, `principal-engineer`, `devsecops`, `database-admin`, `cybersecurity`, `messaging-engineer`, `ml-ai-engineer`, `data-intel-engineer`, `sre-observability`, `kubernetes-platform`, `qa-test-engineer`, `frontend-engineer`.
 Workflow skills: `/implement-fr`, `/write-spec`, `/phase-exit-evidence`, `/new-adr`, `/amend-project`.

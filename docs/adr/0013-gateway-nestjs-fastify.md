@@ -30,7 +30,7 @@ The v1.0 baseline specified a plain Fastify 5 gateway at `gateway/fastify-http`.
 4. **Rate limiting:** `@nestjs/throttler` with in-memory storage only (per-pod defense). Distributed quotas remain in owning services, so the gateway stays datastore-free.
 5. **SSE:** `@Sse()` controllers return RxJS `Observable`s fed by the broker subscription (`rxjs-rabbitmq`), so the projection pipeline stays reactive end to end. Ingress buffering stays off.
 6. **TypeScript:** the gateway tsconfig adds `experimentalDecorators` + `emitDecoratorMetadata` (required by Nest DI). All strict flags stay on and `any` stays banned (NFR-14 exception scoped to these two flags in `gateway/nest-http` only).
-7. **Capacity:** NestJS adds roughly 20–40 MiB RSS. The gateway's requests/limits (128Mi / 384Mi) stay and get revalidated in the Phase 18 soak. Raise them only with evidence.
+7. **Capacity:** NestJS (12.x) adds roughly 20–40 MiB RSS. The gateway's requests/limits (128Mi / 384Mi) stay and get revalidated in the Phase 18 soak. Raise them only with evidence.
 
 ## Options considered
 | Option | Pros | Cons |

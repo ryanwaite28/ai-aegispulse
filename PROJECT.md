@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-22 (ADR-0013: NestJS gateway; ADR-0014: dev/prod environments) |
+| **Last updated** | 2026-11-22 (ADR-0013: NestJS gateway; ADR-0014: dev/prod environments; Phase 0: version pins, ADR-0011 SeaweedFS) |
 
 ---
 
@@ -910,7 +910,7 @@ All containers: `runAsNonRoot: true`, `readOnlyRootFilesystem: true` (writable `
 | `aegispulse-postgres` | PostgreSQL 18 | 5432 | 1 | 250m / 1000m | 512Mi / 1536Mi | optiplex | — |
 | `aegispulse-mongo` | MongoDB 8 | 27017 | 1 | 250m / 1000m | 768Mi / 1536Mi | optiplex | — |
 | `aegispulse-redis` | Redis 8 | 6379 | 1 | 50m / 250m | 64Mi / 256Mi | optiplex | — |
-| `aegispulse-objectstore` | S3-compatible | 9000 | 1 | 100m / 500m | 256Mi / 768Mi | optiplex | — |
+| `aegispulse-objectstore` | SeaweedFS 4.54 (S3 API) | 8333 | 1 | 100m / 500m | 256Mi / 768Mi | optiplex | — |
 
 Budget totals (prod requests): elitedesk ≈ 1.77 vCPU / 4.4 GiB (gateway ×2 counted); optiplex ≈ 0.65 vCPU / 1.6 GiB — within NFR-03.
 
@@ -1274,13 +1274,13 @@ Internal route convention: `POST /internal/v1/{action}` for commands, `GET /inte
 
 | Layer | Technology |
 |---|---|
-| Edge gateway | Node.js 24 LTS, TypeScript 5.x strict (+ `experimentalDecorators`/`emitDecoratorMetadata`, gateway only), **NestJS 11 on `@nestjs/platform-fastify` (Fastify 5)** (ADR-0013), `@nestjs/throttler` (in-memory, per-pod defense only), `jose` (JWKS) in a Nest guard, Zod validation pipe (schemas from contracts), `@Sse` + RxJS for streaming, `undici` typed clients. Public OpenAPI is served from `packages/contracts` (no `@nestjs/swagger` generation) |
+| Edge gateway | Node.js 24 LTS, TypeScript 6.0 strict (+ `experimentalDecorators`/`emitDecoratorMetadata`, gateway only; TS 7 deferred, see `docs/steering/tech.md`), **NestJS 12 on `@nestjs/platform-fastify` (Fastify 5)** (ADR-0013), `@nestjs/throttler` (in-memory, per-pod defense only), `jose` (JWKS) in a Nest guard, Zod validation pipe (schemas from contracts), `@Sse` + RxJS for streaming, `undici` typed clients. Public OpenAPI is served from `packages/contracts` (no `@nestjs/swagger` generation) |
 | Node services | Node.js 24, TypeScript, Fastify 5 (internal adapters), `pg` + Kysely (typed SQL), `mongodb` driver 6, `ioredis`, `@aws-sdk/client-s3` + `s3-request-presigner`, `opossum` (circuit breaker), `undici` (HTTP client), `pino` |
 | Node messaging | `rxjs-rabbitmq` (author's library, [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md)) on `amqplib`, wrapped by `packages/ts-platform/amqp` with typed generics from the topology contract, publisher confirms, retry/DLQ policy |
-| Java services | Java 25 LTS, Spring Boot 4.x, Spring Web MVC (virtual threads), Spring Security OAuth2 Resource Server + Nimbus JOSE (registry issuer), Spring JDBC `JdbcClient`, Spring AMQP, Resilience4j, Bean Validation, Flyway, Micrometer + OTel Java agent, ArchUnit, password4j (Argon2id) |
+| Java services | Java 25 LTS, Spring Boot 4.2, Spring Web MVC (virtual threads), Spring Security OAuth2 Resource Server + Nimbus JOSE (registry issuer), Spring JDBC `JdbcClient`, Spring AMQP, Resilience4j, Bean Validation, Flyway, Micrometer + OTel Java agent, ArchUnit, password4j (Argon2id) |
 | Python services | Python 3.13, uv, FastAPI, Pydantic v2, `aio-pika`, SQLAlchemy 2 Core + psycopg 3 (data-intel), `redis-py` (risk-scoring), boto3 (S3 API), spaCy 3 (`en_core_web_sm`), scikit-learn, pdfplumber, pytesseract + Tesseract 5, selectolax, polars + pyarrow, structlog, `pybreaker`, OpenTelemetry SDK |
 | Optional LLM adjudicator | Anthropic Claude API (`claude-haiku-5-5`), off by default, budget-capped, redacted text only, behind `LlmAdjudicator` port with deterministic stub |
-| Datastores | PostgreSQL 18, MongoDB 8.0, Redis 8, S3-compatible object store (ADR-0011) |
+| Datastores | PostgreSQL 18, MongoDB 8.0, Redis 8, SeaweedFS 4.54 S3-compatible object store (ADR-0011) |
 | Messaging | RabbitMQ 4.x (quorum queues, Prometheus plugin) |
 | Migrations | Flyway (SQL, all PostgreSQL schemas, run as Jobs), `migrate-mongo` (Mongo indexes/collections) |
 | Contracts | OpenAPI 3.1, AsyncAPI 3.0, JSON Schema 2020-12; generators: `openapi-typescript`, OpenAPI Generator (Java), `datamodel-code-generator` (Pydantic) |
@@ -2648,7 +2648,7 @@ Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read befor
 
 ### 10.1 Prerequisites
 - Docker Engine / Docker Desktop with Compose v2 (≥ 12 GiB RAM allocated recommended)
-- Node.js 24 LTS + pnpm 10 (via Corepack), Java 25 (Temurin), Python 3.13 + uv
+- Node.js 24 LTS + pnpm 12 (via Corepack, installed by `make bootstrap`), Java 25 (Temurin or Homebrew `openjdk@25`), Python 3.13 + uv, `gitleaks`, `shellcheck` (exact pins: `docs/steering/tech.md`)
 - `make`, `jq`, `curl`, `openssl`
 - Infisical CLI (to export local secrets), optional `k3d`, `kubectl`, `kustomize`, `cosign`, `k6`
 - Optional: `gitleaks` (installed by `make bootstrap` as a pre-commit hook)
@@ -2674,38 +2674,19 @@ x-svc-env: &svc-env
     OTEL_EXPORTER_OTLP_ENDPOINT: http://openobserve:5080/api/default
     AEGIS_ENV: local
 services:
-  postgres:
-    image: postgres:18-alpine
-    environment: { POSTGRES_DB: aegispulse, POSTGRES_USER: aegis_admin, POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD} }
-    volumes: [pgdata:/var/lib/postgresql/data, ./init/postgres:/docker-entrypoint-initdb.d:ro]   # roles + schemas
-    ports: ["5432:5432"]
-    healthcheck: { test: ["CMD-SHELL", "pg_isready -U aegis_admin"], interval: 5s }
-  mongo:
-    image: mongo:8.0
-    command: ["--replSet", "rs0", "--bind_ip_all", "--keyFile", "/etc/mongo/keyfile"]
-    volumes: [mongodata:/data/db, ./init/mongo:/docker-entrypoint-initdb.d:ro]
-    ports: ["27017:27017"]
-  mongo-init:   { image: mongo:8.0, depends_on: [mongo], entrypoint: ["/init/rs-init.sh"], volumes: ["./init/mongo:/init:ro"] }
-  redis:
-    image: redis:8-alpine
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]      # ACL users per service
-    volumes: ["./init/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro"]
-    ports: ["6379:6379"]
-  rabbitmq:
-    image: rabbitmq:4-management
-    environment: { RABBITMQ_DEFAULT_VHOST: aegispulse-local }
-    volumes: ["./init/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro"]   # users + vhost
-    ports: ["5672:5672", "15672:15672"]
-  objectstore:
-    image: ${OBJECTSTORE_IMAGE}            # S3-compatible store selected in ADR-0011
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [objdata:/data]
-  objectstore-init: { image: ${OBJECTSTORE_CLI_IMAGE}, depends_on: [objectstore], entrypoint: ["/init/buckets.sh"], volumes: ["./init/objectstore:/init:ro"] }
-  clamav:       { image: clamav/clamav:stable, ports: ["3310:3310"] }
-  openobserve:
-    image: public.ecr.aws/zinclabs/openobserve:latest-pinned-in-phase-0
-    environment: { ZO_ROOT_USER_EMAIL: dev@aegispulse.local, ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_LOCAL_PASSWORD} }
-    ports: ["5080:5080"]
+  # Infra (implemented in Phase 0; see the actual file for healthchecks and mem_limits)
+  config-render:     { image: alpine:3.24.4 }                         # renders redis.conf + SeaweedFS s3.json from .env secrets
+  postgres:          { image: postgres:18.7-alpine, ports: ["5432:5432"] }   # init: schemas + mig_*/svc_* roles + backup_reader
+  mongo:             { image: mongo:8.0.38, ports: ["27017:27017"] }  # keyFile + replSet rs0 (healthcheck initiates); svc_events, backup users
+  redis:             { image: redis:8.10.3-alpine, ports: ["6379:6379"] }   # ACL users per owning service; default user off
+  rabbitmq:          { image: rabbitmq:4.4.1-management-alpine, ports: ["5672:5672", "15672:15672"] }
+  rabbitmq-init:     { image: curlimages/curl:8.23.0 }                # vhost aegispulse-local, aegis_topology, svc_* users + permissions
+  objectstore:       { image: chrislusf/seaweedfs:4.54, ports: ["9000:8333"] }   # ADR-0011
+  objectstore-init:  { image: python:3.13-alpine }                    # buckets aegispulse-local-*, versioning on raw/backups
+  clamav:            { image: clamav/clamav:1.5.5-debian13-slim, ports: ["3310:3310"] }
+  openobserve:       { image: openobserve/openobserve:v1.1.2, ports: ["5080:5080"] }   # distroless; health probed from host
+  # Readiness: `make up` = `compose up -d` + scripts/dev/compose-wait.sh (services healthy, one-shot init jobs exit 0)
+  # Application runtimes (added in Phase 1):
   migrate:      { build: { context: ../.., dockerfile: deploy/docker/migrate.Dockerfile }, profiles: [tools], <<: *svc-env }
   gateway:            { build: { context: ../.., dockerfile: gateway/nest-http/Dockerfile }, ports: ["8080:8080"], <<: *svc-env }
   ingestion:          { build: ../../services/ingestion,           ports: ["8081:8081"], <<: *svc-env }
@@ -2859,7 +2840,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 
 | Phase | Name | Status | Evidence |
 |---|---|---|---|
-| 0 | Project Scaffold & Toolchain | PENDING | — |
+| 0 | Project Scaffold & Toolchain | SOURCE-IMPLEMENTED (local runtime verified; CI pipeline pending) | [phase-00](docs/evidence/phase-00.md) |
 | 1 | Contracts, Platform Kits & Data Foundations | PENDING | — |
 | 2 | Registry: Tenancy, Identity & RBAC | PENDING | — |
 | 3 | Entities & Watchlists | PENDING | — |
@@ -2890,27 +2871,31 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 **Goal:** a repository that builds, lints, tests (empty suites), starts local infrastructure, and enforces guardrails from the first commit.
 
 #### Workstream: Repository & guardrails
-- [ ] Monorepo layout per §6.1 with `pnpm-workspace.yaml` (gateway, services/{ingestion,files,events,orchestrator}, workers/scheduler-trigger, packages/ts-platform, packages/contracts, apps/console, scripts), Gradle multi-project (`packages/java-platform`, `services/{registry,cases}`), uv workspace (`packages/py-platform`, `services/{risk-scoring,sensitivity-scanner,doc-extraction,data-intel}`, `eval/runner`)
-- [ ] `Makefile` targets from §9.5 (no-op where the feature does not yet exist, but present)
-- [ ] `.editorconfig`, `.gitignore` (incl. `.env`, `*.pem`, `generated/` exceptions), `.nvmrc` (24), `.python-version` (3.13), Gradle toolchain (25)
-- [ ] ESLint/Prettier, Spotless/Error Prone, Ruff/mypy configs with strict settings (NFR-14)
-- [ ] `ci/check-boundaries.sh` (NFR-09), `ci/check-migrations.sh`, `ci/check-layer-sizes.sh`, `ci/check-resource-budget.sh` stubs with tests
-- [ ] Gitleaks pre-commit hook via `make bootstrap`; `.gitleaks.toml` with project allowlist for test fixtures only
-- [ ] `CLAUDE.md`, `AGENTS.md`, `.claude/` (skills, agents, hooks), `docs/steering/`, `docs/adr/0001–0012`, `docs/specs/_template.md`, `docs/evidence/_template.md`, `CHANGELOG.md` (present at v1.0 of this document)
-- [ ] Pin exact versions after verifying current stable releases (Node, TS, NestJS, Fastify, Spring Boot, Java, Python libs, datastore images, object-store image + license per ADR-0011) in `docs/steering/tech.md`
+- [x] Monorepo workspace definitions per §6.1: `pnpm-workspace.yaml`, Gradle multi-project `settings.gradle.kts` (includes Java projects once their directories exist), uv workspace root `pyproject.toml`. Member packages are created with the service skeletons in Phase 1.
+- [x] `Makefile` targets from §9.5. Targets for later phases exit 2 with "delivered in Phase N", so they never fake success. `env-sleep`/`env-wake`/`env-reset` refuse `ENV=prod`.
+- [x] `.editorconfig`, `.gitignore` (`.env*` except `.env.example`, keys, `.tools/`, build outputs), `.nvmrc` (24.22.3), `.python-version` (3.13), Gradle Java 25 toolchain convention
+- [x] ESLint 10 (flat, typescript-eslint strict, `no-explicit-any: error`) / Prettier, Ruff / mypy `--strict` configs (NFR-14)
+- [ ] Spotless / Error Prone / ArchUnit. Moved to Phase 1, because they need the first Java project (`packages/java-platform`).
+- [x] `ci/check-boundaries.sh` (NFR-09, ADR-0013), `ci/check-migrations.sh`, `ci/check-resource-budget.sh` (+ `ci/lib/resource_budget.py`) with self-tests (`ci/tests/run.sh`, 10 cases)
+- [ ] `ci/check-layer-sizes.sh`: implemented but has no automated test until images exist (Phase 1 Dockerfiles)
+- [x] Gitleaks pre-commit hook (`.githooks/pre-commit`, enabled by `make bootstrap`); `.gitleaks.toml` allowlists `tests/fixtures/secrets-synthetic/` only
+- [x] `CLAUDE.md`, `AGENTS.md`, `.claude/` (skills, agents with model routing, hooks), `docs/steering/`, `docs/adr/0001–0014`, `docs/specs/_template.md`, `docs/evidence/_template.md`, `CHANGELOG.md`
+- [x] Exact versions pinned after verifying current releases (`docs/steering/tech.md`); TS 7 deferred with rationale; ADR-0011 decided (SeaweedFS 4.54, 10/10 compatibility checks)
 
 #### Workstream: Local infrastructure
-- [ ] `deploy/compose/docker-compose.yml` infra services (postgres, mongo+init, redis, rabbitmq, objectstore+init, clamav, openobserve) with healthchecks
-- [ ] `deploy/compose/init/postgres/*.sql` creating schemas + `mig_*`/`svc_*` roles; `init/redis/redis.conf` ACL users; `init/rabbitmq/definitions.json` vhost + users; `init/objectstore/buckets.sh`
-- [ ] `.env.example` (§10.4) + `scripts/dev/gen-local-secrets.sh`
-- [ ] `make up && make down && make reset` verified on macOS and Linux
+- [x] `deploy/compose/docker-compose.yml` infra services (postgres, mongo rs0 + keyFile, redis, rabbitmq + init, objectstore + init, clamav, openobserve, config-render) with healthchecks. OpenObserve is probed from the host because its image is distroless.
+- [x] Init: `init/postgres/01-roles-schemas.sh` (5 schemas, `mig_*`/`svc_*`, default privileges, `backup_reader`), `init/mongo/01-users.js`, `init/redis/redis.conf.tmpl` (ACL per owner), `init/rabbitmq/init.sh` (vhost, topology user, least-privilege `svc_*`), `init/objectstore/{s3.json.tmpl,buckets.py}`. The Phase 0 plan named `definitions.json`/`buckets.sh`; replaced by API-driven init so passwords are never hashed into committed files.
+- [x] `.env.example` (Section A generated secrets, Section B per-runtime variables) + `scripts/dev/gen-local-secrets.sh` + `make env`
+- [x] `make up` / `make down` / `make reset` verified on macOS (Docker 29.4.3, arm64). Isolation probes pass: cross-schema denial, DDL denial for `svc_*`, Mongo DB scoping, Redis key-prefix ACLs, RabbitMQ permissions, prefix-scoped S3.
+- [ ] `make up` verified on Linux. Pending: covered by the first GitLab pipeline or by Phase 9 homelab runs.
 
 #### Workstream: CI skeleton
-- [ ] `.gitlab-ci.yml` with `.pre`, `lint`, `test` stages calling `ci/*.sh`; runs on MR + main
-- [ ] Merge request template with checklist: FR ids, spec link, migrations expand/contract, contract diff, CHANGELOG entry, evidence
+- [x] `.gitlab-ci.yml` with `.pre` (gitleaks), `lint` (shell, node, python, java, guardrails), `test` stages calling `ci/*.sh`; every job image tag verified to exist
+- [ ] First green GitLab pipeline. Pending: requires commit + push to `gitlab.rmwhs.com/apps/aegispulse` (owner action).
+- [x] Merge request template with checklist: FR ids, spec link, migrations expand/contract, contract diff, CHANGELOG entry, evidence
 
-**Phase 0 exit evidence:** `make bootstrap && make up && make lint && make test` output; `docker compose ps` all healthy; first green GitLab pipeline URL + SHA.
-**Phase note:** status `PENDING`.
+**Phase 0 exit evidence:** [docs/evidence/phase-00.md](docs/evidence/phase-00.md), with `make bootstrap`, `make lint`, `make test`, `make up`, isolation probes, and ADR-0011 compatibility output. The first green GitLab pipeline URL + SHA is still pending.
+**Phase note:** status **`SOURCE-IMPLEMENTED`**, locally runtime-verified on macOS. It becomes complete when the first GitLab pipeline is green and the Linux `make up` run is recorded. Phase 1 may start, because the remaining items are verification of existing work, not new scope.
 
 ---
 
@@ -3633,7 +3618,7 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 | A8 | Source status list includes `ARCHIVED` without definition | `ARCHIVED` = exported to cold tier | Disambiguation |
 | A9 | Source mentions "quarantine workflows" generally | File quarantine (AV/MIME) + restricted-event isolation | Concrete, testable scope |
 | A10 | Template mandates `gen_random_uuid()` PKs | Kept; event ids are producer-generated UUIDv7 | Template compliance + time-ordered event ids |
-| A11 | Source names "MinIO" | S3-API-only usage; concrete object-store image chosen in Phase 0 (ADR-0011) after verifying current MinIO community distribution/licensing | Avoid lock-in to an uncertain distribution |
+| A11 | Source names "MinIO" | **SeaweedFS 4.54** (ADR-0011 accepted after 10/10 S3 compatibility checks; the MinIO community image is no longer published) | Avoid lock-in to an uncertain distribution |
 | A12 | Source "SonarQube" vs. cluster capacity | SonarQube Community Build in-cluster if capacity allows; **open decision** for SonarCloud fallback | Elitedesk capacity is shared with GitLab |
 | A13 | Cluster guide prefers plain manifests | Kustomize base + overlays (still plain manifests) | Two environments, minimal templating |
 | A14 | Template §9.3 Terraform remote state bootstrap | Replaced by cluster bootstrap scripts (§9.3) | No Terraform-managed cluster resources |
@@ -3641,7 +3626,7 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 | A17 | Single homelab environment in v1.0 | `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) on the same cluster and tunnel (ADR-0014) | Owner-provided second domain on the same Cloudflare tunnel |
 | A16 | v1.0 baseline gateway was plain Fastify (`gateway/fastify-http`) | NestJS on the Fastify adapter at `gateway/nest-http` (ADR-0013); internal service adapters stay plain Fastify | Owner decision; evaluated with no architectural risk |
 
-Open decisions (record outcome via ADR before the phase that needs it): SonarQube hosting (Phase 10), object-store implementation (Phase 0), kaniko vs. buildah (Phase 10), Uptime Kuma/ntfy hosting location (Phase 18).
+Open decisions (record outcome via ADR before the phase that needs it): SonarQube hosting (Phase 10), kaniko vs. buildah (Phase 10), Uptime Kuma/ntfy hosting location (Phase 18). Decided: object store → SeaweedFS (ADR-0011, Phase 0).
 
 ## Appendix B — Glossary
 

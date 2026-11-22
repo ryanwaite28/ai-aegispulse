@@ -1,0 +1,12 @@
+# Rendered by render.sh. ACL users per owning service (PROJECT.md §5.7.3, §7.7).
+appendonly yes
+appendfsync everysec
+maxmemory 192mb
+maxmemory-policy volatile-ttl
+user default off
+user admin on >__REDIS_ADMIN_PASSWORD__ ~* &* +@all
+user healthcheck on >healthcheck +ping
+user ingestion on >__REDIS_PASSWORD_INGESTION__ ~whk:* ~idem:ingestion:* +@read +@write +@string +@keyspace -@dangerous
+user files on >__REDIS_PASSWORD_FILES__ ~upload:* ~file:* ~quota:files:* +@read +@write +@string +@hash +@keyspace +@scripting -@dangerous
+user risk_scoring on >__REDIS_PASSWORD_RISK_SCORING__ ~feat:* +@read +@write +@sortedset +@hash +@string +@keyspace -@dangerous
+user registry on >__REDIS_PASSWORD_REGISTRY__ ~auth:* ~ratelimit:auth:* +@read +@write +@string +@keyspace -@dangerous

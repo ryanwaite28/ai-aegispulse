@@ -1,0 +1,11 @@
+# Gitleaks config (ADR-0007). Default rules plus project allowlist for synthetic fixtures only.
+title = "aegispulse"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic test fixtures only (PROJECT.md §12 rule 6). Session logs and examples are scanned like everything else."
+paths = [
+  '''tests/fixtures/secrets-synthetic/''',
+]

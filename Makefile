@@ -1,0 +1,137 @@
+# AegisPulse unified task runner (PROJECT.md §9.5). CI logic lives in ci/*.sh; this file only dispatches.
+
+# Toolchain resolution: prefer Homebrew node@24 / openjdk@25 when present (keg-only installs), plus corepack shims.
+NODE24_BIN := $(wildcard /opt/homebrew/opt/node@24/bin)
+JDK25_HOME := $(wildcard /opt/homebrew/opt/openjdk@25)
+export PATH := $(CURDIR)/.tools/bin$(if $(NODE24_BIN),:$(NODE24_BIN)):$(PATH)
+ifneq ($(JDK25_HOME),)
+export JAVA_HOME := $(JDK25_HOME)
+endif
+# make 3.81 resolves direct commands with its startup PATH; routing through env makes the exported PATH effective.
+SHELL := env PATH=$(PATH) /bin/bash
+.DEFAULT_GOAL := help
+
+COMPOSE := docker compose --env-file .env -f deploy/compose/docker-compose.yml
+ENV ?= dev
+
+define not_yet
+	@echo "make $@: not available yet — delivered in $(1) (PROJECT.md §11)." >&2; exit 2
+endef
+
+.PHONY: help
+help: ## List targets
+	@awk 'BEGIN{FS=":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36m%-18s\033[0m %s\n",$$1,$$2}' $(MAKEFILE_LIST)
+
+# ---------------------------------------------------------------- setup
+.PHONY: bootstrap env
+bootstrap: ## Verify toolchains, enable pnpm (corepack), install git hooks, install deps
+	@scripts/dev/bootstrap.sh
+	pnpm install
+	uv sync --all-groups
+
+env: ## Create .env (Infisical env=local if logged in, else generated local secrets)
+	@if command -v infisical >/dev/null 2>&1 && infisical secrets --env=local >/dev/null 2>&1; then \
+	  infisical export --env=local --format=dotenv > .env && chmod 600 .env && echo "env: exported from Infisical (local)"; \
+	else scripts/dev/gen-local-secrets.sh; fi
+
+# ---------------------------------------------------------------- local stack
+.PHONY: up down reset ps logs
+up: .env ## Start the local compose stack and wait for health
+	$(COMPOSE) up -d
+	@scripts/dev/compose-wait.sh
+
+down: ## Stop the local stack (keeps volumes)
+	$(COMPOSE) down
+
+reset: ## Stop the local stack and DELETE local volumes
+	$(COMPOSE) down -v --remove-orphans
+
+ps: ## Show local stack status
+	$(COMPOSE) ps
+
+logs: ## Tail local stack logs (SERVICE=name to filter)
+	$(COMPOSE) logs -f --tail=100 $(SERVICE)
+
+.env:
+	@scripts/dev/gen-local-secrets.sh
+
+# ---------------------------------------------------------------- quality
+.PHONY: lint lint-node lint-python lint-java lint-shell typecheck format check test test-unit test-integration test-e2e build
+lint: lint-shell lint-node lint-python lint-java check ## All linters + guardrail checks
+
+lint-shell:
+	@ci/lint-shell.sh
+lint-node:
+	@ci/lint-node.sh
+lint-python:
+	@ci/lint-python.sh
+lint-java:
+	@ci/lint-java.sh
+
+check: ## Guardrail checks (boundaries, migrations, resource budget) + their self-tests
+	@ci/check-boundaries.sh
+	@ci/check-migrations.sh
+	@ci/check-resource-budget.sh
+	@ci/tests/run.sh
+
+typecheck: ## Type checks (TS workspaces + mypy)
+	pnpm run typecheck
+	uv run mypy $$(git ls-files -co --exclude-standard '*.py' | grep -v '/generated/')
+
+format: ## Auto-format (Prettier + Ruff)
+	pnpm run format
+	uv run ruff format .
+
+test: test-unit ## Alias for test-unit
+
+test-unit: ## Unit suites (Vitest / JUnit / pytest)
+	@ci/test-node.sh
+	@ci/test-python.sh
+	@ci/test-java.sh
+
+test-integration: ## Testcontainers suites
+	$(call not_yet,Phase 1 (platform kits))
+
+test-e2e: ## E2E against the compose stack
+	$(call not_yet,Phase 8 (MVP slice))
+
+build: ## Build all workspaces
+	pnpm run build
+	./gradlew --no-daemon assemble
+
+# ---------------------------------------------------------------- data & contracts
+.PHONY: migrate seed contracts eval
+migrate: ## Flyway + migrate-mongo + RabbitMQ topology (local)
+	$(call not_yet,Phase 1 (data foundations))
+seed: ## Seed demo tenants/users/entities
+	$(call not_yet,Phase 2–3)
+contracts: ## Validate + regenerate contract types
+	$(call not_yet,Phase 1 (contracts))
+eval: ## Golden-dataset evaluation
+	$(call not_yet,Phase 16)
+
+# ---------------------------------------------------------------- runtime helpers
+.PHONY: dev images demo chaos trigger k3d-up k3d-down env-sleep env-wake env-reset
+dev: ## Run one service natively with hot reload (SERVICE=name)
+	$(call not_yet,Phase 1 (service skeletons))
+images: ## Build all container images locally
+	$(call not_yet,Phase 1 (Dockerfiles))
+demo: ## End-to-end demo scenario
+	$(call not_yet,Phase 20)
+chaos: ## Chaos scenario (SCENARIO=name; dev/local only)
+	$(call not_yet,Phase 18)
+trigger: ## Run a scheduler-trigger job locally (JOB=name)
+	$(call not_yet,Phase 4+)
+k3d-up k3d-down: ## Optional k3d parity cluster
+	$(call not_yet,Phase 9)
+env-sleep env-wake env-reset: ## Dev namespace sleep/wake/reset (refuses prod)
+	@if [ "$(ENV)" = "prod" ]; then echo "refused: $@ never targets prod (ADR-0014)" >&2; exit 1; fi
+	$(call not_yet,Phase 9)
+
+# ---------------------------------------------------------------- tools
+.PHONY: objectstore-compat
+objectstore-compat: ## ADR-0011 S3 compatibility check against the local object store
+	@set -a; . ./.env; set +a; uv run --with boto3 --with requests scripts/dev/objectstore_compat.py \
+	  --endpoint http://localhost:9000 --admin-key "$$S3_ADMIN_ACCESS_KEY" --admin-secret "$$S3_ADMIN_SECRET_KEY" \
+	  --scoped-key "$$S3_INGESTION_ACCESS_KEY" --scoped-secret "$$S3_INGESTION_SECRET_KEY" \
+	  --bucket aegispulse-local-raw --scoped-prefix raw/webhooks/

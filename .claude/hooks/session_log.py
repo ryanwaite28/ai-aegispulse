@@ -11,6 +11,7 @@ Events handled: SessionStart, UserPromptSubmit, Stop, PreCompact, PostCompact, S
 Never blocks Claude: any internal error is written to docs/sessions/.errors.log and exit 0.
 Secrets: values matching common secret patterns are masked before writing (PROJECT.md §12 rule 6).
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -21,6 +22,7 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
 LOG_DIR = ROOT / "docs" / "sessions"
@@ -49,7 +51,7 @@ def clip(text: str) -> str:
 
 
 def now_iso() -> str:
-    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def git(*args: str) -> str:
@@ -72,11 +74,11 @@ def append(path: Path, text: str) -> None:
         fh.write(text)
 
 
-def record(jsonl: Path, event: str, data: dict) -> None:
+def record(jsonl: Path, event: str, data: dict[str, Any]) -> None:
     append(jsonl, json.dumps({"ts": now_iso(), "event": event, **data}, ensure_ascii=False) + "\n")
 
 
-def is_human_prompt(entry: dict) -> bool:
+def is_human_prompt(entry: dict[str, Any]) -> bool:
     if entry.get("type") != "user" or entry.get("isSidechain"):
         return False
     content = (entry.get("message") or {}).get("content")
@@ -89,9 +91,9 @@ def is_human_prompt(entry: dict) -> bool:
     return False
 
 
-def last_turn(transcript_path: str) -> dict:
+def last_turn(transcript_path: str) -> dict[str, list[str]]:
     """Assistant text, tools used, and files touched since the last human prompt."""
-    out = {"text": [], "tools": [], "files": []}
+    out: dict[str, list[str]] = {"text": [], "tools": [], "files": []}
     p = Path(transcript_path or "")
     if not p.is_file():
         return out
@@ -128,7 +130,8 @@ def update_index(md: Path, session_id: str, title: str) -> None:
     idx = LOG_DIR / "INDEX.md"
     if not idx.exists():
         idx.write_text(
-            "# Session Log Index\n\nOne row per Claude Code session. Written automatically by `.claude/hooks/session_log.py`.\n\n"
+            "# Session Log Index\n\n"
+            "One row per Claude Code session. Written automatically by `.claude/hooks/session_log.py`.\n\n"
             "| Started (UTC) | Session | Log | First prompt |\n|---|---|---|---|\n",
             encoding="utf-8",
         )
@@ -146,9 +149,13 @@ def main() -> None:
     ts = now_iso()
 
     if not md.exists():
-        append(md, f"# Session `{sid}`\n\n- **Project:** AegisPulse\n- **Started:** {ts}\n"
-                   f"- **Branch / SHA:** {git('rev-parse', '--abbrev-ref', 'HEAD') or 'n/a'} / {git('rev-parse', '--short', 'HEAD') or 'no commits'}\n"
-                   f"- **Transcript:** `{payload.get('transcript_path', '')}`\n\n---\n")
+        append(
+            md,
+            f"# Session `{sid}`\n\n- **Project:** AegisPulse\n- **Started:** {ts}\n"
+            f"- **Branch / SHA:** {git('rev-parse', '--abbrev-ref', 'HEAD') or 'n/a'} / "
+            f"{git('rev-parse', '--short', 'HEAD') or 'no commits'}\n"
+            f"- **Transcript:** `{payload.get('transcript_path', '')}`\n\n---\n",
+        )
 
     if event == "SessionStart":
         src = payload.get("source", "")
@@ -168,12 +175,15 @@ def main() -> None:
         turn = last_turn(payload.get("transcript_path", ""))
         text = payload.get("last_assistant_message") or "\n\n".join(turn["text"])
         text = clip(text)
-        tools = {}
+        tools: dict[str, int] = {}
         for t in turn["tools"]:
             tools[t] = tools.get(t, 0) + 1
         files = sorted(set(turn["files"]))
-        summary = ", ".join(f"{k}×{v}" for k, v in sorted(tools.items())) or "none"
-        block = f"\n## 🤖 Response — {ts}\n\n{text or '_(no text output)_'}\n\n<details><summary>Turn summary</summary>\n\n- **Tools used:** {summary}\n"
+        summary = ", ".join(f"{k} x{v}" for k, v in sorted(tools.items())) or "none"
+        block = (
+            f"\n## 🤖 Response — {ts}\n\n{text or '_(no text output)_'}\n\n"
+            f"<details><summary>Turn summary</summary>\n\n- **Tools used:** {summary}\n"
+        )
         if files:
             block += "- **Files written/edited:**\n" + "".join(f"  - `{f}`\n" for f in files)
         block += "\n</details>\n"
@@ -182,12 +192,19 @@ def main() -> None:
 
     elif event == "PreCompact":
         trig, instr = payload.get("trigger", ""), clip(payload.get("custom_instructions") or "")
-        append(md, f"\n### 🗜️ Compaction starting — {ts} (trigger: {trig})\n" + (f"\nInstructions: {instr}\n" if instr else ""))
+        append(
+            md,
+            f"\n### 🗜️ Compaction starting — {ts} (trigger: {trig})\n" + (f"\nInstructions: {instr}\n" if instr else ""),
+        )
         record(jsonl, event, {"trigger": trig, "custom_instructions": instr})
 
     elif event == "PostCompact":
         summ = clip(payload.get("summary") or payload.get("compact_summary") or payload.get("compaction_summary") or "")
-        append(md, f"\n### 🗜️ Compaction summary — {ts}\n\n<details><summary>Summary</summary>\n\n{summ or '_(summary not provided by hook payload)_'}\n\n</details>\n")
+        append(
+            md,
+            f"\n### 🗜️ Compaction summary — {ts}\n\n<details><summary>Summary</summary>\n\n"
+            f"{summ or '_(summary not provided by hook payload)_'}\n\n</details>\n",
+        )
         record(jsonl, event, {"summary": summ})
 
     elif event == "SessionEnd":

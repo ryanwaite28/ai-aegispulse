@@ -1,0 +1,10 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: aegispulse-doc-extraction }
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: doc-extraction
+          resources: { requests: { cpu: "2", memory: 4Gi } }

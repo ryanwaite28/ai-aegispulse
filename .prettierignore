@@ -1,0 +1,12 @@
+# Prettier owns TS/JS/JSON/YAML in code workspaces only; docs are hand-formatted Markdown.
+docs/
+*.md
+pnpm-lock.yaml
+packages/contracts/generated/
+**/build/
+**/.gradle/
+**/.venv/
+.claude/
+deploy/compose/init/
+.vscode/
+.idea/
