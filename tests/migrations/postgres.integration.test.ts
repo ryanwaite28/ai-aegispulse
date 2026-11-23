@@ -69,7 +69,10 @@ describe("PostgreSQL migrations + role model (ADR-0005, NFR-06)", () => {
 
   it("migrates every schema with the migrate image", () => {
     expect(migrateLogs).toContain("aegis-migrate: done");
-    for (const s of schemas) expect(migrateLogs).toMatch(new RegExp(`${s}: \\| Versioned \\| 1 .*Success`));
+    for (const s of schemas) {
+      expect(migrateLogs).toMatch(new RegExp(`${s}: \\| Versioned \\| 1 .*Success`));
+      expect(migrateLogs).toMatch(new RegExp(`${s}: \\| Versioned \\| 2 .*Success`));
+    }
   });
 
   it.each(schemas)("creates the outbox in %s with a unique event_id", async (s) => {
@@ -85,7 +88,7 @@ describe("PostgreSQL migrations + role model (ADR-0005, NFR-06)", () => {
   it.each(schemas)("lets svc_%s read but never modify its migration history", async (s) => {
     const c = await svc(s);
     const v = await c.query<{ v: string }>(`select max(version) as v from ${s}.flyway_schema_history`);
-    expect(v.rows[0]?.v).toBe("1");
+    expect(v.rows[0]?.v).toBe("2");
     await expect(c.query(`delete from ${s}.flyway_schema_history`)).rejects.toThrow(/permission denied/);
     await c.end();
   });
@@ -129,6 +132,48 @@ describe("PostgreSQL migrations + role model (ADR-0005, NFR-06)", () => {
     expect((await c.query("select * from cases.idempotency_records")).rowCount).toBe(0);
     await c.end();
   });
+
+  it("cannot lift RLS with a session setting: app.bypass_rls is ignored (ADR-0016)", async () => {
+    const c = await svc("cases");
+    const tA = "33333333-3333-3333-3333-333333333333";
+    await c.query("begin");
+    await c.query(`set local app.tenant_id = '${tA}'`);
+    await c.query(
+      "insert into cases.idempotency_records values ($1,'scope','k9','h',null,null,now() + interval '1 day')",
+      [tA],
+    );
+    await c.query("commit");
+    await c.query("begin");
+    await c.query("set local app.bypass_rls = 'on'"); // the old convention: must have no effect now
+    expect((await c.query("select * from cases.idempotency_records")).rowCount).toBe(0);
+    await expect(
+      c.query("insert into cases.idempotency_records values ($1,'scope','k10','h',null,null,now())", [tA]),
+    ).rejects.toThrow(/row-level security/);
+    await c.query("rollback");
+    await expect(c.query("select cases.rls_bypassed()")).rejects.toThrow(/does not exist/);
+    await c.end();
+  });
+
+  it.each(["ingestion", "files", "registry", "cases"] as const)(
+    "exposes cross-tenant purge to svc_%s only as a SECURITY DEFINER function owned by %s_platform",
+    async (s) => {
+      const c = await svc(s);
+      const r = await c.query<{ owner: string; definer: boolean; bypass: boolean; login: boolean }>(
+        `select pg_get_userbyid(p.proowner) as owner, p.prosecdef as definer, r.rolbypassrls as bypass, r.rolcanlogin as login
+           from pg_proc p join pg_namespace n on n.oid = p.pronamespace join pg_roles r on r.oid = p.proowner
+          where n.nspname = $1 and p.proname = 'purge_expired_idempotency_records'`,
+        [s],
+      );
+      expect(r.rows).toEqual([{ owner: `${s}_platform`, definer: true, bypass: true, login: false }]);
+      await expect(c.query(`select ${s}.purge_expired_idempotency_records() as n`)).resolves.toBeDefined();
+      // the service role can neither become the platform role nor log in as it
+      await expect(c.query(`set role ${s}_platform`)).rejects.toThrow(/permission denied/);
+      await c.end();
+      const other = await svc(s === "files" ? "cases" : "files");
+      await expect(other.query(`select ${s}.purge_expired_idempotency_records()`)).rejects.toThrow(/permission denied/);
+      await other.end();
+    },
+  );
 
   it("grants backup_reader read-only access across schemas", async () => {
     const c = await connect("backup_reader", env["PG_BACKUP_PASSWORD"] ?? "");

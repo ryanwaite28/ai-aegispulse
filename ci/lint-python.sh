@@ -8,4 +8,5 @@ while IFS= read -r f; do files+=("$f"); done < <(git ls-files -co --exclude-stan
 uv run ruff check "${files[@]}"
 uv run ruff format --check "${files[@]}"
 uv run mypy "${files[@]}"
+uv run lint-imports
 echo "lint-python: OK (${#files[@]} files)"

@@ -52,7 +52,7 @@ Verified 2026-11-22 against the npm registry, PyPI, Maven Central, services.grad
 
 ## Dependency policy
 - A new dependency needs a row in the log below and a line in the MR description: purpose, license, maintenance signal, and alternatives considered.
-- Licenses: MIT, Apache-2.0, BSD, ISC, MPL-2.0 are fine. AGPL/SSPL/BSL only for separately deployed infrastructure, never linked into our code, and with an ADR.
+- Licenses: MIT, Apache-2.0, BSD, ISC, MPL-2.0 are fine. LGPL is fine only for unmodified libraries used as-is (dynamically imported/linked), e.g. psycopg 3 (mandated by PROJECT.md §6.3); never vendor or patch LGPL code. AGPL/SSPL/BSL only for separately deployed infrastructure, never linked into our code, and with an ADR.
 - No dependency for trivial code (left-pad rule). Prefer the standard library.
 - Lockfiles are always committed: `pnpm-lock.yaml`, `gradle.lockfile`, `uv.lock`.
 - Pin images by digest in `deploy/k8s/overlays/*`.
@@ -63,3 +63,18 @@ Verified 2026-11-22 against the npm registry, PyPI, Maven Central, services.grad
 | 2026-11-22 | root (Node) | eslint, @eslint/js, typescript-eslint, prettier, typescript, vitest | see table | lint/format/typecheck/test tooling | MIT / Apache-2.0 | Phase 0 |
 | 2026-11-22 | root (Python dev) | ruff, mypy, pytest, import-linter, boto3, requests, pyyaml, types-PyYAML | see table / 2.34.2 / 6.0.4 | lint, types, tests, object-store compat check, budget check | MIT / Apache-2.0 / BSD | Phase 0 |
 | 2026-11-22 | infra | SeaweedFS 4.54 | 4.54 | S3-compatible object store (ADR-0011) | Apache-2.0 | Phase 0 |
+| 2026-11-23 | Node (ts-platform) | rxjs-rabbitmq (+ peers amqplib 2.4.0, rxjs 7.8.2) | 3.0.0 | AMQP client (owner's library; [review](../evidence/rxjs-rabbitmq-3.0.0-review.md); release-age exception, single version) | ISC | Phase 1b |
+| 2026-11-23 | Node (ts-platform) | zod, pino, undici, opossum, jose, ajv + ajv-formats | 4.6.7 / 10.4.0 / 8.13.1 / 10.0.0 / 6.2.18 / 8.20.0 + 3.0.1 | config validation, logging, HTTP client, circuit breaker, JWT, envelope validation | MIT / Apache-2.0 (opossum) | Phase 1b |
+| 2026-11-23 | Node (ts-platform) | @opentelemetry/{api 1.10.0, sdk-node 0.301.2, exporter-trace/metrics-otlp-http 0.301.2, instrumentation(-http) 0.301.2, instrumentation-undici 0.35.1, sdk-metrics/resources/core/context-async-hooks 3.1.1, semantic-conventions 1.45.0} | see list | traces + metrics over OTLP/HTTP, propagation | Apache-2.0 | Phase 1b |
+| 2026-11-23 | Node (ts-platform dev) | pg + @types/pg, @types/opossum, @testcontainers/{postgresql,rabbitmq} | 8.23.1 / 8.1.9 / 12.2.2 | integration tests (real PostgreSQL/RabbitMQ) | MIT | Phase 1b |
+| 2026-11-23 | Java (java-platform) | Spring Boot 4.2.0 BOM starters: webmvc, validation, actuator, security-oauth2-resource-server, rabbitmq, jdbc, jackson; postgresql 42.7.14 | BOM 4.2.0 | platform starter (Spring AMQP 4.2, Security 7.2, Jackson 3.1) | Apache-2.0 / BSD-2 | Phase 1c |
+| 2026-11-23 | Java (java-platform) | com.networknt:json-schema-validator, org.jspecify:jspecify, com.tngtech.archunit | 3.0.9 / 1.0.1 / 1.5.1 | envelope validation (Jackson 3), nullness annotations, layering rules | Apache-2.0 | Phase 1c |
+| 2026-11-23 | Java (build) | Error Prone + NullAway (net.ltgt.errorprone 5.2.0), Spotless 8.12.0 + google-java-format | 2.53.0 / 0.14.4 / 1.37.0 | NFR-14 static analysis and formatting | Apache-2.0 / MIT | Phase 1c |
+| 2026-11-23 | Java (test) | Testcontainers 2.0.5 (postgresql, rabbitmq, junit-jupiter) via Boot BOM | 2.0.5 | integration tests against real PostgreSQL/RabbitMQ | MIT | Phase 1c |
+| 2026-11-23 | Python (py-platform) | pydantic-settings, structlog, aio-pika, pyjwt[crypto], psycopg[binary] + psycopg-pool, jsonschema[format], fastapi | 2.16.3 / 26.1.0 / 10.2.3 / 2.15.1 / 3.3.9 + 3.3.3 / 4.26.0 / 0.165.0 | settings, JSON logs, AMQP kit, JWT, outbox/dedup, envelope validation, health router | MIT / Apache-2.0 / LGPL-3.0 (psycopg, linked as a library) | Phase 1d |
+| 2026-11-23 | Python (py-platform) | opentelemetry-api/sdk/exporter-otlp-proto-http, opentelemetry-instrumentation-fastapi | 1.45.2 / 0.66b2 | traces + metrics over OTLP/HTTP | Apache-2.0 | Phase 1d |
+| 2026-11-23 | Python (dev) | pytest-asyncio, testcontainers[postgres,rabbitmq], uvicorn; hatchling (build) | 1.5.0 / 4.15.0 / 0.54.0 / 1.33.0 | async tests against real PostgreSQL/RabbitMQ; packaging | Apache-2.0 / BSD / MIT | Phase 1d |
+| 2026-11-23 | Node (services, gateway) | fastify (ts-platform http adapter), ioredis, @aws-sdk/client-s3, pg, @nestjs/{common,core,platform-fastify} + reflect-metadata, @opentelemetry/sdk-trace (replaces sdk-node) | 5.12.8 / 6.1.0 / 3.1175.0 / 8.23.1 / 12.6.0 + 0.2.2 / 3.1.1 | HTTP adapters, owned infra clients, gateway (ADR-0013), lighter OTel SDK (image layer cap) | MIT / Apache-2.0 | Phase 1e |
+| 2026-11-23 | Java (services) | spring-boot-starter-data-redis (registry), io.opentelemetry.javaagent:opentelemetry-javaagent | BOM 4.2.0 / 2.34.0 | registry Redis client; tracing agent (§6.3) | Apache-2.0 | Phase 1e |
+| 2026-11-23 | Python (services) | uvicorn, redis (risk-scoring; 8.2.0 skipped: released the same day), boto3 (data-intel) | 0.54.0 / 8.1.0 / 1.44.9 | ASGI server, owned infra clients | BSD / MIT / Apache-2.0 | Phase 1e |
+| 2026-11-23 | images | nginxinc/nginx-unprivileged (console), python:3.13.18-slim-trixie, eclipse-temurin:25-jre-noble, node:24.22.3-alpine3.24 | 1.31.7-alpine3.24 | runtime bases (non-root, read-only FS) | various OSS | Phase 1e |

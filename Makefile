@@ -91,6 +91,8 @@ test-unit: ## Unit suites (Vitest / JUnit / pytest)
 
 test-integration: ## Testcontainers suites (requires Docker; no compose stack needed)
 	pnpm -r --if-present run test:integration
+	./gradlew --no-daemon integrationTest
+	uv run pytest -q -m integration packages/py-platform/tests/integration
 
 test-e2e: ## E2E against the compose stack
 	$(call not_yet,Phase 8 (MVP slice))
@@ -102,8 +104,10 @@ build: ## Build all workspaces
 # ---------------------------------------------------------------- data & contracts
 .PHONY: migrate seed contracts eval
 migrate: ## Flyway (5 schemas) + migrate-mongo + RabbitMQ topology (local)
+	@scripts/dev/pg-bootstrap.sh
 	$(COMPOSE) --profile tools run --rm --build migrate
 	@scripts/dev/migrate-local.sh
+	@WAIT_PROBE=readyz scripts/dev/compose-wait.sh
 seed: ## Seed demo tenants/users/entities
 	$(call not_yet,Phase 2–3)
 contracts: ## Validate contracts + regenerate TS/Python types (fails in CI on generated drift)
@@ -115,8 +119,8 @@ eval: ## Golden-dataset evaluation
 .PHONY: dev images demo chaos trigger k3d-up k3d-down env-sleep env-wake env-reset
 dev: ## Run one service natively with hot reload (SERVICE=name)
 	$(call not_yet,Phase 1 (service skeletons))
-images: ## Build all container images locally
-	$(call not_yet,Phase 1 (Dockerfiles))
+images: ## Build all container images locally (tagged with the git sha; deploy/docker/*.Dockerfile)
+	@scripts/dev/build-images.sh
 demo: ## End-to-end demo scenario
 	$(call not_yet,Phase 20)
 chaos: ## Chaos scenario (SCENARIO=name; dev/local only)

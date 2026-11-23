@@ -33,3 +33,4 @@ docs/evidence/assets/**/*.tmp
 docs/sessions/.errors.log
 # project-local tool shims (corepack)
 .tools/
+.import_linter_cache/

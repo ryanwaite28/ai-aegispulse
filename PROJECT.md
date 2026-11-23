@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-22 (ADR-0013: NestJS gateway; ADR-0014: dev/prod environments; Phase 0: version pins, ADR-0011 SeaweedFS) |
+| **Last updated** | 2026-11-23 (ADR-0015 node roles; ADR-0016 enforced RLS bypass; token `typ` rules in FR-TEN-07/FR-AUTH-04/§8; §6.3 Java records generator) |
 
 ---
 
@@ -300,7 +300,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 - **FR-TEN-04**: `TENANT_ADMIN` invites/creates users with `email` (RFC 5322, unique per tenant, stored lower-case), `displayName`, `roles[]` (non-empty subset of §1.4.6 tenant roles), and an initial password (≥ 14 chars, zxcvbn score ≥ 3) that must be changed at first login (`mustChangePassword`). Passwords hashed with Argon2id (m=64 MiB, t=3, p=1).
 - **FR-TEN-05**: `TENANT_ADMIN` lists (filter by role, status; paginated), updates roles, disables, and re-enables users. A tenant must always retain ≥ 1 active `TENANT_ADMIN` (`409 LAST_TENANT_ADMIN`). Role changes revoke the user's refresh tokens and emit `registry.user.changed`; audited.
 - **FR-TEN-06**: `TENANT_ADMIN` creates service accounts (role `INTEGRATION`) returning `clientId` and a one-time-displayed `clientSecret` (32 random bytes, base64url; stored as Argon2id hash). Supports rotate (new secret; previous valid for 24 h grace) and revoke. Audited.
-- **FR-TEN-07**: Internal `SERVICE` accounts (one per runtime, §5.7) are provisioned by migration seed + Infisical secret; their allowed internal actions are an explicit allowlist claim `act[]` in the token.
+- **FR-TEN-07**: Internal `SERVICE` accounts (one per runtime, §5.7) are provisioned by migration seed + Infisical secret; their allowed internal actions are an explicit allowlist claim `act[]` in the token. SERVICE token claims: `sub` (`svc-<runtime>`), `typ=service`, `act[]`, `iss=aegispulse-registry`, `aud=aegispulse-internal`, `jti`, `iat`, `exp`, `kid` header; no `tid`/`roles` (ADR-0010).
 - **FR-TEN-08**: Tenant settings (`highValueThresholdUsd`, `highRiskCountries`, `retentionDays`, `demoMode`) are readable by internal services via `getTenantSettings` and cached ≤ 60 s by callers; changes emit `registry.tenant.settings_changed`.
 
 ### 2.2 Authentication & Authorization (Owner: `services/registry`; enforced in every service)
@@ -308,7 +308,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 - **FR-AUTH-01**: `POST /v1/auth/login` with tenant slug, email, password returns an RS256 access JWT (TTL 15 min) and a rotating opaque refresh token (TTL 7 d, stored hashed). Claims: `sub`, `tid` (tenant UUID), `tslug`, `roles[]`, `typ=user`, `iss=aegispulse-registry`, `aud=aegispulse`, `jti`, `iat`, `exp`, `kid` header. Failed attempts are rate limited per (tenant, email): 5 per 15 min → `429 AUTH_RATE_LIMITED`; responses never reveal whether the email exists.
 - **FR-AUTH-02**: `POST /v1/auth/refresh` rotates the refresh token (old one invalidated; reuse of an invalidated token revokes the whole token family and emits a security audit entry `AUTH_REFRESH_REUSE`).
 - **FR-AUTH-03**: `POST /v1/auth/logout` revokes the current refresh-token family. `GET /v1/auth/me` returns profile, tenant, roles.
-- **FR-AUTH-04**: `POST /v1/auth/token` (client credentials) issues access tokens for `INTEGRATION` service accounts (TTL 15 min, no refresh). Internal `SERVICE` accounts call `issueClientCredentialsToken` (`POST /internal/v1/issueClientCredentialsToken`, the only unauthenticated internal operation: client credentials in the body, rate limited per `clientId`) with `audience=aegispulse-internal`.
+- **FR-AUTH-04**: `POST /v1/auth/token` (client credentials) issues access tokens for `INTEGRATION` service accounts (TTL 15 min, no refresh) with claims `sub` (clientId), `tid`, `tslug`, `roles=["INTEGRATION"]`, `typ=integration`, `iss=aegispulse-registry`, `aud=aegispulse`, `jti`, `iat`, `exp`, `kid` header. Internal `SERVICE` accounts call `issueClientCredentialsToken` (`POST /internal/v1/issueClientCredentialsToken`, the only unauthenticated internal operation: client credentials in the body, rate limited per `clientId`) with `audience=aegispulse-internal`.
 - **FR-AUTH-05**: Registry publishes a JWKS at `/.well-known/jwks.json` with current and previous signing keys (kid rotation every 90 days, previous key retained 24 h after rotation). Every service validates JWTs locally against the cached JWKS (refresh every 10 min or on unknown `kid`) — no service trusts the gateway's validation alone.
 - **FR-AUTH-06**: Authorization is enforced in the owning service's service layer by role + tenant: the tenant in the token must equal the tenant of every resource read or mutated; cross-tenant access returns `404` (not `403`) to avoid resource enumeration. `PLATFORM_ADMIN` may pass `X-Aegis-Tenant` to act on a specific tenant; every such action is audited with `actingAs`.
 - **FR-AUTH-07**: Password change endpoint `POST /v1/auth/password` (current + new; same policy as FR-TEN-04) revokes all other refresh-token families.
@@ -968,9 +968,10 @@ Dead-letter routing note: `{queue}.dlq` queues are bound to `aegispulse.dlx` wit
 | `svc_files` | DML on `files.*` |
 | `svc_registry` | DML on `registry.*` |
 | `svc_cases` | `SELECT, INSERT, UPDATE` on `cases.*` except `audit_log` (`SELECT, INSERT` only) |
-| `svc_data_intel` | DML on `analytics.*` |
+| `svc_analytics` | DML on `analytics.*` (data-intel's runtime role; roles follow `svc_{schema}`) |
+| `{schema}_platform` (×5) | `NOLOGIN BYPASSRLS`; owns only the migration-defined `SECURITY DEFINER` functions for cross-tenant operations, with the table privileges they need; `mig_{schema}` is a member `WITH INHERIT FALSE, SET TRUE` (to assign ownership); created by the DB bootstrap (superuser), ADR-0016 |
 | `backup_reader` | `pg_read_all_data` (backup CronJob only) |
-No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY` on tenant tables.
+No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY` on tenant tables; no `svc_*` role can bypass RLS (ADR-0016).
 
 #### 5.7.3 MongoDB, Redis, RabbitMQ, Object Store Principals
 | Principal | Scope |
@@ -1288,7 +1289,7 @@ Internal route convention (uniform RPC, decided in Phase 1a): **every** HTTP-inv
 | Datastores | PostgreSQL 18, MongoDB 8.0, Redis 8, SeaweedFS 4.54 S3-compatible object store (ADR-0011) |
 | Messaging | RabbitMQ 4.x (quorum queues, Prometheus plugin) |
 | Migrations | Flyway (SQL, all PostgreSQL schemas, run as Jobs), `migrate-mongo` (Mongo indexes/collections) |
-| Contracts | OpenAPI 3.1, AsyncAPI 3.0, JSON Schema 2020-12; generators: `openapi-typescript`, OpenAPI Generator (Java), `datamodel-code-generator` (Pydantic) |
+| Contracts | OpenAPI 3.1, AsyncAPI 3.0, JSON Schema 2020-12; generators: `openapi-typescript`, `datamodel-code-generator` (Pydantic), and Java records for the envelope, event payloads and topology constants emitted by `packages/contracts/scripts/java-records.ts` (dependency-free records + JSpecify, Phase 1c); OpenAPI Generator (Java) is reserved for internal request/response DTOs of the Java services when Phase 2 needs them |
 | Frontend | React 19, Vite, TypeScript, TanStack Router + TanStack Query, Zustand (session), Tailwind CSS + Radix UI primitives, Recharts, `@microsoft/fetch-event-source`, served by `nginx-unprivileged` |
 | Testing | Vitest, Testcontainers (Node/Java/Python), JUnit Jupiter + AssertJ, pytest + hypothesis, Playwright + axe-core, k6, Schemathesis (OpenAPI fuzz) |
 | Local emulation | Docker Compose (§10.3), optional k3d |
@@ -1459,12 +1460,18 @@ CREATE INDEX ix_idem_expires ON ingestion.idempotency_records (expires_at);
 ALTER TABLE ingestion.webhook_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ingestion.webhook_sources FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON ingestion.webhook_sources
-  USING (tenant_id = ingestion.current_tenant() OR ingestion.rls_bypassed())
-  WITH CHECK (tenant_id = ingestion.current_tenant() OR ingestion.rls_bypassed());
--- current_tenant()/rls_bypassed() are created per schema by V1__baseline.sql; with no tenant context RLS fails closed (0 rows).
+  USING (tenant_id = ingestion.current_tenant())
+  WITH CHECK (tenant_id = ingestion.current_tenant());
+-- current_tenant() is created per schema by V1__baseline.sql; with no tenant context RLS fails closed (0 rows).
+-- There is no bypass clause (ADR-0016): cross-tenant work goes through SECURITY DEFINER functions, e.g.
+CREATE FUNCTION ingestion.purge_expired_idempotency_records() RETURNS integer
+  LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$ … $$;
+ALTER FUNCTION ingestion.purge_expired_idempotency_records() OWNER TO ingestion_platform;  -- NOLOGIN BYPASSRLS
+REVOKE ALL ON FUNCTION ingestion.purge_expired_idempotency_records() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ingestion.purge_expired_idempotency_records() TO svc_ingestion;
 ```
 `outbox_events` and `processed_messages` carry no RLS (never read on behalf of a tenant request). A Flyway `afterMigrate.sql` callback per schema keeps `flyway_schema_history` read-only (SELECT) for `svc_*`, so services can check the schema version for readiness but cannot alter it.
-Services run `SET LOCAL app.tenant_id = $1` at the start of every transaction; scheduled cross-tenant jobs set `app.bypass_rls = 'on'` inside a dedicated repository method that is audited.
+Services run `SET LOCAL app.tenant_id = $1` at the start of every transaction. No session setting can lift RLS: cross-tenant platform operations (retention purges, scheduled sweeps, tenant-resolving lookups such as webhook source by key) are `SECURITY DEFINER` functions owned by `{schema}_platform` (NOLOGIN, BYPASSRLS), defined in reviewed migrations with a fixed `search_path`, with `EXECUTE` granted to `svc_{schema}` only. Each FR that needs one adds it in its own migration with a migration test (ADR-0016).
 
 ### 7.1 Schema `registry` (Owner: registry)
 
@@ -2450,7 +2457,7 @@ Error:
 | GET | `/v1/stream` 🔒 VI+ | SSE pipeline stream |
 | GET | `/livez` · `/readyz` · `/healthz` | probes (every runtime; `/healthz` internal only) |
 
-**JWT validation note:** the gateway verifies signature (RS256, `kid` from cached JWKS), `iss`, `aud`, `exp`/`nbf` (60 s leeway), and `typ`; it derives the auth context (tenant, roles) and forwards the original `Authorization` header plus `X-Request-Id`, `X-Correlation-Id`, `traceparent`. The owning service re-verifies the token and enforces RBAC + tenant ownership itself. Internal SERVICE tokens additionally require `aud=aegispulse-internal` and an `act[]` containing the invoked action.
+**JWT validation note:** the gateway verifies signature (RS256, `kid` from cached JWKS), `iss`, `aud`, `exp`/`nbf` (60 s leeway), and `typ`; it derives the auth context (tenant, roles) and forwards the original `Authorization` header plus `X-Request-Id`, `X-Correlation-Id`, `traceparent`. The owning service re-verifies the token and enforces RBAC + tenant ownership itself. Internal SERVICE tokens additionally require `aud=aegispulse-internal` and an `act[]` containing the invoked action. **`typ` rule (ADR-0010):** `typ` must be exactly `user` or `integration` on `aud=JWT_AUDIENCE` (with `tid`, `tslug`, `roles[]`, `jti`; integration tokens carry only the `INTEGRATION` role) or exactly `service` on `aud=aegispulse-internal` (with `act[]`, `jti`); a missing or unknown `typ`, or a `typ` presented on the other audience, is rejected with `401 UNAUTHORIZED`.
 
 ### 8.4 Error Codes
 
@@ -2526,7 +2533,7 @@ Error:
 
 ### 9.2 CI/CD (GitLab)
 
-Pipeline logic lives in `ci/*.sh` (cluster standard §3.2); `.gitlab-ci.yml` stays declarative. Jobs run on the shared runner (tags `default`, `generic`). Per-runtime jobs use `rules:changes` so an MR touching only `services/cases/**` runs Java jobs plus contract/E2E jobs.
+Pipeline logic lives in `ci/*.sh` (cluster standard §3.2); `.gitlab-ci.yml` stays declarative. Pipelines run for merge requests, for branch pushes without an open MR (so feature branches are verified before an MR exists, without duplicate branch+MR pipelines), for `main` (including schedules) and for `vX.Y.Z` tags; deploy, promotion and release jobs carry their own `rules` restricting them to `main`/tags. Jobs run on the shared runner (tags `default`, `generic`). Per-runtime jobs use `rules:changes` so an MR touching only `services/cases/**` runs Java jobs plus contract/E2E jobs.
 
 ```yaml
 # .gitlab-ci.yml (shape)
@@ -2534,8 +2541,10 @@ stages: [.pre, lint, test, contract, build, scan, sign, deploy-dev, verify-dev, 
 
 workflow:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"   # MR pipelines
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS    # branch with an open MR: the MR pipeline covers it
+      when: never
+    - if: $CI_COMMIT_BRANCH                               # main, feature branches without an MR, schedules, web runs
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
 include:
@@ -2737,7 +2746,7 @@ SERVICE_CLIENT_SECRET=<secret>                     # [secret] per runtime
 PG_HOST=postgres
 PG_PORT=5432
 PG_DATABASE=aegispulse
-PG_USER=svc_<schema>                               # svc_ingestion | svc_files | svc_registry | svc_cases | svc_data_intel
+PG_USER=svc_<schema>                               # svc_ingestion | svc_files | svc_registry | svc_cases | svc_analytics
 PG_PASSWORD=<secret>                               # [secret]
 FLYWAY_USER=mig_<schema>                           # migration Jobs only
 FLYWAY_PASSWORD=<secret>                           # [secret]
@@ -2849,7 +2858,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | Phase | Name | Status | Evidence |
 |---|---|---|---|
 | 0 | Project Scaffold & Toolchain | SOURCE-IMPLEMENTED (local runtime verified; CI pipeline pending) | [phase-00](docs/evidence/phase-00.md) |
-| 1 | Contracts, Platform Kits & Data Foundations | IN PROGRESS: slice 1a INTEGRATION-VERIFIED (contracts + data foundations); 1b–1e pending | [phase-01a](docs/evidence/phase-01a.md) |
+| 1 | Contracts, Platform Kits & Data Foundations | IN PROGRESS: slice 1a INTEGRATION-VERIFIED (contracts + data foundations); slices 1a–1e INTEGRATION-VERIFIED; all 12 runtimes `/readyz` 200 locally; health-request traces in OpenObserve; remaining exit evidence: commit + green first GitLab pipeline | [phase-01a](docs/evidence/phase-01a.md), [phase-01b](docs/evidence/phase-01b.md), [phase-01c](docs/evidence/phase-01c.md), [phase-01d](docs/evidence/phase-01d.md), [phase-01e](docs/evidence/phase-01e.md) |
 | 2 | Registry: Tenancy, Identity & RBAC | PENDING | — |
 | 3 | Entities & Watchlists | PENDING | — |
 | 4 | Webhook Ingestion | PENDING | — |
@@ -2912,31 +2921,32 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 **Goal:** wire contracts and shared kits exist and are verified before any feature code.
 
 #### Workstream: Contracts (`packages/contracts`)
-- [ ] `envelope/canonical-envelope.v1.schema.json` (§6.4) + valid/invalid examples; JSON Schema tests in all three languages. **1a: schema + 2 valid / 6 invalid examples; TS (Vitest/Ajv) and Python (pytest/jsonschema) suites pass; Java suite lands with java-platform (1c).**
+- [x] `envelope/canonical-envelope.v1.schema.json` (§6.4) + valid/invalid examples; JSON Schema tests in all three languages. **TS (Vitest/Ajv), Python (pytest/jsonschema) and Java (JUnit/networknt, 1c) suites pass; `make contracts` also checks that valid envelope examples' payloads conform to their eventType schema (1c).**
 - [x] `topology/aegispulse.topology.json` (§5.5, §6.5) + `topology-assert` CLI (Node) used by `make migrate` (the K8s Job wrapper is a Phase 9 item). 6 exchanges / 58 queues / 71 bindings; integration-tested on RabbitMQ 4 (idempotent re-assert, routing, DLX fan-in, drift rejection)
 - [x] `asyncapi/aegispulse.asyncapi.yaml` covering every routing key in §6.7 with payload schemas in `events/` (38 keys, 38 schemas + examples; parser-valid)
 - [x] `openapi/gateway.public.yaml` (79 operations, §8) and 8 `{service}.internal.yaml` files with every HTTP-invoked §6.2 `operationId` (103) + `x-aegis-consumer-actions`; Redocly lint clean
-- [ ] Code generation (`make contracts`) → TS types, Java records, Pydantic models; CI fails on uncommitted diff. **1a: TS (envelope, 38 events, 8 OpenAPI, topology unions) + Pydantic v2 (42 modules) generated deterministically; `ci/contract.sh` drift gate in place. Java records land in 1c.**
+- [x] Code generation (`make contracts`) → TS types, Java records, Pydantic models; CI fails on uncommitted diff. **TS (envelope, 38 events, 8 OpenAPI, topology unions), Pydantic v2 (42 modules) and Java records (55 types: envelope, 38 payloads, EventTypes, Topology; 1c) generated deterministically; `ci/contract.sh` drift gate in place.**
 - [x] `service-actions.ts` union (§6.2) generated from internal OpenAPI operationIds and validated against PROJECT.md §6.2 by `make contracts` (115 ↔ 115)
 
 #### Workstream: Platform kits (no business logic)
-- [ ] `ts-platform`: typed config loader (fail-fast, redacted errors), pino logger with mandatory fields + redaction, OTel bootstrap (HTTP + AMQP propagation), error/result types, undici HTTP client with timeouts/retries/breaker (opossum), JWT verifier (JWKS cache), health endpoints, graceful shutdown, idempotency helper, outbox repository + relay, AMQP consumer/publisher kit wrapping `rxjs-rabbitmq` with typed topology generics, confirms, retry/DLQ policy
-- [ ] `java-platform`: Spring Boot starter — JSON logging, OTel, resource-server config (JWKS), `act[]` authorization helper, outbox (JdbcClient) + relay, Spring AMQP consumer kit with retry/DLQ policy, `/livez` `/readyz` `/healthz`, Flyway version readiness check, ArchUnit rules
-- [ ] `py-platform`: Pydantic Settings, structlog JSON, OTel, JWT verifier, aio-pika consumer kit (retry/DLQ, dedup hook), FastAPI health router, graceful shutdown, import-linter contracts
-- [ ] Each kit: unit tests + Testcontainers integration tests (RabbitMQ retry → DLQ path, outbox relay publish-with-confirm, consumer redelivery dedup)
+- [x] `ts-platform`: typed config loader (fail-fast, redacted errors), pino logger with mandatory fields + redaction, OTel bootstrap (HTTP + AMQP propagation), error/result types, undici HTTP client with timeouts/retries/breaker (opossum), JWT verifier (JWKS cache), health endpoints, graceful shutdown, idempotency helper, outbox repository + relay, AMQP consumer/publisher kit wrapping `rxjs-rabbitmq` with typed topology generics, confirms, retry/DLQ policy — `INTEGRATION-VERIFIED` 2026-11-23 ([phase-01b](docs/evidence/phase-01b.md))
+- [x] `java-platform`: Spring Boot starter — JSON logging, OTel, resource-server config (JWKS), `act[]` authorization helper, outbox (JdbcClient) + relay, Spring AMQP consumer kit with retry/DLQ policy, `/livez` `/readyz` `/healthz`, Flyway version readiness check, ArchUnit rules — `INTEGRATION-VERIFIED` 2026-11-23 ([phase-01c](docs/evidence/phase-01c.md)); OTel via the Java agent is verified with the service skeletons (1e)
+- [x] `py-platform`: Pydantic Settings, structlog JSON, OTel, JWT verifier, aio-pika consumer kit (retry/DLQ, dedup hook), FastAPI health router, graceful shutdown, import-linter contracts — `INTEGRATION-VERIFIED` 2026-11-23 ([phase-01d](docs/evidence/phase-01d.md)); also outbox (psycopg 3) for data-intel; the outbound HTTP client (httpx + pybreaker) lands with the first Python service that calls another (doc-extraction)
+- [x] Each kit: unit tests + Testcontainers integration tests (RabbitMQ retry → DLQ path, outbox relay publish-with-confirm, consumer redelivery dedup) — ts-platform 48 unit + 20 integration ([phase-01b](docs/evidence/phase-01b.md)); java-platform 31 unit + 11 integration ([phase-01c](docs/evidence/phase-01c.md)); py-platform 33 unit + 11 integration ([phase-01d](docs/evidence/phase-01d.md))
 
 #### Workstream: Data foundations
-- [x] `V1__baseline.sql` per schema: `outbox_events`, `processed_messages` (files, cases, analytics), `idempotency_records` (ingestion, files, registry, cases; RLS), `set_updated_at()`, `current_tenant()`/`rls_bypassed()` RLS helpers, `afterMigrate.sql` history-protection callback
+- [x] `V1__baseline.sql` per schema: `outbox_events`, `processed_messages` (files, cases, analytics), `idempotency_records` (ingestion, files, registry, cases; RLS), `set_updated_at()`, `current_tenant()`/`rls_bypassed()` RLS helpers (`rls_bypassed()` removed by V2, ADR-0016), `afterMigrate.sql` history-protection callback
 - [x] Flyway runner image (`deploy/docker/migrate.Dockerfile`) + `make migrate` running all schemas with their `mig_*` users (idempotent re-run verified)
 - [x] `migrate-mongo` project in `services/events` with `schema_meta`, collection validators, and §7.6 indexes (runs as `mig_events`; `svc_events` lacks `dbAdmin`)
 - [x] Migration integration test: apply all migrations to empty PG18/Mongo8 containers; assert role grants (svc roles cannot touch other schemas, no DDL, history read-only, RLS fail-closed, backup read-only): 25/25. The `svc_cases`/`audit_log` assertion is added with the `audit_log` migration in Phase 8 (FR-AUD-01).
+- [x] Enforced RLS bypass (ADR-0016): `V2__enforced_rls_bypass.sql` per schema drops `rls_bypassed()` and the policy bypass clause and adds `{schema}.purge_expired_idempotency_records()` (SECURITY DEFINER, owned by NOLOGIN BYPASSRLS `{schema}_platform` from the init script); migration test asserts the old setting is ignored, function ownership/grants, and no `SET ROLE` for `svc_*` (30/30)
 
 #### Workstream: Service skeletons
-- [ ] Every runtime in §5.4 boots with config validation, `/livez`, `/readyz` (checking only its own deps), structured logs, and traces; Dockerfiles (multi-stage, non-root, read-only FS)
-- [ ] `gateway/nest-http` skeleton: request id, correlation id, body limits, error envelope (§8.2), JWKS auth middleware, OpenAPI served at `/v1/openapi.json`
+- [x] Every runtime in §5.4 boots with config validation, `/livez`, `/readyz` (checking only its own deps), structured logs, and traces; Dockerfiles (multi-stage, non-root, read-only FS) — 12 runtimes (`make up` + `make migrate`: all `/readyz` = 200, [phase-01e](docs/evidence/phase-01e.md)); shared `deploy/docker/{node-service,java-service,python-service,console}.Dockerfile`; health-request traces verified in OpenObserve
+- [x] `gateway/nest-http` skeleton: request id, correlation id, body limits, error envelope (§8.2), JWKS auth middleware, OpenAPI served at `/v1/openapi.json` — NestJS 12 on the platform Fastify instance; global JWKS guard with `@Public()` opt-out; [phase-01e](docs/evidence/phase-01e.md)
 
 **Phase 1 exit evidence:** `make contracts` clean; kit integration tests output; `make up` with all 12 runtimes `/readyz` = 200; trace of a health request in OpenObserve.
-**Phase note:** status **`SOURCE-IMPLEMENTED` (slice 1a: contracts + data foundations, integration-verified, see [phase-01a](docs/evidence/phase-01a.md))**. Remaining slices: 1b ts-platform, 1c java-platform (+ Java envelope tests and records), 1d py-platform, 1e service skeletons + gateway.
+**Phase note:** status **`SOURCE-IMPLEMENTED` (slice 1a: contracts + data foundations, integration-verified, see [phase-01a](docs/evidence/phase-01a.md))**. All five slices (1a contracts + data, 1b ts-platform, 1c java-platform, 1d py-platform, 1e skeletons + gateway) are done and `INTEGRATION-VERIFIED`; all 12 runtimes reach `/readyz` 200 locally ([phase-01e](docs/evidence/phase-01e.md)). Health-request traces are verified in OpenObserve. Phase 1 stays `SOURCE-IMPLEMENTED` until the last exit item exists: the work committed and a green first GitLab pipeline (the `workflow:rules` blocker is fixed). Open NFR-07 item: outbox → RabbitMQ trace continuity needs a `traceparent` outbox column (amendment proposal in [phase-01e](docs/evidence/phase-01e.md)). **Slice 1d (`py-platform`) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-01d](docs/evidence/phase-01d.md)).** **Slice 1c (`java-platform`) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-01c](docs/evidence/phase-01c.md)).** **Slice 1b (`ts-platform`) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-01b](docs/evidence/phase-01b.md)).** It was briefly paused because `rxjs-rabbitmq` 2.2.3 could not meet §6.5. The owner published 3.0.0, which was reviewed and accepted ([review](docs/evidence/rxjs-rabbitmq-3.0.0-review.md)), and adopted it inside the pnpm release-age window by explicit decision (a single-version `minimumReleaseAgeExclude` entry, to be removed once the window passes). Amendments applied 2026-11-23: token `typ` rules for user/integration/service (FR-TEN-07, FR-AUTH-04, §8 note, ADR-0010) and enforced RLS bypass via SECURITY DEFINER functions (§7.0, §5.7.2, ADR-0016); 1a migrations (V2), ts-platform and java-platform updated and re-verified.
 
 ---
 

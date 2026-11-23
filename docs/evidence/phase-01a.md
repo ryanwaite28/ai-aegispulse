@@ -76,3 +76,12 @@ Mongo: invalid archive document rejected by validator · svc_events collMod → 
 - `datamodel-code-generator` cannot enforce the `https` pattern on URL fields in Pydantic, and numbers some class names. Address when py-platform consumes the models (1d).
 - The only remaining contract gap is `getStream`, a gateway-local transport route with no backing action, by design.
 - Commit and push, then the first GitLab pipeline (also still open from Phase 0).
+
+## Amendment (2026-11-23, ADR-0016)
+`V2__enforced_rls_bypass.sql` per schema removes the settable bypass. `{schema}_platform` NOLOGIN BYPASSRLS roles are created by `deploy/compose/init/postgres/01-roles-schemas.sh`. The migration suite is now 30/30:
+- the old `app.bypass_rls` setting is ignored, and `rls_bypassed()` is gone;
+- each purge function is SECURITY DEFINER, owned by its platform role, and executable only by its own `svc_*`;
+- `SET ROLE {schema}_platform` is denied.
+
+Local volumes created before this change need `make reset`.
+

@@ -11,6 +11,11 @@ packages:
   - "apps/*"
   - "scripts"
   - "tests"
+# Release-age exception (owner decision 2026-11-23): rxjs-rabbitmq 3.0.0 is the owner's own library, reviewed
+# in docs/evidence/rxjs-rabbitmq-3.0.0-review.md. Exact version only; every other package keeps the default window.
+minimumReleaseAgeExclude:
+  - rxjs-rabbitmq@3.0.0
+  - ioredis@6.1.0
 # Only esbuild (tsx/vitest) may run install scripts; everything else is denied (supply-chain hygiene).
 allowBuilds:
   "@scarf/scarf": false

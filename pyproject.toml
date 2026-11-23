@@ -4,7 +4,7 @@ name = "aegispulse-workspace"
 version = "0.0.0"
 description = "AegisPulse Python workspace root (tooling only; no runtime code)."
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = ["aegis-contracts", "aegis-platform", "risk-scoring", "sensitivity-scanner", "doc-extraction", "data-intel"]
 
 [dependency-groups]
 dev = [
@@ -19,13 +19,24 @@ dev = [
   "datamodel-code-generator==0.100.0",
   "jsonschema[format]==4.26.0",
   "types-jsonschema==4.26.0.20261006",
+  "pytest-asyncio==1.5.0",
+  "testcontainers[postgres,rabbitmq]==4.15.0",
+  "uvicorn==0.54.0",
 ]
 
 [tool.uv]
 package = false
 
+[tool.uv.sources]
+aegis-contracts = { workspace = true }
+aegis-platform = { workspace = true }
+risk-scoring = { workspace = true }
+sensitivity-scanner = { workspace = true }
+doc-extraction = { workspace = true }
+data-intel = { workspace = true }
+
 [tool.uv.workspace]
-members = []
+members = ["packages/contracts", "packages/py-platform", "services/risk-scoring", "services/sensitivity-scanner", "services/doc-extraction", "services/data-intel"]
 
 [tool.ruff]
 line-length = 120
@@ -36,9 +47,13 @@ extend-exclude = ["docs", "**/generated"]
 select = ["E", "F", "W", "I", "B", "UP", "S", "BLE", "RUF", "N", "SIM", "PT"]
 ignore = ["S101"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["aegis_platform", "aegis_contracts", "aegis_risk", "aegis_scanner", "aegis_extract", "aegis_intel", "tests"]
+
 [tool.ruff.lint.per-file-ignores]
 ".claude/hooks/*.py" = ["S603", "S607", "BLE001"]
 "scripts/dev/*.py" = ["S113"]
+"packages/py-platform/tests/**" = ["S603", "S607", "S105", "S106", "S608"]
 
 [tool.mypy]
 python_version = "3.13"
@@ -47,9 +62,64 @@ warn_unreachable = true
 ignore_missing_imports = false
 
 [[tool.mypy.overrides]]
+module = ["aegis_contracts.*"]
+follow_imports = "silent"
+
+[[tool.mypy.overrides]]
 module = ["boto3", "botocore.*", "requests"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["packages/contracts/tests"]
+testpaths = ["packages/contracts/tests", "packages/py-platform/tests/unit", "services/risk-scoring/tests/unit", "services/sensitivity-scanner/tests/unit", "services/doc-extraction/tests/unit", "services/data-intel/tests/unit"]
 addopts = "-q"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = ["integration: Testcontainers suites (make test-integration)"]
+
+# import-linter (NFR-04, NFR-09). Python services add their own contracts in 1e: `aegis_<svc>.service` and
+# `aegis_<svc>.domain` may not import fastapi/starlette/aio_pika/psycopg (transport- and driver-free), and
+# `aegis_<svc>.adapters` may not import `aegis_<svc>.db`.
+[tool.importlinter]
+root_packages = ["aegis_platform", "aegis_risk", "aegis_scanner", "aegis_extract", "aegis_intel"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "kit core (errors, config, envelope) is transport- and driver-free"
+type = "forbidden"
+source_modules = ["aegis_platform.errors", "aegis_platform.config", "aegis_platform.envelope"]
+forbidden_modules = ["fastapi", "starlette", "aio_pika", "psycopg", "psycopg_pool"]
+
+[[tool.importlinter.contracts]]
+name = "only the health module touches FastAPI"
+type = "forbidden"
+source_modules = [
+  "aegis_platform.amqp",
+  "aegis_platform.auth",
+  "aegis_platform.db",
+  "aegis_platform.idempotency",
+  "aegis_platform.logging",
+  "aegis_platform.outbox",
+  "aegis_platform.telemetry",
+]
+forbidden_modules = ["fastapi", "starlette"]
+
+[[tool.importlinter.contracts]]
+name = "service and domain layers are transport- and driver-free (NFR-04)"
+type = "forbidden"
+source_modules = [
+  "aegis_risk.service", "aegis_risk.domain",
+  "aegis_scanner.service", "aegis_scanner.domain",
+  "aegis_extract.service", "aegis_extract.domain",
+  "aegis_intel.service", "aegis_intel.domain",
+]
+forbidden_modules = ["fastapi", "starlette", "aio_pika", "psycopg", "psycopg_pool", "redis", "boto3"]
+
+[[tool.importlinter.contracts]]
+name = "domain layers do not depend on adapters or service wiring (NFR-09)"
+type = "forbidden"
+source_modules = ["aegis_risk.domain", "aegis_scanner.domain", "aegis_extract.domain", "aegis_intel.domain"]
+forbidden_modules = [
+  "aegis_risk.adapters", "aegis_scanner.adapters", "aegis_extract.adapters", "aegis_intel.adapters",
+  "aegis_risk.main", "aegis_scanner.main", "aegis_extract.main", "aegis_intel.main",
+]

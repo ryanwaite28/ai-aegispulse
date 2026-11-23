@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Waits for the local stack: long-running services healthy, one-shot init jobs exited 0 (NFR-11 local parity).
 # `docker compose up --wait` treats successful one-shot exits as failures, hence this script.
+# Application runtimes (Phase 1e) are probed from the host on 127.0.0.1:<port>: WAIT_PROBE=livez (default, `make up`:
+# processes are up) or WAIT_PROBE=readyz (`make migrate`: each runtime's own dependencies, schema and topology OK).
 set -euo pipefail
 compose=(docker compose --env-file .env -f deploy/compose/docker-compose.yml)
 oneshots=" config-render rabbitmq-init objectstore-init "
+probe="${WAIT_PROBE:-livez}"
+# runtime:host-port (§5.4; the console's 8080 is published on 8091 because the gateway owns 8080)
+apps=(gateway:8080 ingestion:8081 files:8082 events:8083 registry:8084 cases:8085 risk-scoring:8086
+  sensitivity-scanner:8087 doc-extraction:8088 data-intel:8089 orchestrator:8090 console:8091)
 deadline=$(( $(date +%s) + ${WAIT_TIMEOUT:-300} ))
 while :; do
   pending=(); failed=()
@@ -16,7 +22,10 @@ while :; do
   done < <("${compose[@]}" ps -a --format json | jq -r '[.Service, .State, (.Health // ""), (.ExitCode | tostring)] | join("|")')
   if (( ${#failed[@]} )); then echo "compose-wait: FAILED ${failed[*]}" >&2; exit 1; fi
   if ! curl -sf -m 3 -o /dev/null http://localhost:5080/healthz; then pending+=("openobserve:http"); fi
-  if (( ${#pending[@]} == 0 )); then echo "compose-wait: all services healthy, init jobs completed"; exit 0; fi
+  for app in "${apps[@]}"; do
+    curl -sf -m 3 -o /dev/null "http://127.0.0.1:${app#*:}/${probe}" || pending+=("${app%%:*}:${probe}")
+  done
+  if (( ${#pending[@]} == 0 )); then echo "compose-wait: all services healthy, init jobs completed, ${#apps[@]} runtimes pass /${probe}"; exit 0; fi
   if (( $(date +%s) > deadline )); then echo "compose-wait: timeout waiting for ${pending[*]}" >&2; exit 1; fi
   echo "compose-wait: waiting for ${pending[*]}"
   sleep 5

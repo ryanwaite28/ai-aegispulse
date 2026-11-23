@@ -1,0 +1,1156 @@
+{
+  "$schema": "./topology.schema.json",
+  "version": "1.0.0",
+  "description": "AegisPulse RabbitMQ topology (PROJECT.md \u00a75.5, \u00a76.5, ADR-0003). Asserted by the aegispulse-topology Job / `make migrate` using the aegis_topology user. Runtime users never declare topology (except the gateway's exclusive per-pod SSE queues). retryTiers is the per-attempt delay plan; one retry queue exists per distinct delay.",
+  "exchanges": [
+    {
+      "name": "aegispulse.ingress",
+      "type": "topic",
+      "durable": true
+    },
+    {
+      "name": "aegispulse.enrichment",
+      "type": "topic",
+      "durable": true
+    },
+    {
+      "name": "aegispulse.domain",
+      "type": "topic",
+      "durable": true
+    },
+    {
+      "name": "aegispulse.intelligence",
+      "type": "topic",
+      "durable": true
+    },
+    {
+      "name": "aegispulse.retry",
+      "type": "direct",
+      "durable": true,
+      "description": "Retry tier queues {queue}.retry.{tier} and delay queues; routing key = target queue name."
+    },
+    {
+      "name": "aegispulse.dlx",
+      "type": "topic",
+      "durable": true,
+      "description": "Dead letters; routing key = original queue name. Topic so events.deadletter.q can bind '#'."
+    }
+  ],
+  "queues": [
+    {
+      "name": "events.archive.q",
+      "owner": "events",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 50,
+      "retryTiers": ["1s", "5s", "30s"],
+      "deadLetterQueue": "events.archive.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-EVT-01", "FR-EVT-02"]
+    },
+    {
+      "name": "events.archive.q.retry.1s",
+      "owner": "events",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 1000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "events.archive.q"
+      }
+    },
+    {
+      "name": "events.archive.q.retry.5s",
+      "owner": "events",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "events.archive.q"
+      }
+    },
+    {
+      "name": "events.archive.q.retry.30s",
+      "owner": "events",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "events.archive.q"
+      }
+    },
+    {
+      "name": "events.archive.q.dlq",
+      "owner": "events",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "events.classification.q",
+      "owner": "events",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 5,
+      "retryTiers": ["1s", "5s", "30s"],
+      "deadLetterQueue": "events.classification.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-CLS-03"]
+    },
+    {
+      "name": "events.classification.q.retry.1s",
+      "owner": "events",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 1000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "events.classification.q"
+      }
+    },
+    {
+      "name": "events.classification.q.retry.5s",
+      "owner": "events",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "events.classification.q"
+      }
+    },
+    {
+      "name": "events.classification.q.retry.30s",
+      "owner": "events",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "events.classification.q"
+      }
+    },
+    {
+      "name": "events.classification.q.dlq",
+      "owner": "events",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "events.deadletter.q",
+      "owner": "events",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 20,
+      "retryTiers": [],
+      "deadLetterQueue": null,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-MSG-02"]
+    },
+    {
+      "name": "files.validation.q",
+      "owner": "files",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 4,
+      "retryTiers": ["1s", "5s", "30s"],
+      "deadLetterQueue": "files.validation.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-FILE-05"]
+    },
+    {
+      "name": "files.validation.q.retry.1s",
+      "owner": "files",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 1000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "files.validation.q"
+      }
+    },
+    {
+      "name": "files.validation.q.retry.5s",
+      "owner": "files",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "files.validation.q"
+      }
+    },
+    {
+      "name": "files.validation.q.retry.30s",
+      "owner": "files",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "files.validation.q"
+      }
+    },
+    {
+      "name": "files.validation.q.dlq",
+      "owner": "files",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "doc.extraction.q",
+      "owner": "doc-extraction",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 2,
+      "retryTiers": ["5s", "30s", "30s"],
+      "deadLetterQueue": "doc.extraction.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-DOC-01"]
+    },
+    {
+      "name": "doc.extraction.q.retry.5s",
+      "owner": "doc-extraction",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "doc.extraction.q"
+      }
+    },
+    {
+      "name": "doc.extraction.q.retry.30s",
+      "owner": "doc-extraction",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "doc.extraction.q"
+      }
+    },
+    {
+      "name": "doc.extraction.q.dlq",
+      "owner": "doc-extraction",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "orchestrator.txn.q",
+      "owner": "orchestrator",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 20,
+      "retryTiers": ["1s", "5s", "30s"],
+      "deadLetterQueue": "orchestrator.txn.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-TXN-03"]
+    },
+    {
+      "name": "orchestrator.txn.q.retry.1s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 1000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.txn.q"
+      }
+    },
+    {
+      "name": "orchestrator.txn.q.retry.5s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.txn.q"
+      }
+    },
+    {
+      "name": "orchestrator.txn.q.retry.30s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.txn.q"
+      }
+    },
+    {
+      "name": "orchestrator.txn.q.dlq",
+      "owner": "orchestrator",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "orchestrator.correlation.q",
+      "owner": "orchestrator",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 10,
+      "retryTiers": ["1s", "5s", "30s"],
+      "deadLetterQueue": "orchestrator.correlation.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-COR-02"]
+    },
+    {
+      "name": "orchestrator.correlation.q.retry.1s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 1000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.correlation.q"
+      }
+    },
+    {
+      "name": "orchestrator.correlation.q.retry.5s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.correlation.q"
+      }
+    },
+    {
+      "name": "orchestrator.correlation.q.retry.30s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.correlation.q"
+      }
+    },
+    {
+      "name": "orchestrator.correlation.q.dlq",
+      "owner": "orchestrator",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "orchestrator.correlation-request.q",
+      "owner": "orchestrator",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 10,
+      "retryTiers": ["1s", "5s", "30s"],
+      "deadLetterQueue": "orchestrator.correlation-request.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-COR-01"]
+    },
+    {
+      "name": "orchestrator.correlation-request.q.retry.1s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 1000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.correlation-request.q"
+      }
+    },
+    {
+      "name": "orchestrator.correlation-request.q.retry.5s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.correlation-request.q"
+      }
+    },
+    {
+      "name": "orchestrator.correlation-request.q.retry.30s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.correlation-request.q"
+      }
+    },
+    {
+      "name": "orchestrator.correlation-request.q.dlq",
+      "owner": "orchestrator",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "orchestrator.review.q",
+      "owner": "orchestrator",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 10,
+      "retryTiers": ["1s", "5s", "30s"],
+      "deadLetterQueue": "orchestrator.review.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-DOC-04"]
+    },
+    {
+      "name": "orchestrator.review.q.retry.1s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 1000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.review.q"
+      }
+    },
+    {
+      "name": "orchestrator.review.q.retry.5s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.review.q"
+      }
+    },
+    {
+      "name": "orchestrator.review.q.retry.30s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.review.q"
+      }
+    },
+    {
+      "name": "orchestrator.review.q.dlq",
+      "owner": "orchestrator",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "orchestrator.notify.q",
+      "owner": "orchestrator",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 10,
+      "retryTiers": ["1s", "5s", "30s"],
+      "deadLetterQueue": "orchestrator.notify.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-NOTIF-01"]
+    },
+    {
+      "name": "orchestrator.notify.q.retry.1s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 1000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.notify.q"
+      }
+    },
+    {
+      "name": "orchestrator.notify.q.retry.5s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.notify.q"
+      }
+    },
+    {
+      "name": "orchestrator.notify.q.retry.30s",
+      "owner": "orchestrator",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "orchestrator.notify.q"
+      }
+    },
+    {
+      "name": "orchestrator.notify.q.dlq",
+      "owner": "orchestrator",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "cases.audit-ingest.q",
+      "owner": "cases",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 20,
+      "retryTiers": ["1s", "5s", "30s"],
+      "deadLetterQueue": "cases.audit-ingest.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-AUD-02"]
+    },
+    {
+      "name": "cases.audit-ingest.q.retry.1s",
+      "owner": "cases",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 1000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "cases.audit-ingest.q"
+      }
+    },
+    {
+      "name": "cases.audit-ingest.q.retry.5s",
+      "owner": "cases",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "cases.audit-ingest.q"
+      }
+    },
+    {
+      "name": "cases.audit-ingest.q.retry.30s",
+      "owner": "cases",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "cases.audit-ingest.q"
+      }
+    },
+    {
+      "name": "cases.audit-ingest.q.dlq",
+      "owner": "cases",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "cases.enrichment-timer.q",
+      "owner": "cases",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 10,
+      "retryTiers": [],
+      "deadLetterQueue": "cases.enrichment-timer.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-CASE-02"]
+    },
+    {
+      "name": "cases.enrichment-timer.q.dlq",
+      "owner": "cases",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "intel.facts.q",
+      "owner": "data-intel",
+      "type": "quorum",
+      "durable": true,
+      "prefetch": 50,
+      "retryTiers": ["1s", "5s", "30s"],
+      "deadLetterQueue": "intel.facts.q.dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": 10
+      },
+      "fr": ["FR-INTEL-01"]
+    },
+    {
+      "name": "intel.facts.q.retry.1s",
+      "owner": "data-intel",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 1000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "intel.facts.q"
+      }
+    },
+    {
+      "name": "intel.facts.q.retry.5s",
+      "owner": "data-intel",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "intel.facts.q"
+      }
+    },
+    {
+      "name": "intel.facts.q.retry.30s",
+      "owner": "data-intel",
+      "type": "classic",
+      "durable": true,
+      "role": "retry",
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "intel.facts.q"
+      }
+    },
+    {
+      "name": "intel.facts.q.dlq",
+      "owner": "data-intel",
+      "type": "quorum",
+      "durable": true,
+      "role": "dlq",
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-max-length": 100000,
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "cases.enrichment-timer.q.delay.10m",
+      "owner": "cases",
+      "type": "classic",
+      "durable": true,
+      "role": "delay",
+      "arguments": {
+        "x-message-ttl": 600000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "cases.enrichment-timer.q"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "exchange": "aegispulse.ingress",
+      "queue": "events.archive.q",
+      "routingKey": "#"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "events.archive.q",
+      "routingKey": "#"
+    },
+    {
+      "exchange": "aegispulse.domain",
+      "queue": "events.archive.q",
+      "routingKey": "#"
+    },
+    {
+      "exchange": "aegispulse.intelligence",
+      "queue": "events.archive.q",
+      "routingKey": "#"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "events.archive.q.retry.1s",
+      "routingKey": "events.archive.q.retry.1s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "events.archive.q.retry.5s",
+      "routingKey": "events.archive.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "events.archive.q.retry.30s",
+      "routingKey": "events.archive.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "events.archive.q.dlq",
+      "routingKey": "events.archive.q"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "events.classification.q",
+      "routingKey": "classification.scan.requested"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "events.classification.q.retry.1s",
+      "routingKey": "events.classification.q.retry.1s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "events.classification.q.retry.5s",
+      "routingKey": "events.classification.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "events.classification.q.retry.30s",
+      "routingKey": "events.classification.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "events.classification.q.dlq",
+      "routingKey": "events.classification.q"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "events.deadletter.q",
+      "routingKey": "#"
+    },
+    {
+      "exchange": "aegispulse.ingress",
+      "queue": "files.validation.q",
+      "routingKey": "file.uploaded"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "files.validation.q.retry.1s",
+      "routingKey": "files.validation.q.retry.1s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "files.validation.q.retry.5s",
+      "routingKey": "files.validation.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "files.validation.q.retry.30s",
+      "routingKey": "files.validation.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "files.validation.q.dlq",
+      "routingKey": "files.validation.q"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "doc.extraction.q",
+      "routingKey": "doc.file.ready"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "doc.extraction.q.retry.5s",
+      "routingKey": "doc.extraction.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "doc.extraction.q.retry.30s",
+      "routingKey": "doc.extraction.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "doc.extraction.q.dlq",
+      "routingKey": "doc.extraction.q"
+    },
+    {
+      "exchange": "aegispulse.ingress",
+      "queue": "orchestrator.txn.q",
+      "routingKey": "txn.submitted"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.txn.q.retry.1s",
+      "routingKey": "orchestrator.txn.q.retry.1s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.txn.q.retry.5s",
+      "routingKey": "orchestrator.txn.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.txn.q.retry.30s",
+      "routingKey": "orchestrator.txn.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "orchestrator.txn.q.dlq",
+      "routingKey": "orchestrator.txn.q"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "orchestrator.correlation.q",
+      "routingKey": "classification.finalized"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.correlation.q.retry.1s",
+      "routingKey": "orchestrator.correlation.q.retry.1s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.correlation.q.retry.5s",
+      "routingKey": "orchestrator.correlation.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.correlation.q.retry.30s",
+      "routingKey": "orchestrator.correlation.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "orchestrator.correlation.q.dlq",
+      "routingKey": "orchestrator.correlation.q"
+    },
+    {
+      "exchange": "aegispulse.domain",
+      "queue": "orchestrator.correlation-request.q",
+      "routingKey": "correlation.requested"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.correlation-request.q.retry.1s",
+      "routingKey": "orchestrator.correlation-request.q.retry.1s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.correlation-request.q.retry.5s",
+      "routingKey": "orchestrator.correlation-request.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.correlation-request.q.retry.30s",
+      "routingKey": "orchestrator.correlation-request.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "orchestrator.correlation-request.q.dlq",
+      "routingKey": "orchestrator.correlation-request.q"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "orchestrator.review.q",
+      "routingKey": "doc.extraction.review_required"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.review.q.retry.1s",
+      "routingKey": "orchestrator.review.q.retry.1s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.review.q.retry.5s",
+      "routingKey": "orchestrator.review.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.review.q.retry.30s",
+      "routingKey": "orchestrator.review.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "orchestrator.review.q.dlq",
+      "routingKey": "orchestrator.review.q"
+    },
+    {
+      "exchange": "aegispulse.domain",
+      "queue": "orchestrator.notify.q",
+      "routingKey": "notification.requested"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "orchestrator.notify.q",
+      "routingKey": "notification.requested"
+    },
+    {
+      "exchange": "aegispulse.intelligence",
+      "queue": "orchestrator.notify.q",
+      "routingKey": "notification.requested"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.notify.q.retry.1s",
+      "routingKey": "orchestrator.notify.q.retry.1s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.notify.q.retry.5s",
+      "routingKey": "orchestrator.notify.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "orchestrator.notify.q.retry.30s",
+      "routingKey": "orchestrator.notify.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "orchestrator.notify.q.dlq",
+      "routingKey": "orchestrator.notify.q"
+    },
+    {
+      "exchange": "aegispulse.domain",
+      "queue": "cases.audit-ingest.q",
+      "routingKey": "registry.#"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "cases.audit-ingest.q",
+      "routingKey": "classification.overridden"
+    },
+    {
+      "exchange": "aegispulse.intelligence",
+      "queue": "cases.audit-ingest.q",
+      "routingKey": "ops.replay.*"
+    },
+    {
+      "exchange": "aegispulse.intelligence",
+      "queue": "cases.audit-ingest.q",
+      "routingKey": "ops.audit.*"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "cases.audit-ingest.q.retry.1s",
+      "routingKey": "cases.audit-ingest.q.retry.1s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "cases.audit-ingest.q.retry.5s",
+      "routingKey": "cases.audit-ingest.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "cases.audit-ingest.q.retry.30s",
+      "routingKey": "cases.audit-ingest.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "cases.audit-ingest.q.dlq",
+      "routingKey": "cases.audit-ingest.q"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "cases.enrichment-timer.q.dlq",
+      "routingKey": "cases.enrichment-timer.q"
+    },
+    {
+      "exchange": "aegispulse.domain",
+      "queue": "intel.facts.q",
+      "routingKey": "risk.evaluation.recorded"
+    },
+    {
+      "exchange": "aegispulse.domain",
+      "queue": "intel.facts.q",
+      "routingKey": "case.#"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "intel.facts.q",
+      "routingKey": "classification.finalized"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "intel.facts.q",
+      "routingKey": "classification.overridden"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "intel.facts.q",
+      "routingKey": "doc.extraction.#"
+    },
+    {
+      "exchange": "aegispulse.enrichment",
+      "queue": "intel.facts.q",
+      "routingKey": "file.status.changed"
+    },
+    {
+      "exchange": "aegispulse.intelligence",
+      "queue": "intel.facts.q",
+      "routingKey": "ops.dead_letter.recorded"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "intel.facts.q.retry.1s",
+      "routingKey": "intel.facts.q.retry.1s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "intel.facts.q.retry.5s",
+      "routingKey": "intel.facts.q.retry.5s"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "intel.facts.q.retry.30s",
+      "routingKey": "intel.facts.q.retry.30s"
+    },
+    {
+      "exchange": "aegispulse.dlx",
+      "queue": "intel.facts.q.dlq",
+      "routingKey": "intel.facts.q"
+    },
+    {
+      "exchange": "aegispulse.retry",
+      "queue": "cases.enrichment-timer.q.delay.10m",
+      "routingKey": "cases.enrichment-timer.q.delay.10m"
+    }
+  ],
+  "dynamicQueues": [
+    {
+      "pattern": "gateway.sse.{podId}",
+      "owner": "gateway",
+      "type": "classic",
+      "exclusive": true,
+      "autoDelete": true,
+      "arguments": {
+        "x-max-length": 1000,
+        "x-overflow": "drop-head"
+      },
+      "bindings": [
+        {
+          "exchange": "aegispulse.domain",
+          "routingKey": "case.#"
+        },
+        {
+          "exchange": "aegispulse.domain",
+          "routingKey": "risk.evaluation.recorded"
+        },
+        {
+          "exchange": "aegispulse.enrichment",
+          "routingKey": "file.status.changed"
+        },
+        {
+          "exchange": "aegispulse.enrichment",
+          "routingKey": "classification.finalized"
+        },
+        {
+          "exchange": "aegispulse.enrichment",
+          "routingKey": "doc.extraction.#"
+        }
+      ],
+      "fr": ["FR-SSE-01"]
+    }
+  ]
+}

@@ -25,4 +25,15 @@ hex() { openssl rand -hex "${1:-24}"; }
   sed -n '/^# ---- END GENERATED ----$/,$p' "$root/.env.example" | tail -n +2
 } > "$out"
 chmod 600 "$out"
+# Derive the local OTLP header (OpenObserve basic auth) from the generated root password, so traces/metrics from the
+# compose runtimes are accepted (NFR-07). OTel env headers are percent-encoded: "Authorization=Basic%20<b64>".
+o2_pw="$(sed -n 's/^OPENOBSERVE_LOCAL_PASSWORD=//p' "$out")"
+if [[ -n "$o2_pw" ]]; then
+  header="Authorization=Basic%20$(printf 'dev@aegispulse.local:%s' "$o2_pw" | base64 | tr -d '\n')"
+  tmp="$(mktemp)"
+  grep -v '^OTEL_EXPORTER_OTLP_HEADERS=' "$out" > "$tmp" || true
+  echo "OTEL_EXPORTER_OTLP_HEADERS=${header}" >> "$tmp"
+  mv "$tmp" "$out"
+  chmod 600 "$out"
+fi
 echo "gen-local-secrets: wrote $out"

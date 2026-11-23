@@ -60,7 +60,23 @@ for (const key of eventKeys) {
 for (const key of concreteRoutingKeys(topology)) {
   if (!eventKeys.includes(key)) evErrors.push(`topology binds ${key} but no event schema exists`);
 }
-report("events", evErrors, `${eventKeys.length} payload schemas with valid examples; all topology keys covered`);
+// A valid envelope example's payload must also satisfy its eventType's payload schema (found by java-platform, 1c).
+for (const f of readdirSync(join(contractsRoot, "envelope", "examples", "valid"))) {
+  const example = readJson(join(contractsRoot, "envelope", "examples", "valid", f)) as {
+    eventType?: string;
+    payload?: unknown;
+  };
+  const v = ajv.getSchema(`https://aegispulse.dev/contracts/events/${example.eventType ?? ""}.v1.schema.json`);
+  if (v === undefined)
+    evErrors.push(`envelope/examples/valid/${f}: no payload schema for eventType ${example.eventType ?? "(none)"}`);
+  else if (v(example.payload) !== true)
+    evErrors.push(`envelope/examples/valid/${f}: payload invalid for its eventType ${JSON.stringify(v.errors)}`);
+}
+report(
+  "events",
+  evErrors,
+  `${eventKeys.length} payload schemas with valid examples; all topology keys covered; envelope example payloads conform`,
+);
 
 // 4. AsyncAPI ↔ events
 const asyncPath = join(contractsRoot, "asyncapi", "aegispulse.asyncapi.yaml");

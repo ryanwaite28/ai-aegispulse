@@ -2,12 +2,13 @@
   "name": "@aegispulse/contracts",
   "version": "1.1.0",
   "private": true,
-  "description": "Wire contracts: canonical envelope, event payloads, AsyncAPI, OpenAPI, RabbitMQ topology (PROJECT.md §6.2–§6.7). Source of truth for generated TS/Python types.",
+  "description": "Wire contracts: canonical envelope, event payloads, AsyncAPI, OpenAPI, RabbitMQ topology (PROJECT.md \u00a76.2\u2013\u00a76.7). Source of truth for generated TS/Python types.",
   "type": "module",
   "exports": {
     "./generated/ts/*": "./generated/ts/*",
     "./topology": "./topology/aegispulse.topology.json",
-    "./envelope": "./envelope/canonical-envelope.v1.schema.json"
+    "./envelope": "./envelope/canonical-envelope.v1.schema.json",
+    "./openapi/gateway.public.yaml": "./openapi/gateway.public.yaml"
   },
   "scripts": {
     "validate": "tsx scripts/validate.ts",

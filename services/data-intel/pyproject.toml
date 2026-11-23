@@ -1,0 +1,17 @@
+# data-intel (PROJECT.md §6.1): facts, rollups, drift, eval runs, parquet (§2.16). Phase 1e: skeleton (config, logs, traces, probes).
+[project]
+name = "data-intel"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = ["aegis-platform", "aegis-contracts", "uvicorn==0.54.0", "boto3==1.44.9"]
+
+[tool.uv.sources]
+aegis-platform = { workspace = true }
+aegis-contracts = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.33.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aegis_intel"]

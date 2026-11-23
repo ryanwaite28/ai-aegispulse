@@ -19,5 +19,16 @@
     "rule_version": "rules-v1.0.0",
     "status": "CLASSIFIED"
   },
-  "payload": { "subjectEventId": "019352b8-7c4a-7e10-9a21-4f8c2d1e9b01", "revision": 2 }
+  "payload": {
+    "eventId": "019352b8-7110-7b22-8c33-1a2b3c4d5e6f",
+    "eventType": "external.regulatory.published",
+    "sensitivity": "CONFIDENTIAL",
+    "categories": ["REGULATORY"],
+    "publisher_stated_severity": "MEDIUM",
+    "algorithm_severity": "HIGH",
+    "final_severity": "HIGH",
+    "source": "AI_SCANNER",
+    "mentionedEntities": ["ACME Holdings"],
+    "revision": 2
+  }
 }

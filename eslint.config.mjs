@@ -26,6 +26,11 @@ export default tseslint.config(
     },
   },
   {
+    // NestJS (ADR-0013): modules are empty classes configured by decorators.
+    files: ["gateway/nest-http/**/*.ts"],
+    rules: { "@typescript-eslint/no-extraneous-class": ["error", { allowWithDecorator: true }] },
+  },
+  {
     // mongosh init scripts run inside the MongoDB shell, which provides these globals.
     files: ["deploy/compose/init/mongo/**/*.js"],
     languageOptions: { globals: { db: "readonly", process: "readonly", print: "readonly" } },

@@ -1,0 +1,107 @@
+{
+  "name": "@aegispulse/ts-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node shared platform kit (PROJECT.md §6.1): config, logging, telemetry, errors, http-client, auth, amqp, outbox, health, idempotency. No business logic.",
+  "type": "module",
+  "exports": {
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "default": "./dist/config/index.js"
+    },
+    "./logging": {
+      "types": "./dist/logging/index.d.ts",
+      "default": "./dist/logging/index.js"
+    },
+    "./telemetry": {
+      "types": "./dist/telemetry/index.d.ts",
+      "default": "./dist/telemetry/index.js"
+    },
+    "./telemetry/register": {
+      "types": "./dist/telemetry/register.d.ts",
+      "default": "./dist/telemetry/register.js"
+    },
+    "./errors": {
+      "types": "./dist/errors/index.d.ts",
+      "default": "./dist/errors/index.js"
+    },
+    "./http-client": {
+      "types": "./dist/http-client/index.d.ts",
+      "default": "./dist/http-client/index.js"
+    },
+    "./auth": {
+      "types": "./dist/auth/index.d.ts",
+      "default": "./dist/auth/index.js"
+    },
+    "./amqp": {
+      "types": "./dist/amqp/index.d.ts",
+      "default": "./dist/amqp/index.js"
+    },
+    "./outbox": {
+      "types": "./dist/outbox/index.d.ts",
+      "default": "./dist/outbox/index.js"
+    },
+    "./health": {
+      "types": "./dist/health/index.d.ts",
+      "default": "./dist/health/index.js"
+    },
+    "./idempotency": {
+      "types": "./dist/idempotency/index.d.ts",
+      "default": "./dist/idempotency/index.js"
+    },
+    "./http": {
+      "types": "./dist/http/index.d.ts",
+      "default": "./dist/http/index.js"
+    },
+    "./build-info": {
+      "types": "./dist/build-info.d.ts",
+      "default": "./dist/build-info.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --dir src",
+    "test:integration": "vitest run --dir tests/integration"
+  },
+  "dependencies": {
+    "@aegispulse/contracts": "workspace:*",
+    "@opentelemetry/api": "1.10.0",
+    "@opentelemetry/context-async-hooks": "3.1.1",
+    "@opentelemetry/core": "3.1.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "0.301.2",
+    "@opentelemetry/exporter-trace-otlp-http": "0.301.2",
+    "@opentelemetry/instrumentation": "0.301.2",
+    "@opentelemetry/instrumentation-http": "0.301.2",
+    "@opentelemetry/instrumentation-undici": "0.35.1",
+    "@opentelemetry/resources": "3.1.1",
+    "@opentelemetry/sdk-metrics": "3.1.1",
+    "@opentelemetry/sdk-trace": "3.1.1",
+    "@opentelemetry/semantic-conventions": "1.45.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "amqplib": "2.4.0",
+    "fastify": "5.12.8",
+    "jose": "6.2.18",
+    "opossum": "10.0.0",
+    "pino": "10.4.0",
+    "rxjs": "7.8.2",
+    "rxjs-rabbitmq": "3.0.0",
+    "undici": "8.13.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "12.2.2",
+    "@testcontainers/rabbitmq": "12.2.2",
+    "@types/node": "26.6.6",
+    "@types/opossum": "8.1.9",
+    "@types/pg": "8.23.1",
+    "pg": "8.23.1",
+    "testcontainers": "12.2.2",
+    "typescript": "6.0.3",
+    "vitest": "5.1.1"
+  }
+}

@@ -12,6 +12,12 @@ There's no service mesh in the homelab. Plain HTTP runs in-cluster behind Cloudf
 - `services/registry` issues RS256 access tokens (15 min) and rotating refresh tokens (7 d, reuse detection), and publishes JWKS with the current and previous keys.
 - The gateway **and** every owning service verify tokens locally. Services enforce RBAC and tenant ownership in their service layer. Cross-tenant access returns 404.
 - Internal calls use SERVICE client-credentials tokens with `aud=aegispulse-internal` and an `act[]` allowlist of permitted actions.
+- **Token types (amended 2026-11-23).** `typ` is exactly one of the following, and verifiers reject any other value, a missing `typ`, or a `typ` on the wrong audience:
+  - `user`: `aud=JWT_AUDIENCE`, with `tid`, `tslug`, `roles[]`, `jti` (FR-AUTH-01).
+  - `integration`: `aud=JWT_AUDIENCE`, with `tid`, `tslug`, `roles=["INTEGRATION"]`, `jti` (FR-TEN-06, FR-AUTH-04).
+  - `service`: `aud=aegispulse-internal`, with `act[]` and `jti`, and no `tid` or roles (FR-TEN-07).
+
+  See PROJECT.md §8 "JWT validation note".
 - NetworkPolicies add defense in depth. Production adds mesh mTLS.
 
 ## Consequences
