@@ -264,7 +264,7 @@ Red-flag clause lexicon (`clauses-v1`): *material weakness, going concern, resta
 | Object upload URL (dev) | `https://aegispulse-objects.rmwhs-dev.space` (presigned S3 only) |
 | Domains | `rmwhs.com` = **prod**, `rmwhs-dev.space` = **dev**; both proxied by Cloudflare to the same tunnel → same k3s cluster (ADR-0014) |
 | Local URLs | gateway `http://localhost:8080`, console `http://localhost:5173`, objects `http://localhost:9000` |
-| Kubernetes cluster | homelab k3s: `elitedesk-800` (compute) + `optiplex` (storage-dedicated) |
+| Kubernetes cluster | homelab k3s, 3 nodes (ADR-0015): `elitedesk-800` (control plane + shared platform + spill-over compute), `optiplex` (app-compute worker), `optiplex-tower` (storage-dedicated, 1 TB data SSD) |
 | Kubernetes namespaces | `aegispulse` (prod), `aegispulse-dev` (dev) |
 | Container registry | `registry.rmwhs.com/<group>/aegispulse/<image>` (`$CI_REGISTRY_IMAGE`) |
 | Environments | `local` (Docker Compose), `dev` (homelab k3s, `*.rmwhs-dev.space`), `prod` (homelab k3s, `*.rmwhs.com`, the portfolio deployment); AWS production is a documented reference architecture only |
@@ -515,7 +515,7 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 
 ### NFR-03 — Cost Efficiency
 - Portfolio runs on owned homelab hardware: zero cloud spend for compute/data; optional LLM spend capped at USD 5/month via `SCANNER_LLM_MONTHLY_BUDGET_USD` (scanner refuses LLM calls when exceeded, falls back to classifier).
-- Per-namespace request budgets (§5.4): **prod** elitedesk-800 ≤ 2.0 vCPU / 4.5 GiB, optiplex ≤ 1.0 vCPU / 4 GiB; **dev** elitedesk-800 ≤ 1.0 vCPU / 3.0 GiB, optiplex ≤ 0.5 vCPU / 2 GiB. Dev may be scaled to zero when idle (`make env-sleep ENV=dev`, nightly `env-sleep` scheduled pipeline at 01:00 local; any dev deploy wakes it).
+- Per-namespace request budgets (§5.4), by node tier (ADR-0015): **prod** compute tier (`optiplex` + `elitedesk-800`) ≤ 2.0 vCPU / 4.5 GiB, storage tier (`optiplex-tower`) ≤ 1.0 vCPU / 4 GiB; **dev** compute ≤ 1.0 vCPU / 3.0 GiB, storage ≤ 0.5 vCPU / 2 GiB. Dev may be scaled to zero when idle (`make env-sleep ENV=dev`, nightly `env-sleep` scheduled pipeline at 01:00 local; any dev deploy wakes it).
 - Evidence: `kubectl describe node` allocation snapshot per release; `ci/check-resource-budget.sh` sums manifest requests and fails over budget.
 
 ### NFR-04 — Testability & Layering
@@ -570,7 +570,7 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 
 ### NFR-12 — Data Durability, Backup & Restore
 - PostgreSQL: nightly `pg_dump -Fc` CronJob → object storage `backups/postgres/` (retain 14 daily, 8 weekly) + WAL archiving deferred to production. MongoDB: nightly `mongodump --archive --gzip` → `backups/mongo/`. MinIO bucket versioning on `raw` and `backups`. Redis is a cache/coordination store (AOF on, but losing it only degrades nonce/dedup windows — Postgres uniqueness is the durable guard).
-- Backups copied off-node (optiplex → elitedesk-800 secondary path or external disk) weekly.
+- Backups copied off-node (storage node `optiplex-tower` → another node's disk or an external disk) weekly; a backup that lives only on the storage node's SSD does not count.
 - Restore drill each release candidate: restore into `aegispulse-restore-test` namespace, run integrity checks (row counts, audit chain verify). RPO 24 h, RTO 2 h (homelab).
 - Evidence: restore drill log in `docs/evidence/`.
 
@@ -695,11 +695,11 @@ Internet ─▶ Cloudflare (TLS, WAF, 100 MB body cap) ─▶ cloudflared tunnel
    DEV   aegispulse.rmwhs-dev.space  aegispulse-api.rmwhs-dev.space  aegispulse-objects.rmwhs-dev.space → ns aegispulse-dev
          (console, nginx static)     (gateway)                       (object store S3 API, presigned only)
 ┌──────────── namespace: aegispulse (prod)  ·  namespace: aegispulse-dev (dev, same shape, reduced) ─────────────┐
-│ NODE elitedesk-800 (stateless)                                                           │
+│ COMPUTE TIER: NODE optiplex (worker, preferred) → spill-over NODE elitedesk-800          │
 │   gateway ─▶ ingestion · files · events · registry · cases · orchestrator                │
 │             risk-scoring · sensitivity-scanner · doc-extraction · data-intel · clamav    │
 │   CronJobs: scheduler-trigger (connectors, sweeps, rollups), backups, audit-verify       │
-│ NODE optiplex (dedicated=storage taint; StatefulSets with nodeSelector + toleration)      │
+│ STORAGE TIER: NODE optiplex-tower (dedicated=storage taint; 1 TB SSD at local-path dir)  │
 │   postgresql-18 · mongodb-8 (1-node replica set) · redis-8 · object-store (S3 API)       │
 └───────────────────────────────────────────┬──────────────────────────────────────────────┘
       shared cluster services: rabbitmq (vhosts aegispulse-prod, aegispulse-dev) · infisical (+ operator; envs prod, dev)
@@ -709,13 +709,13 @@ Internet ─▶ Cloudflare (TLS, WAF, 100 MB body cap) ─▶ cloudflared tunnel
 
 | Concern | Production (reference) | Portfolio (homelab dev + prod) |
 |---|---|---|
-| Compute | EKS, 3 AZ, HPA/KEDA/Karpenter | k3s, 2 nodes, fixed capacity, replicas 1 (gateway 2) |
+| Compute | EKS, 3 AZ, HPA/KEDA/Karpenter | k3s, 3 nodes with fixed roles (ADR-0015), fixed capacity, replicas 1 (gateway 2) |
 | Ingress/TLS | ALB + ACM + WAF, mesh mTLS | Cloudflare edge TLS/WAF → tunnel → ingress-nginx (HTTP); JWT on every hop |
-| PostgreSQL | RDS Multi-AZ + PITR | single StatefulSet on optiplex, nightly dumps |
+| PostgreSQL | RDS Multi-AZ + PITR | single StatefulSet on optiplex-tower, nightly dumps |
 | MongoDB | Atlas 3-node | single-member replica set (transactions enabled) |
 | RabbitMQ | Amazon MQ cluster | shared in-cluster broker, dedicated vhost, quorum queues |
 | Redis | ElastiCache Multi-AZ | single StatefulSet, AOF |
-| Object storage | S3 + KMS + Object Lock | S3-compatible store on optiplex (ADR-0011), versioning on |
+| Object storage | S3 + KMS + Object Lock | S3-compatible store on optiplex-tower (ADR-0011), versioning on |
 | Secrets | Secrets Manager/Infisical HA + KMS | self-hosted Infisical + Operator |
 | Registry | ECR | GitLab Container Registry (`registry.rmwhs.com`) |
 | Image policy | Kyverno verify-images | cosign verify in deploy script |
@@ -874,10 +874,10 @@ metadata:
 | Ingress | `aegispulse-api` → `aegispulse-api.rmwhs.com` (prod) / `aegispulse-api.rmwhs-dev.space` (dev) | gateway (incl. `/webhooks/*`, SSE with `proxy-buffering: off`, `proxy-read-timeout: 3600`) |
 | Ingress | `aegispulse-objects` → `aegispulse-objects.rmwhs.com` (prod) / `aegispulse-objects.rmwhs-dev.space` (dev) | object store S3 API for presigned PUT/GET only (`proxy-body-size: 100m`) |
 | Deployments | 12 (§5.4) | application runtimes |
-| StatefulSets | postgres, mongo, redis, objectstore | data stores pinned to `optiplex` |
+| StatefulSets | postgres, mongo, redis, objectstore | data stores pinned to the storage node `optiplex-tower` (`dedicated: storage`) |
 | CronJobs | 8 (§5.1) | schedules via `workers/scheduler-trigger` and backup images |
 | Jobs | per-service Flyway migrations, Mongo index migrations, RabbitMQ topology assert, seed (dev: all seed tenants; prod: demo tenant only) | pre-rollout |
-| PVCs (`local-path`) | postgres 20Gi, mongo 20Gi, redis 1Gi, objectstore 60Gi, clamav-db 2Gi (elitedesk) | persistent data |
+| PVCs (`local-path`) | postgres 20Gi, mongo 20Gi, redis 1Gi, objectstore 60Gi, clamav-db 2Gi (`optiplex`, required worker affinity) | persistent data; storage-tier PVs live on `optiplex-tower`'s data SSD |
 | NetworkPolicies | default-deny ingress+egress; explicit allows (§5.7.5) | zero-trust network |
 | InfisicalSecret CRs | one per component | runtime secret sync |
 | RabbitMQ (shared) | vhost, users, policies (quorum queues, max-length on DLQs 100k) | messaging |
@@ -893,28 +893,30 @@ All containers: `runAsNonRoot: true`, `readOnlyRootFilesystem: true` (writable `
 
 | Workload | Runtime | Port | Replicas (prod) | CPU req/lim (prod) | Mem req/lim (prod) | Node | Trigger |
 |---|---|---|---|---|---|---|---|
-| `aegispulse-gateway` | Node 24 | 8080 | 2 | 100m / 500m | 128Mi / 384Mi | elitedesk | Ingress |
-| `aegispulse-ingestion` | Node 24 | 8081 | 1 | 100m / 500m | 128Mi / 384Mi | elitedesk | HTTP + outbox relay |
-| `aegispulse-files` | Node 24 | 8082 | 1 | 100m / 500m | 128Mi / 384Mi | elitedesk | HTTP + AMQP |
-| `aegispulse-events` | Node 24 | 8083 | 1 | 100m / 500m | 192Mi / 512Mi | elitedesk | AMQP + HTTP |
-| `aegispulse-registry` | Java 25 | 8084 | 1 | 200m / 1000m | 384Mi / 768Mi | elitedesk | HTTP |
-| `aegispulse-cases` | Java 25 | 8085 | 1 | 200m / 1000m | 384Mi / 768Mi | elitedesk | HTTP + AMQP |
-| `aegispulse-risk-scoring` | Python 3.13 | 8086 | 1 | 100m / 500m | 192Mi / 512Mi | elitedesk | HTTP |
-| `aegispulse-scanner` | Python 3.13 | 8087 | 1 | 100m / 1000m | 384Mi / 1Gi | elitedesk | HTTP |
-| `aegispulse-doc-extraction` | Python 3.13 | 8088 | 1 | 200m / 1500m | 512Mi / 1536Mi | elitedesk | AMQP |
-| `aegispulse-data-intel` | Python 3.13 | 8089 | 1 | 100m / 500m | 256Mi / 768Mi | elitedesk | AMQP + HTTP |
-| `aegispulse-orchestrator` | Node 24 | 8090 | 1 | 50m / 500m | 128Mi / 256Mi | elitedesk | AMQP |
-| `aegispulse-console` | nginx-unprivileged | 8080 | 1 | 20m / 100m | 32Mi / 64Mi | elitedesk | Ingress |
-| `aegispulse-clamav` | clamd | 3310 | 1 | 100m / 500m | 1Gi / 1536Mi | elitedesk | TCP (files only) |
-| CronJobs (each) | Node 24 / tool images | — | — | 50m / 250m | 64Mi / 256Mi | elitedesk | schedule |
-| `aegispulse-postgres` | PostgreSQL 18 | 5432 | 1 | 250m / 1000m | 512Mi / 1536Mi | optiplex | — |
-| `aegispulse-mongo` | MongoDB 8 | 27017 | 1 | 250m / 1000m | 768Mi / 1536Mi | optiplex | — |
-| `aegispulse-redis` | Redis 8 | 6379 | 1 | 50m / 250m | 64Mi / 256Mi | optiplex | — |
-| `aegispulse-objectstore` | SeaweedFS 4.54 (S3 API) | 8333 | 1 | 100m / 500m | 256Mi / 768Mi | optiplex | — |
+| `aegispulse-gateway` | Node 24 | 8080 | 2 | 100m / 500m | 128Mi / 384Mi | compute | Ingress |
+| `aegispulse-ingestion` | Node 24 | 8081 | 1 | 100m / 500m | 128Mi / 384Mi | compute | HTTP + outbox relay |
+| `aegispulse-files` | Node 24 | 8082 | 1 | 100m / 500m | 128Mi / 384Mi | compute | HTTP + AMQP |
+| `aegispulse-events` | Node 24 | 8083 | 1 | 100m / 500m | 192Mi / 512Mi | compute | AMQP + HTTP |
+| `aegispulse-registry` | Java 25 | 8084 | 1 | 200m / 1000m | 384Mi / 768Mi | compute | HTTP |
+| `aegispulse-cases` | Java 25 | 8085 | 1 | 200m / 1000m | 384Mi / 768Mi | compute | HTTP + AMQP |
+| `aegispulse-risk-scoring` | Python 3.13 | 8086 | 1 | 100m / 500m | 192Mi / 512Mi | compute | HTTP |
+| `aegispulse-scanner` | Python 3.13 | 8087 | 1 | 100m / 1000m | 384Mi / 1Gi | compute | HTTP |
+| `aegispulse-doc-extraction` | Python 3.13 | 8088 | 1 | 200m / 1500m | 512Mi / 1536Mi | compute | AMQP |
+| `aegispulse-data-intel` | Python 3.13 | 8089 | 1 | 100m / 500m | 256Mi / 768Mi | compute | AMQP + HTTP |
+| `aegispulse-orchestrator` | Node 24 | 8090 | 1 | 50m / 500m | 128Mi / 256Mi | compute | AMQP |
+| `aegispulse-console` | nginx-unprivileged | 8080 | 1 | 20m / 100m | 32Mi / 64Mi | compute | Ingress |
+| `aegispulse-clamav` | clamd | 3310 | 1 | 100m / 500m | 1Gi / 1536Mi | compute | TCP (files only) |
+| CronJobs (each) | Node 24 / tool images | — | — | 50m / 250m | 64Mi / 256Mi | compute | schedule |
+| `aegispulse-postgres` | PostgreSQL 18 | 5432 | 1 | 250m / 1000m | 512Mi / 1536Mi | storage | — |
+| `aegispulse-mongo` | MongoDB 8 | 27017 | 1 | 250m / 1000m | 768Mi / 1536Mi | storage | — |
+| `aegispulse-redis` | Redis 8 | 6379 | 1 | 50m / 250m | 64Mi / 256Mi | storage | — |
+| `aegispulse-objectstore` | SeaweedFS 4.54 (S3 API) | 8333 | 1 | 100m / 500m | 256Mi / 768Mi | storage | — |
 
-Budget totals (prod requests): elitedesk ≈ 1.77 vCPU / 4.4 GiB (gateway ×2 counted); optiplex ≈ 0.65 vCPU / 1.6 GiB — within NFR-03.
+Node column: **compute** = `optiplex` preferred (`preferredDuringScheduling` weight 100 on `node-role.kubernetes.io/worker=true`), spilling to `elitedesk-800`; ClamAV uses a *required* worker affinity so its PVC binds deterministically. **storage** = `optiplex-tower` (ADR-0015).
 
-**Dev sizing (`overlays/dev`, namespace `aegispulse-dev`).** Same workloads and images with replicas 1 everywhere (gateway 1) and halved requests. **Limits stay identical to prod** so dev catches OOM and throttling issues that prod would hit. Examples: Node services 50m/96Mi, Java services 100m/256Mi, scanner 50m/256Mi, doc-extraction 100m/384Mi, ClamAV 50m/768Mi, data stores postgres 100m/256Mi, mongo 100m/384Mi, redis 25m/48Mi, objectstore 50m/128Mi. PVCs: postgres 5Gi, mongo 5Gi, redis 1Gi, objectstore 15Gi. Dev totals ≈ 0.9 vCPU / 2.9 GiB (elitedesk) and 0.3 vCPU / 0.8 GiB (optiplex), within the dev budget (NFR-03). Dev may be scaled to zero when idle (`env:sleep:dev`). **Capacity watch:** prod + awake dev ≈ 2.7 vCPU of CPU requests on elitedesk's 4 vCPU, alongside GitLab and platform services. Phase 9 records `kubectl describe node` allocations, and if CPU requests exceed 85% of allocatable, dev defaults to sleeping outside pipeline runs. Storage StatefulSets carry the `dedicated: storage` nodeSelector **and** the `dedicated=storage:NoSchedule` toleration on first deploy; no other workload tolerates that taint.
+Budget totals (prod requests): compute tier ≈ 1.77 vCPU / 4.4 GiB (gateway ×2 counted); storage tier ≈ 0.65 vCPU / 1.6 GiB — within NFR-03.
+
+**Dev sizing (`overlays/dev`, namespace `aegispulse-dev`).** Same workloads and images with replicas 1 everywhere (gateway 1) and halved requests. **Limits stay identical to prod** so dev catches OOM and throttling issues that prod would hit. Examples: Node services 50m/96Mi, Java services 100m/256Mi, scanner 50m/256Mi, doc-extraction 100m/384Mi, ClamAV 50m/768Mi, data stores postgres 100m/256Mi, mongo 100m/384Mi, redis 25m/48Mi, objectstore 50m/128Mi. PVCs: postgres 5Gi, mongo 5Gi, redis 1Gi, objectstore 15Gi. Dev totals ≈ 0.9 vCPU / 2.9 GiB (compute tier) and 0.3 vCPU / 0.8 GiB (storage tier), within the dev budget (NFR-03). Dev may be scaled to zero when idle (`env:sleep:dev`). **Capacity watch:** prod + awake dev ≈ 2.7 vCPU of CPU requests, which now lands first on `optiplex`'s 4 vCPU (dedicated to app pods) rather than on `elitedesk-800` alongside GitLab and platform services (ADR-0015). Phase 9 records `kubectl describe node` allocations for both compute nodes, and if CPU requests exceed 85% of the compute tier's allocatable, dev defaults to sleeping outside pipeline runs. Storage StatefulSets carry the `dedicated: storage` nodeSelector **and** the `dedicated=storage:NoSchedule` toleration on first deploy; no other workload tolerates that taint.
 
 ### 5.5 RabbitMQ Queue Configuration
 
@@ -2595,7 +2597,7 @@ Merge-request pipeline: `.pre → lint → test → contract → build → scan`
 Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read before running (cluster lesson §3.1).
 1. `kubectl create namespace aegispulse` and `kubectl create namespace aegispulse-dev`; apply each namespace's `ResourceQuota`, `LimitRange`, and default-deny NetworkPolicy.
 2. Create `aegispulse-ci-deployer` ServiceAccount + Role + RoleBinding **in each namespace**; mint one token per namespace; store as `AEGIS_DEPLOY_SA_TOKEN_DEV` / `AEGIS_DEPLOY_SA_TOKEN_PROD` (prod scoped to the protected `prod` GitLab environment).
-3. Verify storage node labels/taints (`kubectl get node optiplex -o jsonpath='{.spec.taints}'`).
+3. Node roles (ADR-0015): run `deploy/bootstrap/10-storage-node-disk.sh` **on** `optiplex-tower` (formats/mounts the 1 TB data SSD at `/mnt/data`, bind-mounts it over the local-path directory, makes `k3s-agent` require the mount; the wipe step needs typed confirmation), then `deploy/bootstrap/20-node-roles.sh` from the workstation (storage labels + taint → `optiplex-tower`; `optiplex` → `node-role.kubernetes.io/worker=true`). Verify with `CHECK_ONLY=1 deploy/bootstrap/20-node-roles.sh`.
 4. Infisical: create project `aegispulse` with environments `local`, `dev`, `prod`; create one machine identity per cluster environment for the Kubernetes Operator, each read-only to its env; confirm the Infisical Operator is installed (install via its Helm chart if absent — third-party ⇒ Helm per cluster convention).
 5. RabbitMQ: create vhosts `aegispulse-dev` and `aegispulse-prod`, users per service per vhost (§5.7.3, suffix `-dev` for dev users), `aegis_topology` user, policies (DLQ max-length), enable `rabbitmq_prometheus` if not enabled.
 6. Cloudflare: add public hostnames `aegispulse`, `aegispulse-api`, `aegispulse-objects` under **both** `rmwhs.com` (prod) and `rmwhs-dev.space` (dev) to the existing tunnel → `ingress-nginx`; WAF rules (§5.9) on both zones.
@@ -3209,12 +3211,14 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 #### Workstream: Bootstrap & edge
 - [ ] `deploy/bootstrap/*.sh` (§9.3) idempotent scripts; executed and logged
+- [x] Node roles (ADR-0015): `10-storage-node-disk.sh` run on `optiplex-tower` and `20-node-roles.sh` applied; mounts, roles and a PVC smoke test on the SSD recorded in [platform-node-roles](docs/evidence/platform-node-roles.md)
+- [ ] Stateless workloads carry the preferred `node-role.kubernetes.io/worker` affinity; ClamAV the required one; placement asserted in evidence
 - [ ] Cloudflare hostnames for both domains + WAF rules; verify via `curl -H "Host: …"` inside cluster first (cluster playbook)
 
 #### Workstream: Backup & restore
 - [ ] Restore drill (from prod backups) into `aegispulse-restore-test`; audit chain verify after restore (NFR-12)
 
-**Phase 9 exit evidence:** `kubectl get pods -n aegispulse-dev -o wide` and `-n aegispulse -o wide` (storage pods on optiplex), all `/readyz` 200 via both domains, MVP E2E suite passing against `rmwhs-dev.space` and smoke against `rmwhs.com`, cross-environment isolation test output, `kubectl describe node` allocations within budget, restore drill log.
+**Phase 9 exit evidence:** `kubectl get pods -n aegispulse-dev -o wide` and `-n aegispulse -o wide` (storage pods on `optiplex-tower` with PVs on its data SSD; stateless pods on `optiplex`, spilling to `elitedesk-800` only under pressure), all `/readyz` 200 via both domains, MVP E2E suite passing against `rmwhs-dev.space` and smoke against `rmwhs.com`, cross-environment isolation test output, `kubectl describe node` allocations within budget, restore drill log.
 **Phase note:** status `PENDING`.
 
 ---
@@ -3530,7 +3534,7 @@ These rules bind every contributor and every AI coding assistant. `CLAUDE.md`, `
 
 | Item | Monthly cost | Notes |
 |---|---|---|
-| Compute (elitedesk-800 + optiplex, owned) | ~$8–12 | electricity only (~70–100 W combined average) |
+| Compute (elitedesk-800 + optiplex + optiplex-tower, owned) | ~$11–16 | electricity only (~100–140 W combined average, estimate) |
 | Kubernetes, GitLab CE, registry, Infisical, OpenObserve, RabbitMQ | $0 | self-hosted, open-source |
 | Cloudflare (DNS, tunnel, WAF free tier) | $0 | free plan limits: 100 MB request bodies |
 | Domains (`rmwhs.com` prod, `rmwhs-dev.space` dev, shared) | ~$1–3 | amortized annual renewals |
@@ -3630,6 +3634,7 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 | A14 | Template §9.3 Terraform remote state bootstrap | Replaced by cluster bootstrap scripts (§9.3) | No Terraform-managed cluster resources |
 | A15 | Template email notifications | ntfy push templates (FR-NOTIF) | Source specifies ntfy; no email in scope |
 | A17 | Single homelab environment in v1.0 | `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) on the same cluster and tunnel (ADR-0014) | Owner-provided second domain on the same Cloudflare tunnel |
+| A18 | Two-node cluster with `optiplex` as storage node (v1.0 baseline) | `optiplex-tower` is the storage node (1 TB data SSD); `optiplex` is the app-compute worker; budgets by tier (ADR-0015) | Owner added a third node with a dedicated data disk |
 | A16 | v1.0 baseline gateway was plain Fastify (`gateway/fastify-http`) | NestJS on the Fastify adapter at `gateway/nest-http` (ADR-0013); internal service adapters stay plain Fastify | Owner decision; evaluated with no architectural risk |
 
 Open decisions (record outcome via ADR before the phase that needs it): SonarQube hosting (Phase 10), kaniko vs. buildah (Phase 10), Uptime Kuma/ntfy hosting location (Phase 18). Decided: object store → SeaweedFS (ADR-0011, Phase 0).

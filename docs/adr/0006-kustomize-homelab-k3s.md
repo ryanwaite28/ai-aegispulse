@@ -10,7 +10,7 @@ The template assumes AWS Lambda. The real target is the existing two-node homela
 
 ## Decision
 - Deploy to homelab k3s: namespace `aegispulse` (prod) and, per ADR-0014, `aegispulse-dev` (dev). Use a Kustomize `base` plus overlays `dev`, `prod`, and `k3d-local`. No Helm for owned workloads. Third-party add-ons (the Infisical Operator, Uptime Kuma) use their official charts.
-- Stateful stores run as project-owned StatefulSets pinned to `optiplex`. We don't use Bitnami charts or operators in v1.
+- Stateful stores run as project-owned StatefulSets pinned to the storage node (`optiplex` at the time of writing; **amended by [ADR-0015](0015-node-roles-storage-on-optiplex-tower.md): now `optiplex-tower`**). We don't use Bitnami charts or operators in v1.
 - Document AWS production (EKS, RDS, Atlas, Amazon MQ, ElastiCache, S3) as a reference architecture only.
 
 ## Consequences

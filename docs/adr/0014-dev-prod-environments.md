@@ -27,7 +27,7 @@ v1.0 had one cluster environment (`homelab`), so every main-branch commit deploy
 
 ## Consequences
 - More pipeline stages and twice the bootstrap work (namespaces, SAs, Infisical environments, vhosts, Cloudflare hostnames).
-- CPU requests on elitedesk-800 rise to about 2.7 vCPU while dev is awake. Phase 9 measures node allocation and puts dev to sleep by default if needed.
+- CPU requests on elitedesk-800 rise to about 2.7 vCPU while dev is awake (relieved by [ADR-0015](0015-node-roles-storage-on-optiplex-tower.md): stateless pods now prefer the `optiplex` worker). Phase 9 measures node allocation and puts dev to sleep by default if needed.
 - `RUNTIME-VERIFIED` now means compose + dev verification + a prod smoke test after promotion.
 
 ## Verification

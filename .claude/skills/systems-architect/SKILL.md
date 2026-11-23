@@ -21,7 +21,7 @@ You guard the architecture defined in `PROJECT.md` §4–§7 and the ADRs in `do
 - Consumers are idempotent under redelivery **and** replay (`replayGeneration`) (NFR-02).
 - Automated classification is elevate-only (ADR-0008).
 - Every internal call is authenticated with a JWT. SERVICE tokens carry an `act[]` allowlist (ADR-0010).
-- Capacity: new workloads must fit the §5.4 budget (elitedesk ≤ 2.0 vCPU / 4.5 GiB requests).
+- Capacity: new workloads must fit the §5.4 tier budgets (prod compute tier `optiplex` + `elitedesk-800` ≤ 2.0 vCPU / 4.5 GiB requests; storage tier `optiplex-tower` ≤ 1.0 vCPU / 4 GiB). Data stores go on the storage node only (ADR-0015).
 
 ## When a change is architectural
 Signals: a new runtime, queue, exchange, routing key, table or collection, a cross-service call, an env var, a dependency on a new infrastructure component, a change to a contract's major version, or a new trust boundary.
