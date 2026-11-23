@@ -29,6 +29,7 @@ make demo             # end-to-end scenario
 | Pipeline, deploy, migrations | `PROJECT.md` §9 |
 | Current phase + checklist + status ledger | `PROJECT.md` §11 |
 | Why a decision was made | `docs/adr/` |
+| Manual steps (credentials/access the agent never holds) | `docs/runbooks/manual-bootstrap.md` (🛑 MANUAL MB-xx); Infisical: `docs/runbooks/infisical.md` |
 | Pinned versions, conventions, quality bar | `docs/steering/` |
 | Per-FR implementation specs | `docs/specs/` |
 
@@ -81,6 +82,7 @@ make demo             # end-to-end scenario
 4. Run lint, typecheck, unit, and integration tests. Don't claim more verification than you ran.
 5. Update the §11 checklist and status ledger honestly, add a `CHANGELOG.md` entry under `[Unreleased]`, and attach evidence for phase exits (`/phase-exit-evidence`).
 6. Architectural decision? Add an ADR (`/new-adr`) and amend `PROJECT.md` in the same MR.
+7. Work depends on a 🛑 MANUAL step that isn't DONE in `docs/runbooks/manual-bootstrap.md`? Stop, give the operator that step's exact directions and what to report back (names, IDs, "done", never secret values), and resume only after verifying it read-only (PROJECT.md §12 rule 19).
 
 ## DO NOT
 - Do not add business logic, DB/cache/storage clients, or transactions to gateway handlers, consumer adapters, or CronJob triggers.
@@ -104,6 +106,7 @@ make demo             # end-to-end scenario
 - **Local:** Docker Compose (`deploy/compose/`). Services reach infra by compose hostnames. Presigned URLs use `PUBLIC_OBJECTS_URL=http://localhost:9000`. OpenObserve UI: `http://localhost:5080`. RabbitMQ UI: `http://localhost:15672`.
 - **Dev (homelab k3s):** namespace `aegispulse-dev`, hosts `aegispulse(.|-api.|-objects.)rmwhs-dev.space`. Auto-deployed from `main`. Active DAST, chaos, load, and data resets happen here only. Can be scaled to zero.
 - **Prod (homelab k3s):** namespace `aegispulse`, hosts `aegispulse(.|-api.|-objects.)rmwhs.com`. Receives only dev-verified digests by manual promotion or `v*` tag. Never chaos-tested or reset (ADR-0014).
+- **Secrets:** Infisical project **AegisPulse** (org HomeLab), envs Development → `aegispulse-dev`, Production → `aegispulse`; local `.env` is always generated (`make env`), never exported from Infisical. Never ask for, print, or store a secret value.
 - **Both clusters:** ingress class `nginx-external`, plain HTTP behind the same Cloudflare Tunnel. Dev and prod share nothing above the platform layer and can't reach each other. Node roles (ADR-0015): data stores are pinned to the storage node `optiplex-tower` (1 TB data SSD), stateless pods prefer the worker `optiplex` and spill onto `elitedesk-800` (the control plane, which also runs GitLab and CI). Secrets come from the Infisical Operator. Images come from `registry.rmwhs.com` by digest. Use `KUBECONFIG=~/.kube/config` explicitly.
 - Service code doesn't know which environment it runs in. Same code and images, different config.
 - Cloudflare caps request bodies at 100 MB, so keep image layers under 95 MB and upload parts at 16 MiB.

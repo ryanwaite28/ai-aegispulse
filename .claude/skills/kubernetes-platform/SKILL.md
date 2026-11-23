@@ -53,3 +53,6 @@ Topology Job → migration Jobs (Flyway per schema, migrate-mongo) → Deploymen
 
 ## Reference production
 Keep the `PROJECT.md` §5.8 mapping current when platform decisions change. `infra/terraform/aws-reference/` is documentation-grade and never applied by CI.
+
+## Manual bootstrap
+Cluster-admin steps (namespaces, operator installs, identities, RabbitMQ vhosts, Cloudflare) are 🛑 MANUAL steps in `docs/runbooks/manual-bootstrap.md`. Prepare idempotent scripts/manifests, stop, give the operator the exact commands and what to report back, then verify read-only. The Infisical Kubernetes Operator is installed (chart 0.11.18, namespace `infisical-operator`, MB-05 done 2026-11-23).

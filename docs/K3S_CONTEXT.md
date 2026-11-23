@@ -847,6 +847,8 @@ Relevant files:
 
 ## 8. Known Gaps / Open Items
 
+- **Infisical Kubernetes Operator** installed 2026-11-23: chart `infisical-helm-charts/secrets-operator` 0.11.18, release `infisical-operator` in namespace `infisical-operator` (AegisPulse MB-05).
+
 Be aware of these when onboarding a new app — they're cluster-level
 prerequisites, not something to work around per-project:
 

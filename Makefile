@@ -29,10 +29,8 @@ bootstrap: ## Verify toolchains, enable pnpm (corepack), install git hooks, inst
 	pnpm install
 	uv sync --all-groups
 
-env: ## Create .env (Infisical env=local if logged in, else generated local secrets)
-	@if command -v infisical >/dev/null 2>&1 && infisical secrets --env=local >/dev/null 2>&1; then \
-	  infisical export --env=local --format=dotenv > .env && chmod 600 .env && echo "env: exported from Infisical (local)"; \
-	else scripts/dev/gen-local-secrets.sh; fi
+env: ## Create a local-only .env with generated secrets (never from Infisical; ADR-0012)
+	@scripts/dev/gen-local-secrets.sh
 
 # ---------------------------------------------------------------- local stack
 .PHONY: up down reset ps logs

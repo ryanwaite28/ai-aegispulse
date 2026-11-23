@@ -13,6 +13,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- `scripts/infisical/seed.py` (MB-06): creates Infisical folders and generates only missing catalog secrets. It is idempotent, prints no values, passes no values on a command line (0600 temp file), defers reference keys to Phase 9, and requires a typed confirmation for prod. 5 unit tests.
 - Phase 1e: 12 runtime skeletons (gateway, ingestion, files, events, registry, cases, risk-scoring, sensitivity-scanner, doc-extraction, data-intel, orchestrator, console). Each has:
   - config validation, JSON logs and traces;
   - `/livez`, and a `/readyz` that checks only its own dependencies;
@@ -75,6 +76,12 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- Manual bootstrap: MB-06 seeded Development and Production (60 generated secrets each; 43 reference/external keys deferred). MB-03 (CLI 0.45.14), MB-04 (slugs `dev`/`prod`; `svc_admin` keeps org Admin as a documented homelab simplification, with the enterprise least-privilege alternative) and MB-05 (Infisical Operator chart 0.11.18, CRDs + controller verified) are done.
+- Infisical context and manual bootstrap:
+  - `docs/runbooks/manual-bootstrap.md`: register MB-01…MB-14, with a stop-and-direct protocol (PROJECT.md §12 rule 19; CLAUDE.md workflow step 7);
+  - `docs/runbooks/infisical.md`: org HomeLab, project AegisPulse, Development/Production environments, `svc_admin` for workstation bootstrap only, read-only per-environment operator identities with Kubernetes Auth, operator install (not installed yet);
+  - `deploy/infisical/secrets-catalog.yaml`: folders, keys and generators;
+  - ADR-0012 amended (no `local` environment; local `.env` always generated); §9.3 steps carry 🛑 MANUAL markers.
 - PROJECT.md amendments (2026-11-23): FR-TEN-07 (SERVICE claims), FR-AUTH-04 (INTEGRATION claims), §8 JWT `typ` rule, §7.0 enforced RLS bypass, §5.7.2 `{schema}_platform` roles, §11 Phase 1 data-foundations item; ADR-0016 added; ADR-0010 amended.
 - `PROJECT.md` v1.0: authoritative master document, built from `docs/AEGIS_PULSE.md` and `docs/PROJECT_TEMPLATE_GUIDE.md` and adapted to the homelab k3s and GitLab target in `docs/K3S_CONTEXT.md`. It defines 117 functional requirements across 21 domains, NFR-01–NFR-18, 21 implementation phases, full DDL, API and error contracts, messaging topology, and the event catalog.
 - AI governance: `CLAUDE.md`, `AGENTS.md`, `.claude/skills/` (12 role skills and 5 workflow skills), `.claude/agents/` (3 review agents), `.claude/hooks/` (migration, generated-code, and secret-file guards), and the GitLab merge request template.
@@ -83,6 +90,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0001 through ADR-0012, plus spec and evidence templates.
 
 ### Changed
+- `make env` always generates a local-only `.env` and no longer tries `infisical export --env=local`, so a laptop can never pull dev or prod secrets (ADR-0012 amendment).
 - Dependencies: `rxjs-rabbitmq` 3.0.0 adopted inside pnpm's minimum-release-age window by explicit owner decision. The exception is scoped to that single version in `pnpm-workspace.yaml` and is removed once the window passes. `docs/libs/RXJS_RABBITMQ.md` now carries the 3.0.0 README; the temporary upgrade brief was deleted on adoption.
 - Cluster topology (ADR-0015): the storage node is now `optiplex-tower` (8 vCPU / 30 GiB / 1 TB data SSD); `optiplex` becomes the app-compute worker; NFR-03 and §5.4 budgets are expressed per tier (compute/storage) with unchanged numbers. PROJECT.md §1.5, NFR-03, NFR-12, §4.3, §5.3, §5.4, §9.3, Phase 9, §13.1, and A18 are amended. K3S_CONTEXT, CLAUDE.md, the kubernetes-platform skill (which gains a troubleshooting-access section) and the systems-architect skill are updated.
 - PROJECT.md (Phase 1a): uniform internal RPC route `POST /internal/v1/{action}`; `aegispulse.dlx` is a topic exchange; one retry queue per distinct delay; enrichment-timer delay queue; `mig_events` Mongo principal; RLS helpers + history-protection callback; added actions `registry.listServiceAccounts`, `cases.getTransactionEvaluation`; gateway SERVICE-token cases and unauthenticated `issueClientCredentialsToken`; `/v1/openapi.json` route.

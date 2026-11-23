@@ -38,7 +38,7 @@ Exceptions (`.trivyignore`, ZAP rules) need an expiry date and a reason, and `ci
 Target env resolved (`dev` or `prod`) → that namespace's scoped SA token (`AEGIS_DEPLOY_SA_TOKEN_DEV` / `_PROD`, the latter scoped to the protected `prod` environment; never the runner SA or cluster-admin) → for prod, check that `deploy/releases/dev/{sha}.json` is marked verified → cosign verify → set image digests in the overlay → apply InfisicalSecret CRs → topology Job → migration Jobs (wait for complete) → `kubectl apply -k` → rollout status → automatic rollback of Deployments on failure → write `deploy/releases/{sha}.json`.
 
 ## Secrets
-- Runtime: Infisical Operator → `aegispulse-{component}-secrets`, referenced only via `secretKeyRef`.
+- Runtime: Infisical Operator → `aegispulse-{component}-secrets`, referenced only via `secretKeyRef`. Project AegisPulse (org HomeLab), envs Development/Production; keys in `deploy/infisical/secrets-catalog.yaml`; setup steps are 🛑 MANUAL (MB-03…MB-08) in `docs/runbooks/manual-bootstrap.md`. Stop and direct the operator when one is open. Never request, print, or store a secret value; `svc_admin` stays on the operator's workstation.
 - Pipeline: GitLab Protected + Masked variables (§9.2 list).
 - Never echo secrets, enable `set -x` around them, or write them to artifacts.
 - Rotation runbooks are in `docs/runbooks/key-rotation.md`. Practice the drills.
