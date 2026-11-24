@@ -6,6 +6,7 @@ import { ServiceAccountsController } from "./service-accounts/service-accounts.c
 import { TenantsController } from "./tenants/tenants.controller.js";
 import { UsersController } from "./users/users.controller.js";
 import { WatchlistsController } from "./watchlists/watchlists.controller.js";
+import { WebhookSourcesController } from "./webhook-sources/webhook-sources.controller.js";
 import { WellKnownController } from "./well-known/well-known.controller.js";
 
 @Module({
@@ -16,6 +17,7 @@ import { WellKnownController } from "./well-known/well-known.controller.js";
     ServiceAccountsController,
     EntitiesController,
     WatchlistsController,
+    WebhookSourcesController,
     WellKnownController,
   ],
 })

@@ -61,4 +61,30 @@ describe("cross-tenant isolation (FR-AUTH-06, NFR-06)", () => {
     expect(search.body.data ?? []).toHaveLength(0);
     expect((await call("GET", "/v1/watchlists", { token: a })).body.data ?? []).toHaveLength(0);
   });
+
+  it("Phase 4: webhook sources of B read as 404 for A; the secret is never listed", async () => {
+    const w = await world();
+    const run = Math.random().toString(36).slice(2, 8);
+    const created = await call("POST", "/v1/webhook-sources", {
+      token: w.b.users.TENANT_ADMIN.token,
+      body: { sourceKey: `e2e-${run}-b`, displayName: "B feed" },
+    });
+    expect(created.status).toBe(201);
+    const id = String(created.body.data?.["id"]);
+    const secret = String(created.body.data?.["signingSecret"]);
+    const a = w.a.users.TENANT_ADMIN.token;
+    expect((await call("PATCH", `/v1/webhook-sources/${id}`, { token: a, body: { displayName: "x" } })).status).toBe(
+      404,
+    );
+    expect((await call("POST", `/v1/webhook-sources/${id}/rotate-secret`, { token: a })).status).toBe(404);
+    expect((await call("DELETE", `/v1/webhook-sources/${id}`, { token: a })).status).toBe(404);
+    expect((await call("GET", "/v1/webhook-sources", { token: a })).body.data ?? []).toHaveLength(0);
+    const own = await call("GET", "/v1/webhook-sources", { token: w.b.users.TENANT_ADMIN.token });
+    expect(JSON.stringify(own.body)).not.toContain(secret);
+    const taken = await call("POST", "/v1/webhook-sources", {
+      token: a,
+      body: { sourceKey: `e2e-${run}-b`, displayName: "dup" },
+    });
+    expect(taken.body.error?.code).toBe("WEBHOOK_SOURCE_KEY_TAKEN");
+  });
 });

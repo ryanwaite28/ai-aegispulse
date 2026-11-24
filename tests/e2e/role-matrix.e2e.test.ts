@@ -1,6 +1,6 @@
 // FR-AUTH-06 generated table test: every Phase-2 registry route × every role, through the gateway. Routes and roles
-// come from the generated contract table (gateway.public.yaml). Allowed roles must get past authorization (any status
-// but 401/403; bodies are deliberately incomplete so nothing is mutated → 422/404). Denied roles must get 403.
+// come from the generated contract table (gateway.public.yaml). Allowed roles must get past authorization (no
+// 401/403, and no 5xx; bodies are deliberately incomplete so nothing is mutated → 422/404). Denied roles get 403.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -49,6 +49,13 @@ const IMPLEMENTED: Record<string, readonly string[]> = {
     "addWatchlistEntry",
     "removeWatchlistEntry",
   ],
+  "Phase 4": [
+    "listWebhookSources",
+    "createWebhookSource",
+    "updateWebhookSource",
+    "rotateWebhookSecret",
+    "deleteWebhookSource",
+  ],
 };
 const implemented = new Set(Object.values(IMPLEMENTED).flat());
 const phase2 = Object.entries(routes).filter(([id]) => implemented.has(id));
@@ -76,6 +83,8 @@ describe("FR-AUTH-06 role matrix over the gateway", () => {
         });
         if (allowed) {
           expect([401, 403], `${id} × ${role}: ${JSON.stringify(r.body.error)}`).not.toContain(r.status);
+          // Authorized calls must reach a healthy owning service: a 5xx (e.g. 503 dependency down) is a failure.
+          expect(r.status, `${id} × ${role}: ${JSON.stringify(r.body.error)}`).toBeLessThan(500);
         } else {
           expect(r.status, `${id} × ${role}`).toBe(403);
         }

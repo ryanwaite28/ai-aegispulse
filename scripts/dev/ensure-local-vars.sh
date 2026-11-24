@@ -3,7 +3,7 @@
 # never prints a value). Called by gen-local-secrets.sh; run it by hand once for an older .env:
 #   scripts/dev/ensure-local-vars.sh
 # Keys (PROJECT.md §10.4): JWT_SIGNING_KEY_CURRENT_PEM (FR-AUTH-05), PLATFORM_ADMIN_BOOTSTRAP_PASSWORD (FR-TEN-09),
-# SERVICE_CLIENT_SECRET_{RUNTIME} for each §5.7.4 SERVICE account (FR-TEN-07, ADR-0017).
+# SERVICE_CLIENT_SECRET_{RUNTIME} for each §5.7.4 SERVICE account (FR-TEN-07, ADR-0017), INGESTION_KEK_BASE64 (FR-WHK-01).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out="$root/.env"
@@ -28,6 +28,17 @@ if ! has PLATFORM_ADMIN_BOOTSTRAP_PASSWORD; then
   drop PLATFORM_ADMIN_BOOTSTRAP_PASSWORD
   echo "PLATFORM_ADMIN_BOOTSTRAP_PASSWORD=Aa1-$(openssl rand -hex 20)" >> "$out"
   added+=(PLATFORM_ADMIN_BOOTSTRAP_PASSWORD)
+fi
+# A KEK that does not decode to exactly 32 bytes (e.g. an older hex value) is replaced too; ingestion refuses it.
+kek_ok() {
+  local v
+  v="$(sed -n 's/^INGESTION_KEK_BASE64=//p' "$out" | tail -n 1)"
+  [[ -n "$v" ]] && [[ "$(printf '%s' "$v" | base64 -d 2>/dev/null | wc -c | tr -d ' ')" == "32" ]]
+}
+if ! has INGESTION_KEK_BASE64 || ! kek_ok; then
+  drop INGESTION_KEK_BASE64
+  echo "INGESTION_KEK_BASE64=$(openssl rand -base64 32)" >> "$out"
+  added+=(INGESTION_KEK_BASE64)
 fi
 for runtime in GATEWAY INGESTION FILES EVENTS ORCHESTRATOR DOC_EXTRACTION RISK_SCORING DATA_INTEL SCHEDULER_TRIGGER; do
   name="SERVICE_CLIENT_SECRET_${runtime}"

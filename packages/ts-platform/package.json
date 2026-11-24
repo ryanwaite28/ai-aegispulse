@@ -29,6 +29,10 @@
       "types": "./dist/http-client/index.d.ts",
       "default": "./dist/http-client/index.js"
     },
+    "./ids": {
+      "types": "./dist/ids/index.d.ts",
+      "default": "./dist/ids/index.js"
+    },
     "./tenant-settings": {
       "types": "./dist/tenant-settings/index.d.ts",
       "default": "./dist/tenant-settings/index.js"

@@ -15,6 +15,7 @@ hex() { openssl rand -hex "${1:-24}"; }
     if [[ "$line" =~ ^([A-Z0-9_]+)=\<generated(:([0-9a-z]+))?\>(.*)$ ]]; then
       name="${BASH_REMATCH[1]}"; spec="${BASH_REMATCH[3]:-24}"
       if [[ "$name" == "MONGO_KEYFILE" ]]; then val="$(openssl rand -base64 756 | tr -d '\n')"
+      elif [[ "$name" == "INGESTION_KEK_BASE64" ]]; then val="$(openssl rand -base64 32)"   # AES-256 KEK (FR-WHK-01)
       elif [[ "$spec" == "strong" ]]; then val="Aa1-$(hex 20)"   # tools requiring mixed case + digit + symbol
       else val="$(hex "$spec")"; fi
       echo "${name}=${val}"

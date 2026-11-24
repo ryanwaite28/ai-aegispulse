@@ -78,6 +78,7 @@ beforeAll(async () => {
     REGISTRY_URL: `http://127.0.0.1:${String((fake.address() as AddressInfo).port)}`,
     JWT_ISSUER: "aegispulse-registry",
     JWT_AUDIENCE: "aegispulse",
+    INGESTION_URL: "http://ingestion:8081",
     SERVICE_CLIENT_ID: "svc-gateway",
     SERVICE_CLIENT_SECRET: randomBytes(16).toString("hex"), // generated per run; never a literal
   } as Config;

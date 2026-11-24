@@ -167,7 +167,17 @@ const services: Array<[string, string]> = [
   ["sensitivity-scanner", "scanner"],
   ["data-intel", "dataIntel"],
 ];
-const saImports: string[] = [BANNER, 'import type { CanonicalEnvelope } from "./envelope.js";'];
+// Shared components (PageQuery, …) referenced by several internal contracts get their own types file.
+{
+  const common = join(contractsRoot, "openapi", "components", "common.yaml");
+  const ast = await openapiTS(pathToFileURL(common), { alphabetize: true, exportType: true });
+  writeFileSync(join(tsOut, "openapi", "common.ts"), BANNER + astToString(ast));
+}
+const saImports: string[] = [
+  BANNER,
+  'import type { CanonicalEnvelope } from "./envelope.js";',
+  'import type { components as CommonApi } from "./openapi/common.js";',
+];
 const saUnion: string[] = [];
 const saCatalog: string[] = [];
 interface Op {
@@ -189,11 +199,17 @@ for (const [file, svc] of services) {
     for (const [method, op] of Object.entries(ops)) {
       if (op.operationId === undefined) continue;
       const ref = op.requestBody?.content?.["application/json"]?.schema?.$ref;
+      const COMMON_REF = "./components/common.yaml#/components/schemas/";
       const schemaName = ref?.startsWith("#/components/schemas/")
         ? ref.slice("#/components/schemas/".length)
         : undefined;
+      const commonName = ref?.startsWith(COMMON_REF) ? ref.slice(COMMON_REF.length) : undefined;
       const payload =
-        schemaName !== undefined ? `${alias}["schemas"][${JSON.stringify(schemaName)}]` : "Record<string, never>";
+        schemaName !== undefined
+          ? `${alias}["schemas"][${JSON.stringify(schemaName)}]`
+          : commonName !== undefined
+            ? `CommonApi["schemas"][${JSON.stringify(commonName)}]`
+            : "Record<string, never>";
       saUnion.push(`  | { service: "${svc}"; action: "${op.operationId}"; payload: ${payload} }`);
       saCatalog.push(
         `  { service: "${svc}", action: "${op.operationId}", transport: "http", method: "${method.toUpperCase()}", path: "${path}" },`,

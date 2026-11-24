@@ -282,6 +282,14 @@ services:
       S3_ACCESS_KEY_ID: ${S3_INGESTION_ACCESS_KEY:?run make env}
       S3_SECRET_ACCESS_KEY: ${S3_INGESTION_SECRET_KEY:?run make env}
       S3_BUCKET_PREFIX: aegispulse-local
+      REGISTRY_URL: http://registry:8084
+      JWT_ISSUER: aegispulse-registry
+      JWT_AUDIENCE: aegispulse
+      SERVICE_CLIENT_ID: svc-ingestion
+      SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET_INGESTION:-}
+      # FR-WHK-01 KEK (empty → ingestion refuses to start, naming the variable); scripts/dev/ensure-local-vars.sh
+      INGESTION_KEK_BASE64: ${INGESTION_KEK_BASE64:-}
+      INGESTION_KEK_VERSION: "1"
     ports: ["127.0.0.1:8081:8081"]
     read_only: true
     tmpfs: ["/tmp"]

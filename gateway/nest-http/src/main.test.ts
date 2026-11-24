@@ -24,6 +24,7 @@ const config = {
   REGISTRY_URL: "http://registry:8084",
   JWT_ISSUER: "aegispulse-registry",
   JWT_AUDIENCE: "aegispulse",
+  INGESTION_URL: "http://ingestion:8081",
 } as Config;
 
 interface InjectResult {

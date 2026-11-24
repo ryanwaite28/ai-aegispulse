@@ -20,7 +20,8 @@ export interface PostgresEnv {
   stop(): Promise<void>;
 }
 
-export async function startPostgres(): Promise<PostgresEnv> {
+/** `role` is the runtime role the pool connects as (default svc_files): RLS and grants apply as in production. */
+export async function startPostgres(role: (typeof SCHEMAS)[number] = "files"): Promise<PostgresEnv> {
   const secret = (): string => randomBytes(16).toString("hex");
   const env: Record<string, string> = { PG_BACKUP_PASSWORD: secret() };
   for (const s of SCHEMAS) {
@@ -64,8 +65,8 @@ export async function startPostgres(): Promise<PostgresEnv> {
     host: db.getHost(),
     port: db.getPort(),
     database: "aegispulse",
-    user: "svc_files",
-    password: env["PG_SVC_PASSWORD_FILES"],
+    user: `svc_${role === "analytics" ? "analytics" : role}`,
+    password: env[`PG_SVC_PASSWORD_${role.toUpperCase()}`],
     max: 10,
   });
   return {
@@ -116,6 +117,33 @@ export async function startBroker(): Promise<BrokerEnv> {
       url.password = password;
       return url.toString();
     },
+    stop: async () => {
+      await container.stop();
+    },
+  };
+}
+
+export interface RedisEnv {
+  /** redis:// URL for the given compose ACL user (rendered from deploy/compose/init/redis/redis.conf.tmpl). */
+  readonly url: string;
+  stop(): Promise<void>;
+}
+
+/** Redis 8 with the compose ACL template, so a service connects as its real ACL user (§5.7.3). */
+export async function startRedis(aclUser: string, passwordVar: string): Promise<RedisEnv> {
+  const { readFileSync } = await import("node:fs");
+  const password = randomBytes(16).toString("hex");
+  const conf = readFileSync(join(repoRoot, "deploy/compose/init/redis/redis.conf.tmpl"), "utf8")
+    .replace(`__${passwordVar}__`, password)
+    .replace(/__[A-Z0-9_]+__/g, () => randomBytes(16).toString("hex"))
+    .replace("appendonly yes", "appendonly no");
+  const container = await new GenericContainer("redis:8.10.3-alpine")
+    .withCopyContentToContainer([{ content: conf, target: "/etc/redis/redis.conf" }])
+    .withCommand(["redis-server", "/etc/redis/redis.conf"])
+    .withExposedPorts(6379)
+    .start();
+  return {
+    url: `redis://${aclUser}:${password}@${container.getHost()}:${String(container.getMappedPort(6379))}/0`,
     stop: async () => {
       await container.stop();
     },

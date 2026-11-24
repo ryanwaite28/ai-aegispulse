@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node --import @aegispulse/ts-platform/telemetry/register dist/main.js",
     "test": "vitest run --dir src",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:integration": "vitest run --dir tests/integration"
   },
   "dependencies": {
     "@aegispulse/contracts": "workspace:*",

@@ -13,6 +13,14 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 4a webhook sources (FR-WHK-01/07):
+  - **Ingestion:** `V3__webhook_sources` (sources + encrypted secrets, RLS; sourceKey globally unique, even after deletion).
+  - **Crypto:** envelope encryption with a per-secret data key, AES-256-GCM, and the key wrapped by the KEK with AES-KW (RFC 3394). Ingestion refuses to start without a 32-byte `INGESTION_KEK_BASE64`.
+  - **Service:** create/list/update/rotate (previous valid 72 h)/delete; trust changes audited as `ops.audit.source_trust_changed` through the outbox (relay now runs in ingestion). One-time secrets are never stored or replayed.
+  - **Gateway:** `/v1/webhook-sources*` via a new typed ingestion client.
+  - **Kits:** `ts-platform/ids` (UUIDv7); the integration environment is parameterized by service role and adds a Redis starter with the compose ACL.
+  - **Contracts:** the generator now resolves shared `common.yaml` request schemas (`listWebhookSources`, `listConnectors` and `listEvalRuns` were typed as empty).
+  - **Tests:** E2E role matrix + cross-tenant suite extended to webhook sources. `ensure-local-vars.sh` adds `INGESTION_KEK_BASE64`.
 - Phase 3 entities and watchlists (FR-ENT-01..05):
   - **Migrations:** `V7__entities` (trigram GIN indexes, RLS), `V8__watchlists`.
   - **Entities:** NFKC/punctuation/legal-suffix normalization (fixture table); entity CRUD with aliases and archive; trigram search.
@@ -101,6 +109,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Model routing policy in `CLAUDE.md`; review agents pinned to models (architecture-reviewer → sonnet, security-reviewer → opus, spec-tracer → haiku).
 
 ### Fixed
+- Local KEK: `gen-local-secrets.sh` generated `INGESTION_KEK_BASE64` in the wrong format, and ingestion refused it. The generator now emits base64 of 32 bytes, and `ensure-local-vars.sh` replaces a KEK that does not decode to 32 bytes.
+- E2E role matrix: authorized calls now also fail on 5xx. A down service (503) previously counted as "allowed".
 - CI `test-node` failed in a clean checkout for the same reason as typecheck (ts-platform `dist/` missing). The root `test`, `typecheck` and `test:integration` scripts now run `build:kits` first.
 - Makefile: every target failed (`env: …: No such file or directory`, exit 127) when the caller's PATH contained an entry with a space (e.g. an editor extension under `Application Support`). Such entries are now dropped from the PATH handed to recipes.
 - CI `lint-node` typecheck failed in a clean checkout: the gateway resolves `@aegispulse/ts-platform` types from `dist/`, which only existed locally. The root `typecheck` script now builds ts-platform first.
@@ -122,6 +132,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- Phase 4 migrations renumbered to V3/V4 (V2 is ADR-0016). Spec `FR-WHK-01-08-webhook-ingestion` (secret envelope encryption with AES-KW-wrapped data keys, verification order, slices 4a–4c).
 - PROJECT.md Phase 3 migrations renumbered to V7/V8 (Phase 2 took V3–V6), which completes the approved renumbering. Spec `FR-ENT-01-05-entities-watchlists`.
 - PROJECT.md §3 amendment (approved): JVM `-XX:MaxRAMPercentage` 70 → 50 for all Java runtimes (Dockerfile + sre skill). Measured on the local stack: at 70% the 768Mi registry crash-looped (non-heap ≈ 290 MiB); at 50% it peaked at 667 MiB under 80×16 concurrent token requests.
 - ADR-0017 + PROJECT.md amendment for slice 2b:
