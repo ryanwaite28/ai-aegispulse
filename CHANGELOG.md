@@ -13,6 +13,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- FR-FILE-12 `deleteFile` emits `ops.audit.file_deleted` through the outbox in the same transaction as the soft delete (FR-AUD-02).
 - Phase 5e file sweeps, retention and delete (FR-FILE-10/12):
   - **Files:** `V5__file_maintenance` (cross-tenant definers). `sweepOrphans`: INITIATED > 1 h → EXPIRED, landed objects deleted, multipart aborted, session and dedup released. `purgeRetention`: objects and artifacts past each tenant's `retentionDays` deleted, then tombstones (`purged_at`). `deleteFile`: TENANT_ADMIN soft delete; history and caches, including cached download URLs.
   - **Gateway:** `DELETE /v1/files/{id}`.
@@ -165,7 +166,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
-- PROJECT.md §5.7.3: the object-store `files` row adds delete on `artifacts/*` for the FR-FILE-12 retention purge (clarification). FR-FILE-12 "Audited" is met by the file's status history (actor + reason `DELETED`), because FR-AUD-02 has no file-deletion event (open question).
+- PROJECT.md §5.7.3: the object-store `files` row adds delete on `artifacts/*` for the FR-FILE-12 retention purge (clarification).
+- PROJECT.md amendment (owner-approved 2026-11-24): new event `ops.audit.file_deleted {fileId, actorId}` (files → `aegispulse.intelligence` → `cases.audit-ingest.q`). FR-AUD-02 lists file deletions, FR-FILE-12 names the event, and the §6.7 catalog row includes it. Contracts: payload schema + example, AsyncAPI channel, send/receive operations, archive listing (42 event types).
 - PROJECT.md §5.1/§5.3: adds CronJob `aegispulse-cron-secret-expiry` (hourly `ingestion-secret-expiry`, FR-WHK-08), so there are now 9 CronJobs. §5.1 had no name for the job §11 requires (owner-approved amendment). Each run requests 50m CPU / 64Mi, as for every CronJob in §5.4.
 - PROJECT.md §5.7.3: the object-store `ingestion` row now reads read/write (incl. delete)/list on `raw/webhooks/*`, as FR-WHK-08's sweep requires (clarification).
 - Phase 4 migrations renumbered to V3/V4 (V2 is ADR-0016). Spec `FR-WHK-01-08-webhook-ingestion` (secret envelope encryption with AES-KW-wrapped data keys, verification order, slices 4a–4c).

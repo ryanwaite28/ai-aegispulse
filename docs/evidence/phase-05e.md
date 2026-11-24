@@ -40,9 +40,18 @@ make trigger JOB=ingestion-secret-expiry → job succeeded {processedCount 0}
 ```
 `processedCount 0` on the stack is expected: the E2E uploads are minutes old, and every tenant keeps the default 400-day retention. The integration suite drives both paths with backdated rows.
 
+### Amendment: `ops.audit.file_deleted` (owner-approved 2026-11-24)
+```
+make contracts → ✓ events: 42 payload schemas with valid examples · ✓ asyncapi valid · generate: 42 event types
+gradle :java-platform:test :registry:test → 81 tests, 0 failures (event-type count follows the contracts)
+files maintenance.integration → 3/3 (+ delete enqueues exactly one ops.audit.file_deleted {fileId, actorId} on
+                                   aegispulse.intelligence)
+compose: rebuild files → make test-e2e 239/239 → files.outbox_events ops.audit.file_deleted: SENT 1 (publisher confirm;
+         routed by ops.audit.* to cases.audit-ingest.q, whose consumer arrives with the cases phase)
+```
+
 ### Defect found during the slice
 The first E2E run failed the 4b `+301 s` skew probe (202): it floored the host clock (up to 0.999 s of the 1 s margin), and request latency landed it inside ±300 s. The probes now round away from now; two clean runs since.
 
 ## Pending
 - 5b multipart (FR-FILE-13) and the Phase 5 exit (`scripts/demo/upload.ts`, EICAR evidence, orphan-sweep logs).
-- Open question: should file deletion join the cases audit chain (FR-AUD-02)? That would need a new event.

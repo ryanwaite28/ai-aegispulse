@@ -125,7 +125,7 @@ Steps, in order:
   - Soft delete (`deleted_at`); the object stays until the purge.
   - The status cache and every cached download URL of the file (`SCAN file:dlurl:{fileId}:*`) are dropped. Afterwards get, list and download → 404.
   - Repeat → 404.
-- **"Audited"** (FR-FILE-12, clarification): FR-AUD-02 does not list file deletion and no catalog event exists for it. The deletion is recorded in `files.file_status_history` (reason `DELETED`, actor `user:{id}`) and logged at warn. Adding it to the cases audit chain would need a new event (open question).
+- **Audited** (FR-FILE-12, amended 2026-11-24): the soft delete enqueues `ops.audit.file_deleted {fileId, actorId}` on `aegispulse.intelligence` in the same transaction. It is bound to `cases.audit-ingest.q` by `ops.audit.*`, and FR-AUD-02 now lists file deletions. The file's history also records it (reason `DELETED`, actor `user:{id}`).
 - **Object-store grant** (§5.7.3, clarification forced by FR-FILE-12): the `files` identity gains write (delete) on `artifacts/*` for the purge. It already had read; doc-extraction remains the writer of artifact contents.
 
 ### Gateway (5a)

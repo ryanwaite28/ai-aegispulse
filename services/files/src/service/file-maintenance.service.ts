@@ -4,7 +4,7 @@
 //   purgeRetention  scheduler (daily): per tenant, files created before now − retentionDays (registry) lose their
 //                   object and artifact objects first (idempotent deletes), then get a tombstone (purged_at); the row stays
 //   deleteFile      TENANT_ADMIN: soft delete (deleted_at; the object stays until the purge), recorded in the file's
-//                   history with the actor, caches invalidated
+//                   history with the actor and audited via ops.audit.file_deleted (FR-AUD-02), caches invalidated
 // Cross-tenant discovery uses the V5 definer functions (ADR-0016); every change runs under the owning tenant's RLS.
 import type { Principal } from "@aegispulse/ts-platform/auth";
 import { tenantAccess } from "@aegispulse/ts-platform/auth";
@@ -12,7 +12,7 @@ import { DomainError } from "@aegispulse/ts-platform/errors";
 import type { Logger } from "@aegispulse/ts-platform/logging";
 import { withTenantTransaction, type OutboxRepository, type SqlPool } from "@aegispulse/ts-platform/outbox";
 import type { FileRecord, FilesRepository } from "../db/files.repository.js";
-import { fileStatusChanged } from "./events.js";
+import { fileDeleted, fileStatusChanged } from "./events.js";
 import type { DedupIndex, FileStatusCache, UploadSessionStore } from "./file-upload.service.js";
 import { rolesFor } from "./roles.js";
 
@@ -131,10 +131,15 @@ export class FileMaintenanceService {
 
   async deleteFile(principal: Principal, actingTenant: string | undefined, input: { fileId: string }): Promise<void> {
     const access = tenantAccess(principal, actingTenant, rolesFor("deleteFile"));
+    const actorId = access.userId;
+    if (actorId === null) throw new DomainError("FORBIDDEN", "deleting a file requires a user");
     const changed = await withTenantTransaction(this.deps.pool, access.tenantId, async (tx) => {
       const f = await this.deps.files.get(tx, input.fileId);
       if (f === undefined || f.deletedAt !== null) throw new DomainError("NOT_FOUND", "file not found");
-      return this.deps.files.softDelete(tx, access.tenantId, f, access.actor);
+      const deleted = await this.deps.files.softDelete(tx, access.tenantId, f, access.actor);
+      // FR-AUD-02: the deletion joins the cases audit chain (same transaction as the soft delete).
+      if (deleted) await this.deps.outbox.enqueue(tx, fileDeleted(this.deps.version, f, actorId));
+      return deleted;
     });
     if (changed) {
       await this.deps.statusCache.invalidate(input.fileId);

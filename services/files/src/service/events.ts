@@ -166,3 +166,15 @@ export function quarantineDownload(version: string, file: FileRecord, actorId: s
     "aegispulse.intelligence",
   );
 }
+
+/** ops.audit.file_deleted (FR-FILE-12, FR-AUD-02) on aegispulse.intelligence → cases audit chain. */
+export function fileDeleted(version: string, file: FileRecord, actorId: string): OutboxMessage {
+  return envelope(
+    version,
+    file,
+    "ops.audit.file_deleted",
+    `ops.audit.file_deleted:${file.id}`,
+    { fileId: file.id, actorId },
+    "aegispulse.intelligence",
+  );
+}

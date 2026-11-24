@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-24 (§5.1 CronJob `aegispulse-cron-secret-expiry`, 9 CronJobs; §5.7.3 ingestion object-store list grant for FR-WHK-08) · 2026-11-23 (JVM heap 50%; ADR-0017 SERVICE secret reconciliation; client-credentials rate limit; JWKS source; changePassword session keep; `registry.tenant.deactivated`; FR-TEN-09) |
+| **Last updated** | 2026-11-24 (`ops.audit.file_deleted` for FR-FILE-12 / FR-AUD-02; §5.1 CronJob `aegispulse-cron-secret-expiry`, 9 CronJobs; §5.7.3 ingestion object-store list grant for FR-WHK-08) · 2026-11-23 (JVM heap 50%; ADR-0017 SERVICE secret reconciliation; client-credentials rate limit; JWKS source; changePassword session keep; `registry.tenant.deactivated`; FR-TEN-09) |
 
 ---
 
@@ -362,7 +362,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 - **FR-FILE-09**: `GET /v1/files` lists files (filter by status, purpose, uploadedBy, date; paginated).
 - **FR-FILE-10**: Orphan sweep (every 15 min): `INITIATED` files older than 1 h → `EXPIRED`, objects deleted, multipart uploads aborted; emits `file.status.changed`.
 - **FR-FILE-11**: `registerRemoteFile(tenantId, url, sourceType, allowedHosts)` fetches remote attachments/connector documents with SSRF protection: https only, host allowlist, resolve DNS and reject private/loopback/link-local/metadata ranges (IPv4+IPv6) before connect and re-check on connect, 30 s timeout, 64 MiB cap, no credentials forwarded. Result enters the lifecycle at `UPLOADED`.
-- **FR-FILE-12**: `DELETE /v1/files/{fileId}` (`TENANT_ADMIN`) soft-deletes (`deletedAt`, object retained until retention purge); retention purge job deletes objects and artifacts past `tenant.retentionDays`, keeping a tombstone row. Audited.
+- **FR-FILE-12**: `DELETE /v1/files/{fileId}` (`TENANT_ADMIN`) soft-deletes (`deletedAt`, object retained until retention purge); retention purge job deletes objects and artifacts past `tenant.retentionDays`, keeping a tombstone row. Audited: the delete emits `ops.audit.file_deleted` (FR-AUD-02) through the outbox and records the actor in the file's status history.
 - **FR-FILE-13** (Phase 5b): Multipart upload for 64–512 MiB files: init returns `uploadId` and presigned part URLs (16 MiB parts, ≤ 32 parts, every request < Cloudflare's 100 MB edge cap); complete accepts the part ETag list.
 
 ### 2.8 Document ETL & Extraction (Owner: `services/doc-extraction`)
@@ -426,7 +426,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 ### 2.13 Immutable Compliance Audit Log (Owner: `services/cases`)
 
 - **FR-AUD-01**: Append-only `audit_log` entries: `actorType` (`USER|SERVICE|SYSTEM`), `actorId`, `actingAs?`, `action`, `subjectType`, `subjectId`, `triggerEventId?`, `triggerFileId?`, `modelVersion?`, `ruleVersion?`, `before`, `after`, `occurredAt`, per-tenant `seq`, `prevHash`, `hash = SHA-256(canonicalJSON(entry without hash) ‖ prevHash)`. Insert serialized per tenant via `pg_advisory_xact_lock`. The DB role has no `UPDATE`/`DELETE`/`TRUNCATE` grants and a trigger rejects them.
-- **FR-AUD-02**: Cases consumes audit-worthy events from other services (`registry.user.changed`, `registry.tenant.*`, `registry.service_account.changed`, `registry.auth.refresh_reuse_detected`, `registry.watchlist.changed`, `classification.overridden`, webhook source trust changes, quarantine downloads, replay jobs) into the same chain, idempotent by source `eventId`.
+- **FR-AUD-02**: Cases consumes audit-worthy events from other services (`registry.user.changed`, `registry.tenant.*`, `registry.service_account.changed`, `registry.auth.refresh_reuse_detected`, `registry.watchlist.changed`, `classification.overridden`, webhook source trust changes, quarantine downloads, file deletions (`ops.audit.file_deleted`), replay jobs) into the same chain, idempotent by source `eventId`.
 - **FR-AUD-03**: `GET /v1/audit` (`COMPLIANCE_AUDITOR`, `TENANT_ADMIN`) filters by subject, actor, action, date; paginated. `GET /v1/audit/verify?fromSeq&toSeq` recomputes the chain and returns `{valid, checked, firstBrokenSeq?}`; a nightly job verifies the last 24 h and emits `notification.requested` (N-06) on failure.
 
 ### 2.14 Cross-Domain Correlation (Owners: `services/orchestrator`, `services/cases`)
@@ -1384,7 +1384,7 @@ outbox_events(id, tenant_id, event_id UNIQUE, exchange, routing_key, envelope JS
 | `registry.tenant.created|suspended|restored|deactivated|settings_changed` · `registry.user.changed` · `registry.service_account.changed` · `registry.auth.refresh_reuse_detected` · `registry.entity.changed` · `registry.watchlist.changed` | domain | registry | ids + changed fields (no secrets/password data) |
 | `notification.requested` | domain/enrichment/intelligence | cases, events, files, ingestion, data-intel | `templateId, severity, notificationKey, vars` |
 | `intel.rollup.completed` · `intel.drift.detected` · `intel.eval.completed` | intelligence | data-intel | `metric, scope, value, threshold, window` |
-| `ops.dead_letter.recorded` · `ops.replay.started|completed` · `ops.audit.quarantine_download` · `ops.audit.source_trust_changed` | intelligence | events / files / ingestion | operational ids + actor |
+| `ops.dead_letter.recorded` · `ops.replay.started|completed` · `ops.audit.quarantine_download` · `ops.audit.file_deleted` · `ops.audit.source_trust_changed` | intelligence | events / files / ingestion | operational ids + actor |
 
 ### 6.8 Error Model
 

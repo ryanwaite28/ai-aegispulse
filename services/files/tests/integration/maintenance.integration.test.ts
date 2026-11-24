@@ -326,6 +326,11 @@ describe("retention purge and delete (FR-FILE-12)", () => {
         ).rows,
     );
     expect(history).toEqual([{ reason: "DELETED", actor: `user:${ta.userId}` }]);
+    const audit = await db.pool.query<{ x: string; p: Record<string, unknown> }>(
+      "SELECT exchange AS x, envelope->'payload' AS p FROM files.outbox_events WHERE routing_key = 'ops.audit.file_deleted' AND envelope->'payload'->>'fileId' = $1",
+      [f.fileId],
+    );
+    expect(audit.rows).toEqual([{ x: "aegispulse.intelligence", p: { fileId: f.fileId, actorId: ta.userId } }]);
     expect(await code(maintenance.deleteFile(ta, undefined, { fileId: f.fileId }))).toBe("NOT_FOUND");
     expect(
       await code(maintenance.deleteFile(user(randomUUID(), ["TENANT_ADMIN"]), undefined, { fileId: randomUUID() })),

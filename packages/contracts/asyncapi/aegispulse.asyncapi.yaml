@@ -708,6 +708,23 @@ channels:
           autoDelete: false
           vhost: /
         bindingVersion: 0.3.0
+  ops.audit.file_deleted:
+    address: ops.audit.file_deleted
+    title: ops.audit.file_deleted
+    description: TENANT_ADMIN soft-deleted a file (audited; the object stays until the retention purge). Primary exchange aegispulse.intelligence.
+    messages:
+      ops.audit.file_deleted:
+        $ref: "#/components/messages/ops.audit.file_deleted"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.intelligence
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
   ops.audit.source_trust_changed:
     address: ops.audit.source_trust_changed
     title: ops.audit.source_trust_changed
@@ -859,6 +876,8 @@ channels:
         $ref: "#/components/messages/ops.replay.completed"
       ops.audit.quarantine_download:
         $ref: "#/components/messages/ops.audit.quarantine_download"
+      ops.audit.file_deleted:
+        $ref: "#/components/messages/ops.audit.file_deleted"
       ops.audit.source_trust_changed:
         $ref: "#/components/messages/ops.audit.source_trust_changed"
     bindings:
@@ -1488,6 +1507,20 @@ operations:
         timestamp: true
         bindingVersion: 0.3.0
     x-aegis-producer: files
+  send.files.ops.audit.file_deleted:
+    action: send
+    channel:
+      $ref: "#/channels/ops.audit.file_deleted"
+    title: files publishes ops.audit.file_deleted
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/ops.audit.file_deleted/messages/ops.audit.file_deleted"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: files
   send.ingestion.ops.audit.source_trust_changed:
     action: send
     channel:
@@ -1845,6 +1878,22 @@ operations:
     title: cases.audit-ingest.q consumes ops.audit.quarantine_download
     messages:
       - $ref: "#/channels/ops.audit.quarantine_download/messages/ops.audit.quarantine_download"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.ops.audit.file_deleted:
+    action: receive
+    channel:
+      $ref: "#/channels/ops.audit.file_deleted"
+    title: cases.audit-ingest.q consumes ops.audit.file_deleted
+    messages:
+      - $ref: "#/channels/ops.audit.file_deleted/messages/ops.audit.file_deleted"
     bindings:
       amqp:
         ack: true
@@ -2364,6 +2413,7 @@ operations:
       - $ref: "#/channels/archive_all_intelligence/messages/ops.replay.started"
       - $ref: "#/channels/archive_all_intelligence/messages/ops.replay.completed"
       - $ref: "#/channels/archive_all_intelligence/messages/ops.audit.quarantine_download"
+      - $ref: "#/channels/archive_all_intelligence/messages/ops.audit.file_deleted"
       - $ref: "#/channels/archive_all_intelligence/messages/ops.audit.source_trust_changed"
     bindings:
       amqp:
@@ -3257,6 +3307,28 @@ components:
         amqp:
           contentEncoding: utf-8
           messageType: ops.audit.quarantine_download
+          bindingVersion: 0.3.0
+    ops.audit.file_deleted:
+      name: ops.audit.file_deleted
+      title: ops.audit.file_deleted
+      summary: TENANT_ADMIN soft-deleted a file (audited; the object stays until the retention purge).
+      description: "FRs: FR-FILE-12, FR-AUD-02. Payload schema: events/ops.audit.file_deleted.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/ops.audit.file_deleted.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: ops.audit.file_deleted
           bindingVersion: 0.3.0
     ops.audit.source_trust_changed:
       name: ops.audit.source_trust_changed
