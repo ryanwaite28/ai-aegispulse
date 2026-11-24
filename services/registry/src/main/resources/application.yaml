@@ -40,7 +40,7 @@ aegis:
       - /internal/v1/issueClientCredentialsToken
   readiness:
     schema: registry
-    min-flyway-version: "6"
+    min-flyway-version: "8"
   outbox:
     schema: registry
 

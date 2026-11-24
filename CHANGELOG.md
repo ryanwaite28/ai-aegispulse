@@ -13,6 +13,14 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 3 entities and watchlists (FR-ENT-01..05):
+  - **Migrations:** `V7__entities` (trigram GIN indexes, RLS), `V8__watchlists`.
+  - **Entities:** NFKC/punctuation/legal-suffix normalization (fixture table); entity CRUD with aliases and archive; trigram search.
+  - **Resolution:** ticker → alias → normalized name → trigram ≥ 0.85, batched per stage. p95 11 ms for 50 mentions.
+  - **Watchlists:** CRUD, entries and pause; `checkWatchlists`, with counterparty refs resolved through FR-ENT-03.
+  - **Events:** `registry.entity.changed` / `registry.watchlist.changed`.
+  - **Gateway:** routes `/v1/entities*`, `/v1/watchlists*`; the role matrix and cross-tenant suite are extended (E2E 152/152).
+  - **Seed:** `make seed` creates the §1.4.7 demo data through the API (re-runnable; ids in a gitignored `.seed-state.json`).
 - Phase 2c:
   - **Registry:** `getTenantSettings`/`updateTenantSettings` + `registry.tenant.settings_changed` (FR-TEN-08), and the role matrix as data (`AccessPolicy`, FR-AUTH-06), table-tested against the contract.
   - **Gateway:** `/v1/auth/*`, `/v1/tenants*`, `/v1/users*`, `/v1/service-accounts*` and a `/.well-known/jwks.json` proxy, through a typed registry client. The gateway uses its own SERVICE token for login/refresh and forwards `X-Aegis-Tenant` / `Idempotency-Key` only where routes declare them. Route roles come from the new generated contract table (`generated/gateway-routes.json`).
@@ -93,6 +101,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Model routing policy in `CLAUDE.md`; review agents pinned to models (architecture-reviewer → sonnet, security-reviewer → opus, spec-tracer → haiku).
 
 ### Fixed
+- CI `test-node` failed in a clean checkout for the same reason as typecheck (ts-platform `dist/` missing). The root `test`, `typecheck` and `test:integration` scripts now run `build:kits` first.
+- Makefile: every target failed (`env: …: No such file or directory`, exit 127) when the caller's PATH contained an entry with a space (e.g. an editor extension under `Application Support`). Such entries are now dropped from the PATH handed to recipes.
 - CI `lint-node` typecheck failed in a clean checkout: the gateway resolves `@aegispulse/ts-platform` types from `dist/`, which only existed locally. The root `typecheck` script now builds ts-platform first.
 - JWKS refetch cooldown 30 s → 5 s in all kits. The local rotation drill showed the gateway rejecting new-kid tokens for up to 30 s after a rotation.
 - ts-platform http-client: 429 answers no longer count toward the circuit breaker. A throttled login storm could otherwise open the gateway→registry breaker for everyone. Upstream error codes, messages and validation details now pass through to the caller.
@@ -112,6 +122,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- PROJECT.md Phase 3 migrations renumbered to V7/V8 (Phase 2 took V3–V6), which completes the approved renumbering. Spec `FR-ENT-01-05-entities-watchlists`.
 - PROJECT.md §3 amendment (approved): JVM `-XX:MaxRAMPercentage` 70 → 50 for all Java runtimes (Dockerfile + sre skill). Measured on the local stack: at 70% the 768Mi registry crash-looped (non-heap ≈ 290 MiB); at 50% it peaked at 667 MiB under 80×16 concurrent token requests.
 - ADR-0017 + PROJECT.md amendment for slice 2b:
   - the registry reconciles SERVICE account secret verifiers at startup from `SERVICE_CLIENT_SECRET_{RUNTIME}` (Infisical references; catalog `/registry` keys);

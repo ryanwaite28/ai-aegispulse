@@ -198,6 +198,35 @@ abstract class RegistryIt {
     }
   }
 
+  /** A tenant with a TENANT_ADMIN and an ANALYST (real users, so FK actor columns hold). */
+  record Team(UUID tenantId, String slug, String ta, String analyst, String viewer) {}
+
+  Team team(String slug) {
+    UUID tenant = createTenant(slug);
+    UUID admin = createFirstAdmin(tenant, "admin@" + slug + ".example");
+    String ta = Tokens.user(admin, tenant, slug, "TENANT_ADMIN");
+    Reply analyst =
+        post(
+            "createUser",
+            ta,
+            Map.of(
+                "email",
+                "analyst@" + slug + ".example",
+                "displayName",
+                "Analyst",
+                "roles",
+                List.of("ANALYST"),
+                "initialPassword",
+                STRONG));
+    UUID analystId = UUID.fromString(analyst.data().get("id").asString());
+    return new Team(
+        tenant,
+        slug,
+        ta,
+        Tokens.user(analystId, tenant, slug, "ANALYST"),
+        Tokens.user(UUID.randomUUID(), tenant, slug, "VIEWER"));
+  }
+
   /** Creates an ACTIVE tenant as PLATFORM_ADMIN and returns its id. */
   UUID createTenant(String slug) {
     Reply r =

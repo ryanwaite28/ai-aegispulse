@@ -36,6 +36,19 @@ const IMPLEMENTED: Record<string, readonly string[]> = {
     "updateTenant",
     "updateUser",
   ],
+  "Phase 3": [
+    "listEntities",
+    "createEntity",
+    "getEntity",
+    "updateEntity",
+    "archiveEntity",
+    "listWatchlists",
+    "createWatchlist",
+    "updateWatchlist",
+    "deleteWatchlist",
+    "addWatchlistEntry",
+    "removeWatchlistEntry",
+  ],
 };
 const implemented = new Set(Object.values(IMPLEMENTED).flat());
 const phase2 = Object.entries(routes).filter(([id]) => implemented.has(id));

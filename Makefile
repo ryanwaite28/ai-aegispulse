@@ -3,7 +3,10 @@
 # Toolchain resolution: prefer Homebrew node@24 / openjdk@25 when present (keg-only installs), plus corepack shims.
 NODE24_BIN := $(wildcard /opt/homebrew/opt/node@24/bin)
 JDK25_HOME := $(wildcard /opt/homebrew/opt/openjdk@25)
-export PATH := $(CURDIR)/.tools/bin$(if $(NODE24_BIN),:$(NODE24_BIN)):$(PATH)
+# PATH entries containing spaces (e.g. editor extensions under "Application Support") are dropped for recipes: make
+# splits SHELL on whitespace, so such an entry would break every target.
+SAFE_PATH := $(shell printf '%s' "$$PATH" | tr ':' '\n' | grep -v ' ' | paste -sd: -)
+export PATH := $(CURDIR)/.tools/bin$(if $(NODE24_BIN),:$(NODE24_BIN)):$(SAFE_PATH)
 ifneq ($(JDK25_HOME),)
 export JAVA_HOME := $(JDK25_HOME)
 endif
@@ -88,7 +91,7 @@ test-unit: ## Unit suites (Vitest / JUnit / pytest)
 	@ci/test-java.sh
 
 test-integration: ## Testcontainers suites (requires Docker; no compose stack needed)
-	pnpm -r --if-present run test:integration
+	pnpm run test:integration
 	./gradlew --no-daemon integrationTest
 	uv run pytest -q -m integration packages/py-platform/tests/integration
 
@@ -106,8 +109,8 @@ migrate: ## Flyway (5 schemas) + migrate-mongo + RabbitMQ topology (local)
 	$(COMPOSE) --profile tools run --rm --build migrate
 	@scripts/dev/migrate-local.sh
 	@WAIT_PROBE=readyz scripts/dev/compose-wait.sh
-seed: ## Seed demo tenants/users/entities
-	$(call not_yet,Phase 2–3)
+seed: ## Seed demo tenants/entities/watchlists via the API (re-runnable; make up + registry-bootstrap first)
+	@scripts/dev/seed.sh
 contracts: ## Validate contracts + regenerate TS/Python types (fails in CI on generated drift)
 	@ci/contract.sh
 eval: ## Golden-dataset evaluation

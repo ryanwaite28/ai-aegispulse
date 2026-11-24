@@ -34,3 +34,5 @@ docs/sessions/.errors.log
 # project-local tool shims (corepack)
 .tools/
 .import_linter_cache/
+# make seed: local tenant ids (no secrets)
+.seed-state.json

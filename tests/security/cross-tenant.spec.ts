@@ -35,4 +35,30 @@ describe("cross-tenant isolation (FR-AUTH-06, NFR-06)", () => {
     expect(me.body.data).toMatchObject({ tenant: { id: w.b.id } });
     expect((await call("GET", `/v1/tenants/${w.a.id}`, { token: w.b.users.TENANT_ADMIN.token })).status).toBe(404);
   });
+
+  it("Phase 3: entities and watchlists of B read as 404 for A and never leak into A's lists", async () => {
+    const w = await world();
+    const b = w.b.users.ANALYST.token;
+    const entity = await call("POST", "/v1/entities", {
+      token: b,
+      body: { name: "Globex Clearing", entityType: "COUNTERPARTY" },
+    });
+    expect(entity.status).toBe(201);
+    const entityId = String(entity.body.data?.["id"]);
+    const wl = await call("POST", "/v1/watchlists", { token: b, body: { name: "B Watch", reason: "x" } });
+    const wlId = String(wl.body.data?.["id"]);
+    expect((await call("POST", `/v1/watchlists/${wlId}/entries`, { token: b, body: { entityId } })).status).toBe(201);
+
+    const a = w.a.users.TENANT_ADMIN.token;
+    expect((await call("GET", `/v1/entities/${entityId}`, { token: a })).status).toBe(404);
+    expect((await call("PATCH", `/v1/entities/${entityId}`, { token: a, body: { country: "US" } })).status).toBe(404);
+    expect((await call("DELETE", `/v1/entities/${entityId}`, { token: a })).status).toBe(404);
+    expect((await call("PATCH", `/v1/watchlists/${wlId}`, { token: a, body: { name: "x" } })).status).toBe(404);
+    expect((await call("POST", `/v1/watchlists/${wlId}/entries`, { token: a, body: { entityId } })).status).toBe(404);
+    expect((await call("DELETE", `/v1/watchlists/${wlId}/entries/${entityId}`, { token: a })).status).toBe(404);
+    expect((await call("DELETE", `/v1/watchlists/${wlId}`, { token: a })).status).toBe(404);
+    const search = await call("GET", "/v1/entities?q=globex%20clearing", { token: a });
+    expect(search.body.data ?? []).toHaveLength(0);
+    expect((await call("GET", "/v1/watchlists", { token: a })).body.data ?? []).toHaveLength(0);
+  });
 });

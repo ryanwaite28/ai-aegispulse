@@ -2642,7 +2642,7 @@ Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read befor
 | `make env` | generate a local-only `.env` with random secrets (`scripts/dev/gen-local-secrets.sh`, incl. the derived OTLP header); never pulls from Infisical |
 | `make up` / `make down` / `make reset` | start / stop / wipe local compose stack |
 | `make migrate` | run Flyway for all schemas + Mongo migrations + topology assert (local) |
-| `make seed` | seed tenants, users, entities, watchlists, sources, connectors |
+| `make seed` | seed tenants, users, entities, watchlists, sources, connectors (via the gateway API as the bootstrap PLATFORM_ADMIN; Phase 3 seeds tenants/entities/watchlists, later phases add the rest) |
 | `make dev SERVICE=<name>` | run one service natively with hot reload against compose deps |
 | `make build` | build all workspaces (tsc/vite, Gradle, uv build) |
 | `make test` / `make test-unit` / `make test-integration` / `make test-e2e` | test suites (`test-e2e`: `tests/e2e` + `tests/security` against the running compose stack through the gateway, from Phase 2) |
@@ -2871,7 +2871,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 0 | Project Scaffold & Toolchain | SOURCE-IMPLEMENTED (local runtime verified; CI pipeline pending) | [phase-00](docs/evidence/phase-00.md) |
 | 1 | Contracts, Platform Kits & Data Foundations | IN PROGRESS: slice 1a INTEGRATION-VERIFIED (contracts + data foundations); slices 1a–1e INTEGRATION-VERIFIED; all 12 runtimes `/readyz` 200 locally; health-request traces in OpenObserve; remaining exit evidence: commit + green first GitLab pipeline | [phase-01a](docs/evidence/phase-01a.md), [phase-01b](docs/evidence/phase-01b.md), [phase-01c](docs/evidence/phase-01c.md), [phase-01d](docs/evidence/phase-01d.md), [phase-01e](docs/evidence/phase-01e.md) |
 | 2 | Registry: Tenancy, Identity & RBAC | IN PROGRESS (2a, 2b INTEGRATION-VERIFIED; 2c RUNTIME-VERIFIED locally; drill + pipeline pending) | [phase-02a](docs/evidence/phase-02a.md), [phase-02b](docs/evidence/phase-02b.md), [phase-02c](docs/evidence/phase-02c.md) |
-| 3 | Entities & Watchlists | PENDING | — |
+| 3 | Entities & Watchlists | IN PROGRESS (RUNTIME-VERIFIED locally; pipeline pending) | [phase-03](docs/evidence/phase-03.md) |
 | 4 | Webhook Ingestion | PENDING | — |
 | 5 | Files Subsystem | PENDING | — |
 | 6 | Events Archive & Stage-1 Classification | PENDING | — |
@@ -3019,25 +3019,26 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 ### Phase 3 — Entities & Watchlists
 
 #### FR-ENT-01 / FR-ENT-02 — Entity management
-- [ ] Migration `V6__entities.sql` (`entities`, `entity_aliases`, `pg_trgm`, RLS)
-- [ ] `EntityService` create/get/list/update/archive with normalization function (shared, unit-tested with fixtures), alias management
-- [ ] Gateway routes `/v1/entities*`; search `q` via trigram
-- [ ] `registry.entity.changed` outbox event
-- [ ] Tests: normalization table test (suffix stripping), duplicate 409, archived entity excluded from matching
+- [x] Migration `V7__entities.sql` (`entities`, `entity_aliases`, `pg_trgm`, RLS)
+- [x] `EntityService` create/get/list/update/archive with normalization function (shared, unit-tested with fixtures), alias management
+- [x] Gateway routes `/v1/entities*`; search `q` via trigram
+- [x] `registry.entity.changed` outbox event
+- [x] Tests: normalization table test (suffix stripping), duplicate 409, archived entity excluded from matching
 
 #### FR-ENT-03 — Entity resolution
-- [ ] `EntityResolutionService.resolve` (ticker exact → alias exact → normalized → trigram ≥ 0.85), deterministic ordering
-- [ ] Internal route `resolveEntities` (SERVICE `act[]` allowlist)
-- [ ] Tests: golden mention→entity fixtures; p95 ≤ 50 ms for 50 mentions (integration timing)
+- [x] `EntityResolutionService.resolve` (ticker exact → alias exact → normalized → trigram ≥ 0.85), deterministic ordering (in `EntityService.resolve`, batched per stage)
+- [x] Internal route `resolveEntities` (SERVICE `act[]` allowlist)
+- [x] Tests: golden mention→entity fixtures; p95 ≤ 50 ms for 50 mentions (integration timing: p95 11 ms)
 
 #### FR-ENT-04 / FR-ENT-05 — Watchlists
-- [ ] Migration `V7__watchlists.sql`
-- [ ] `WatchlistService` CRUD + entries + pause; `checkWatchlists` (entityIds or counterparty refs via resolution)
-- [ ] Gateway routes `/v1/watchlists*`; `registry.watchlist.changed`
-- [ ] Tests: paused watchlist yields no hits; deleted entry stops matching
+- [x] Migration `V8__watchlists.sql`
+- [x] `WatchlistService` CRUD + entries + pause; `checkWatchlists` (entityIds or counterparty refs via resolution)
+- [x] Gateway routes `/v1/watchlists*`; `registry.watchlist.changed`
+- [x] Tests: paused watchlist yields no hits; deleted entry stops matching
 
 **Phase 3 exit evidence:** seeded demo entities/watchlists via API; resolution fixtures output; cross-tenant suite extended.
-**Phase note:** status `PENDING`.
+**Phase note:** migrations are V7/V8 (Phase 2 took V3–V6).
+**Phase note:** status **`IN PROGRESS`**: `INTEGRATION-VERIFIED` and runtime-verified through the gateway (2026-11-24, [phase-03](docs/evidence/phase-03.md)). Registry 46 unit + 36 Testcontainers tests; `make test-e2e` 152/152 (role matrix 24 routes × 6 roles; cross-tenant suite extended). Demo seed via the API runtime-verified (idempotent, two runs). Open exit item: commit + green pipeline.
 
 ---
 

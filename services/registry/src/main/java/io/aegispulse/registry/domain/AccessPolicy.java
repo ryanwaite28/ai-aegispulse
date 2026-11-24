@@ -34,7 +34,18 @@ public final class AccessPolicy {
           Map.entry("revokeServiceAccount", Set.of(TA)),
           Map.entry("logout", Set.of(PA, TA, AN, VI, CA, IN)),
           Map.entry("changePassword", Set.of(PA, TA, AN, VI, CA)),
-          Map.entry("getCurrentPrincipal", Set.of(PA, TA, AN, VI, CA, IN)));
+          Map.entry("getCurrentPrincipal", Set.of(PA, TA, AN, VI, CA, IN)),
+          Map.entry("listEntities", Set.of(PA, TA, AN, VI)),
+          Map.entry("getEntity", Set.of(PA, TA, AN, VI)),
+          Map.entry("createEntity", Set.of(PA, TA, AN)),
+          Map.entry("updateEntity", Set.of(PA, TA, AN)),
+          Map.entry("archiveEntity", Set.of(TA)),
+          Map.entry("listWatchlists", Set.of(PA, TA, AN, VI)),
+          Map.entry("createWatchlist", Set.of(PA, TA, AN)),
+          Map.entry("updateWatchlist", Set.of(PA, TA, AN)),
+          Map.entry("deleteWatchlist", Set.of(TA)),
+          Map.entry("addWatchlistEntry", Set.of(PA, TA, AN)),
+          Map.entry("removeWatchlistEntry", Set.of(PA, TA, AN)));
 
   private AccessPolicy() {}
 

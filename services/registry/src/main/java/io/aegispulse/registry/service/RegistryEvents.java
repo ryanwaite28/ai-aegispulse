@@ -5,6 +5,7 @@ import io.aegispulse.contracts.envelope.Classification;
 import io.aegispulse.contracts.envelope.ClassificationStatus;
 import io.aegispulse.contracts.envelope.Sensitivity;
 import io.aegispulse.contracts.events.RegistryAuthRefreshReuseDetectedPayload;
+import io.aegispulse.contracts.events.RegistryEntityChangedPayload;
 import io.aegispulse.contracts.events.RegistryServiceAccountChangedPayload;
 import io.aegispulse.contracts.events.RegistryTenantCreatedPayload;
 import io.aegispulse.contracts.events.RegistryTenantDeactivatedPayload;
@@ -12,6 +13,7 @@ import io.aegispulse.contracts.events.RegistryTenantRestoredPayload;
 import io.aegispulse.contracts.events.RegistryTenantSettingsChangedPayload;
 import io.aegispulse.contracts.events.RegistryTenantSuspendedPayload;
 import io.aegispulse.contracts.events.RegistryUserChangedPayload;
+import io.aegispulse.contracts.events.RegistryWatchlistChangedPayload;
 import io.aegispulse.contracts.topology.ExchangeName;
 import io.aegispulse.platform.config.AegisPlatformProperties;
 import io.aegispulse.platform.ids.UuidV7;
@@ -130,6 +132,44 @@ public class RegistryEvents {
             actorId == null ? null : actorId.toString(),
             changedFields,
             userId.toString()));
+  }
+
+  /** FR-ENT-01/02: entity created / changed / archived (field names only). */
+  public void entityChanged(
+      UUID tenantId,
+      String tenantSlug,
+      UUID entityId,
+      List<String> changedFields,
+      UUID actorId,
+      boolean actingAsPa) {
+    publish(
+        "registry.entity.changed",
+        tenantId,
+        tenantSlug,
+        new RegistryEntityChangedPayload(
+            actingAsPa ? RegistryEntityChangedPayload.ActingAs.PLATFORM_ADMIN : null,
+            actorId.toString(),
+            changedFields,
+            entityId.toString()));
+  }
+
+  /** FR-ENT-04: watchlist created / changed / entries / deleted (audited, FR-AUD-02). */
+  public void watchlistChanged(
+      UUID tenantId,
+      String tenantSlug,
+      UUID watchlistId,
+      List<String> changedFields,
+      UUID actorId,
+      boolean actingAsPa) {
+    publish(
+        "registry.watchlist.changed",
+        tenantId,
+        tenantSlug,
+        new RegistryWatchlistChangedPayload(
+            actingAsPa ? RegistryWatchlistChangedPayload.ActingAs.PLATFORM_ADMIN : null,
+            actorId.toString(),
+            changedFields,
+            watchlistId.toString()));
   }
 
   /** FR-TEN-08: setting names that changed (values are read through getTenantSettings). */
