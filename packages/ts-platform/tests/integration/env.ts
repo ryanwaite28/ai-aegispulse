@@ -6,6 +6,7 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MongoDBContainer } from "@testcontainers/mongodb";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { RabbitMQContainer, type StartedRabbitMQContainer } from "@testcontainers/rabbitmq";
 import pg from "pg";
@@ -218,4 +219,22 @@ export async function drainQueue(adminUrl: string, queue: string): Promise<unkno
   }
   await conn.close();
   return out;
+}
+
+export interface MongoEnv {
+  /** Single-node replica set (multi-document transactions work), `directConnection=true`. */
+  readonly uri: string;
+  stop(): Promise<void>;
+}
+
+/** MongoDB 8 (same image as compose) as a one-member replica set; callers run their own migrations. */
+export async function startMongo(): Promise<MongoEnv> {
+  const container = await new MongoDBContainer("mongo:8.0.38").withStartupTimeout(120_000).start();
+  const base = container.getConnectionString();
+  return {
+    uri: `${base}${base.includes("?") ? "&" : "?"}directConnection=true`,
+    stop: async () => {
+      await container.stop();
+    },
+  };
 }

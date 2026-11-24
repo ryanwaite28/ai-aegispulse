@@ -52,6 +52,7 @@ public class RegistryEvents {
           null,
           null,
           Sensitivity.INTERNAL,
+          null, // source_trust_level: registry events have no external source (§1.4.3)
           ClassificationStatus.INGESTED);
 
   private final OutboxRepository outbox;

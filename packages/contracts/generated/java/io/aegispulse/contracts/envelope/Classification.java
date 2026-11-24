@@ -13,6 +13,7 @@ public record Classification(
     io.aegispulse.contracts.envelope.@Nullable Severity publisher_stated_severity,
     @Nullable String rule_version,
     io.aegispulse.contracts.envelope.Sensitivity sensitivity,
+    @Nullable SourceTrustLevel source_trust_level, // Trust level of the producing source at ingest time, stamped by the producer (webhook/connector). Events uses it in §1.4.3: publisher_stated_severity counts only
     io.aegispulse.contracts.envelope.ClassificationStatus status
 ) {
   public enum ClassificationSource {
@@ -20,5 +21,10 @@ public record Classification(
     RULES,
     AI_SCANNER,
     ANALYST
+  }
+  /** Trust level of the producing source at ingest time, stamped by the producer (webhook/connector). Events uses it in §1.4.3: publisher_stated_severity counts only when TRUSTED; absent = UNTRUSTED. */
+  public enum SourceTrustLevel {
+    TRUSTED,
+    UNTRUSTED
   }
 }

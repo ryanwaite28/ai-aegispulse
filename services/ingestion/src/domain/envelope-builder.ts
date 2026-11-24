@@ -14,6 +14,8 @@ export interface WebhookEnvelopeInput {
   readonly rawSha256: string;
   readonly receivedAt: string;
   readonly producer: string;
+  /** §1.4.3: the source's trust at ingest; events counts publisher severity only when TRUSTED. */
+  readonly trustLevel: "TRUSTED" | "UNTRUSTED";
   readonly event: MarketEventV1;
 }
 
@@ -41,6 +43,7 @@ export function buildWebhookEnvelope(i: WebhookEnvelopeInput): CanonicalEnvelope
     sensitivity: "UNCLASSIFIED",
     status: "INGESTED",
     classification_source: "PRODUCER",
+    source_trust_level: i.trustLevel,
     ...(e.severity === undefined ? {} : { publisher_stated_severity: e.severity }),
   };
   return {

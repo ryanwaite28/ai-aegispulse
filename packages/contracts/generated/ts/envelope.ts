@@ -53,6 +53,10 @@ export interface Classification {
   sensitivity: Sensitivity;
   categories?: Category[];
   publisher_stated_severity?: Severity | null;
+  /**
+   * Trust level of the producing source at ingest time, stamped by the producer (webhook/connector). Events uses it in §1.4.3: publisher_stated_severity counts only when TRUSTED; absent = UNTRUSTED.
+   */
+  source_trust_level?: "TRUSTED" | "UNTRUSTED";
   algorithm_severity?: Severity;
   algorithm_confidence?: number;
   final_severity?: Severity;

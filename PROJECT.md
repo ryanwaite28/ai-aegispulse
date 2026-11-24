@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-24 (`ops.audit.file_deleted` for FR-FILE-12 / FR-AUD-02; §5.1 CronJob `aegispulse-cron-secret-expiry`, 9 CronJobs; §5.7.3 ingestion object-store list grant for FR-WHK-08) · 2026-11-23 (JVM heap 50%; ADR-0017 SERVICE secret reconciliation; client-credentials rate limit; JWKS source; changePassword session keep; `registry.tenant.deactivated`; FR-TEN-09) |
+| **Last updated** | 2026-11-24 (envelope `classification.source_trust_level` for §1.4.3; `ops.audit.file_deleted` for FR-FILE-12 / FR-AUD-02; §5.1 CronJob `aegispulse-cron-secret-expiry`, 9 CronJobs; §5.7.3 ingestion object-store list grant for FR-WHK-08) · 2026-11-23 (JVM heap 50%; ADR-0017 SERVICE secret reconciliation; client-credentials rate limit; JWKS source; changePassword session keep; `registry.tenant.deactivated`; FR-TEN-09) |
 
 ---
 
@@ -192,11 +192,12 @@ publisher_sev = publisher_stated_severity (may be null)
 algorithm_severity = max(rule_sev, ai_sev)   if ai_sev present and c ≥ 0.60
                    = rule_sev                otherwise (classification_source = RULES)
 
-final_severity     = max(algorithm_severity, publisher_sev)  if source.trust_level = TRUSTED
+final_severity     = max(algorithm_severity, publisher_sev)  if classification.source_trust_level = TRUSTED
                    = algorithm_severity                      otherwise
 final_severity     = analyst override value                  if an override exists (OVERRIDDEN)
 ```
 - Resolution is **elevate-only** for automated stages. Only an analyst with `ANALYST`+ role may lower severity, with a mandatory justification (≥ 20 chars) that is audited.
+- `classification.source_trust_level` is the source's trust level at ingest time, stamped by the producer (ingestion, for webhook and connector events); absent means `UNTRUSTED`. A later trust change does not re-resolve archived events.
 - `publisher_stated_severity` is preserved verbatim and never mutated; disagreement (`publisher_sev ≠ algorithm_severity`) is a tracked data-intelligence metric.
 
 #### 1.4.4 Transaction Risk Score (`risk-heuristic-v1.0.0`, Phase 8; ML model in Phase 12)
@@ -328,7 +329,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 - **FR-WHK-02**: `POST /webhooks/{sourceKey}` accepts `application/json` ≤ 1 MiB with headers `X-Aegis-Signature: v1=<hex>` (comma-separated list allowed during rotation), `X-Aegis-Timestamp` (Unix seconds), `X-Aegis-Delivery-Id` (≤ 128 chars). Signed string is `{timestamp}.{deliveryId}.{rawBody}` (raw bytes, before JSON parsing). Verification: HMAC-SHA256 compared with constant-time equality against the current **and** previous secret; `|now − timestamp| ≤ 300 s`; Redis `SET NX` on `whk:nonce:{sourceId}:{deliveryId}` with TTL 900 s; durable unique `(source_id, delivery_id)`.
 - **FR-WHK-03**: Outcomes: unknown/disabled source → `404 WEBHOOK_SOURCE_NOT_FOUND`; bad signature → `401 WEBHOOK_SIGNATURE_INVALID`; skew → `401 WEBHOOK_TIMESTAMP_SKEW`; repeated delivery id → `409 WEBHOOK_REPLAY_DETECTED`; schema invalid → `422 VALIDATION_ERROR` (after signature verification only); tenant suspended → `403 TENANT_SUSPENDED`; success → `202 {deliveryId, eventId, duplicate}`. Every rejection increments `aegispulse_webhook_rejected_total{source,reason}` and is logged without the body.
 - **FR-WHK-04**: Payload profile `AEGIS_MARKET_EVENT_V1`: `externalId` (≤ 128), `category` (`REGULATION_PUBLISHED|IPO_FILED|ACQUISITION_ANNOUNCED|MARKET_ALERT|COMPLIANCE_DISCLOSURE`), `title` (≤ 500), `summary?` (≤ 4,000), `body?` (≤ 64 KiB), `publishedAt` (RFC 3339), `severity?` (scale §1.4.1), `url?` (https), `mentionedEntities?` (≤ 50 strings), `tickers?`, `attachments?` (≤ 5 of `{url, filename, contentType}`), `version?` (int, default 1).
-- **FR-WHK-05**: On success, in one PostgreSQL transaction: store raw body to object storage (`raw/webhooks/{tenantId}/{yyyy}/{mm}/{dd}/{deliveryUuid}.json`, written *before* the transaction; orphan objects are swept), insert `webhook_deliveries`, insert the canonical envelope into `outbox_events`. Event type mapping: `REGULATION_PUBLISHED→external.regulatory.published`, `IPO_FILED→external.ipo.filed`, `ACQUISITION_ANNOUNCED→external.acquisition.announced`, `MARKET_ALERT→external.market.alert`, `COMPLIANCE_DISCLOSURE→external.compliance.disclosed`. `idempotencyKey = {sourceKey}:{externalId}:v{version}`; a second delivery with the same key returns `202 {duplicate:true}` and emits nothing. `classification.publisher_stated_severity = payload.severity`.
+- **FR-WHK-05**: On success, in one PostgreSQL transaction: store raw body to object storage (`raw/webhooks/{tenantId}/{yyyy}/{mm}/{dd}/{deliveryUuid}.json`, written *before* the transaction; orphan objects are swept), insert `webhook_deliveries`, insert the canonical envelope into `outbox_events`. Event type mapping: `REGULATION_PUBLISHED→external.regulatory.published`, `IPO_FILED→external.ipo.filed`, `ACQUISITION_ANNOUNCED→external.acquisition.announced`, `MARKET_ALERT→external.market.alert`, `COMPLIANCE_DISCLOSURE→external.compliance.disclosed`. `idempotencyKey = {sourceKey}:{externalId}:v{version}`; a second delivery with the same key returns `202 {duplicate:true}` and emits nothing. `classification.publisher_stated_severity = payload.severity`; `classification.source_trust_level` = the source's `trustLevel` at ingest (§1.4.3).
 - **FR-WHK-06**: Attachments (Phase 11): for each attachment whose host is in `allowedAttachmentHosts`, Ingestion requests Files `registerRemoteFile` (sourceType `WEBHOOK_ATTACHMENT`); the Files Service fetches with SSRF guards (FR-FILE-11). Non-allowlisted hosts are recorded as `attachment_rejected` on the delivery, never fetched.
 - **FR-WHK-07**: `TENANT_ADMIN` lists sources and deliveries (filter by outcome, date; paginated; raw body never returned, only metadata), disables/enables a source, changes trust level (audited — it affects `final_severity`), rotates the secret (new current; old becomes previous for 72 h then cleared by FR-WHK-08), and deletes (soft) a source.
 - **FR-WHK-08**: Scheduled `expirePreviousSecrets` clears previous secrets older than 72 h and sweeps raw webhook objects with no delivery row older than 1 h.
@@ -1322,6 +1323,7 @@ Internal route convention (uniform RPC, decided in Phase 1a): **every** HTTP-inv
     "sensitivity": "CONFIDENTIAL",
     "categories": ["REGULATORY", "FINANCIAL"],
     "publisher_stated_severity": "MEDIUM",
+    "source_trust_level": "TRUSTED",
     "algorithm_severity": "HIGH",
     "algorithm_confidence": 0.82,
     "final_severity": "HIGH",
@@ -2874,7 +2876,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 3 | Entities & Watchlists | IN PROGRESS (RUNTIME-VERIFIED locally; pipeline pending) | [phase-03](docs/evidence/phase-03.md) |
 | 4 | Webhook Ingestion | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-04](docs/evidence/phase-04.md) ([4a](docs/evidence/phase-04a.md), [4b](docs/evidence/phase-04b.md), [4c](docs/evidence/phase-04c.md)) |
 | 5 | Files Subsystem | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-05](docs/evidence/phase-05.md) ([5a](docs/evidence/phase-05a.md), [5b](docs/evidence/phase-05b.md), [5c](docs/evidence/phase-05c.md), [5d](docs/evidence/phase-05d.md), [5e](docs/evidence/phase-05e.md)) |
-| 6 | Events Archive & Stage-1 Classification | PENDING | — |
+| 6 | Events Archive & Stage-1 Classification | IN PROGRESS (6a RUNTIME-VERIFIED locally) | [phase-06a](docs/evidence/phase-06a.md) |
 | 7 | Messaging Resilience & Dead Letters | PENDING | — |
 | 8 | Transactions, Scoring & Risk Cases (MVP slice) | PENDING | — |
 | 9 | Kubernetes, IaC & Secrets (homelab dev + prod) | PENDING | — |
@@ -3121,17 +3123,17 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 ### Phase 6 — Events Archive & Stage-1 Classification
 
 #### FR-EVT-01 / FR-EVT-02 / FR-EVT-03 — Archive consumer
-- [ ] Mongo migrations for `events_archive`, `events_restricted_audit`, `outbox`, `processed_messages` with validators + indexes (§7.6)
-- [ ] Consumer adapter `events.archive.q` → `archiveEvent`: envelope schema validation (poison → DLQ), restricted routing, duplicate-key = success, replay header handling
-- [ ] Mongo outbox relay (change in same transaction)
-- [ ] Tests: 3× redelivery → 1 document; invalid envelope → DLQ with `ENVELOPE_INVALID`; replay-tagged message updates `replay` only
+- [x] Mongo migrations for `events_archive`, `events_restricted_audit`, `outbox`, `processed_messages` with validators + indexes (§7.6) (Phase 1 baseline `20261122000001-baseline.cjs`)
+- [x] Consumer adapter `events.archive.q` → `archiveEvent`: envelope schema validation (poison → DLQ), restricted routing, duplicate-key = success, replay header handling
+- [x] Mongo outbox relay (change in same transaction)
+- [x] Tests: 3× redelivery → 1 document; invalid envelope → DLQ with `ENVELOPE_INVALID`; replay-tagged message updates `replay` only
 
 #### FR-CLS-01 / FR-CLS-02 — Stage 1 rules & finalization
-- [ ] `src/domain/classification/rules-v1.ts`: baseline table, elevation rules, detectors (secret patterns, Luhn PAN, SSN, PII keys, MNPI lexicon), masking with `redactions[]`
-- [ ] `src/domain/classification/severity-resolver.ts` (§1.4.3) — pure function, property-tested (elevate-only invariant)
-- [ ] Finalize path for non-Stage-2 events → `classification.finalized`; Stage-2 path emits `classification.scan.requested` (scanner wiring in Phase 12; until then the request is recorded and `pendingAiScan=true`)
-- [ ] Loop prevention for `classification.*`, `intel.*`, `ops.*`, `registry.*`, `correlation.*`, `notification.*`
-- [ ] Tests: rule fixtures per event type; PAN/SSN/secret masking golden tests; Stage 1 p95 ≤ 5 ms benchmark
+- [x] `src/domain/classification/rules-v1.ts`: baseline table, elevation rules, detectors (secret patterns, Luhn PAN, SSN, PII keys, MNPI lexicon), masking with `redactions[]`
+- [x] `src/domain/classification/severity-resolver.ts` (§1.4.3) — pure function, property-tested (elevate-only invariant; exhaustive over all 1,440 automated combinations)
+- [x] Finalize path for non-Stage-2 events → `classification.finalized`; Stage-2 path emits `classification.scan.requested` (scanner wiring in Phase 12; until then the request is recorded and `pendingAiScan=true`)
+- [x] Loop prevention for `classification.*`, `intel.*`, `ops.*`, `registry.*`, `correlation.*`, `notification.*`
+- [x] Tests: rule fixtures per event type; PAN/SSN/secret masking golden tests; Stage 1 p95 ≤ 5 ms benchmark
 
 #### FR-EVT-04 / FR-EVT-05 / FR-EVT-06 — Query APIs
 - [ ] `searchEvents`, `getEvent`, `getCorrelationChain`, `searchEventsForEntities` with mandatory tenant filter (repository wrapper rejects tenantless queries), cursor pagination on `(occurredAt, eventId)`
@@ -3148,7 +3150,8 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [ ] Tests: TTL index present and `expireAt` correct per tenant
 
 **Phase 6 exit evidence:** webhook from Phase 4 visible via `GET /v1/events?correlationId=` with lineage; masking demo with synthetic PAN; Mongo index listing.
-**Phase note:** status `PENDING`.
+**Phase note:** slices 6a archive + Stage 1 + finalization + Mongo outbox + source-trust amendment; 6b queries; 6c override; 6d retention TTL. Spec `FR-EVT-CLS-events-archive-classification`.
+**Phase note:** status **`IN PROGRESS`**: slice 6a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06a](docs/evidence/phase-06a.md)).
 
 ---
 

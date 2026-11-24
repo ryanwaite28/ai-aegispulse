@@ -178,6 +178,7 @@ export class IngestWebhookUseCase {
           rawSha256,
           receivedAt: input.receivedAt,
           producer: producer(this.deps.version),
+          trustLevel: source.trustLevel,
           event: event.data,
         });
         await this.deps.outbox.enqueue(tx, {

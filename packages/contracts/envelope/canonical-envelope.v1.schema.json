@@ -30,15 +30,36 @@
       "pattern": "^corr-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
     "causationId": {
-      "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }],
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ],
       "description": "eventId of the message that directly caused this one; null for roots."
     },
     "tenantId": {
-      "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }],
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ],
       "description": "Tenant UUID; null only for platform-level events (ops.*, some intel.*)."
     },
-    "tenantSlug": { "type": "string", "pattern": "^[a-z0-9-]{3,40}$", "description": "Informational only." },
-    "schemaVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "tenantSlug": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{3,40}$",
+      "description": "Informational only."
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+\\.[0-9]+$"
+    },
     "eventType": {
       "type": "string",
       "pattern": "^[a-z]+(\\.[a-z_]+)+$",
@@ -55,20 +76,44 @@
       "pattern": "^aegispulse-[a-z-]+@[0-9a-f]{7,40}$",
       "description": "{runtime}@{git short sha}."
     },
-    "occurredAt": { "type": "string", "format": "date-time" },
-    "ingestedAt": { "type": "string", "format": "date-time" },
-    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "classification": { "$ref": "#/$defs/classification" },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ingestedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "classification": {
+      "$ref": "#/$defs/classification"
+    },
     "payload": {
       "type": "object",
       "description": "Event-specific body, schema per eventType in packages/contracts/events/. ≤ 64 KiB serialized; never binary data."
     }
   },
   "$defs": {
-    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
-    "severity": { "type": "string", "enum": ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"] },
-    "sensitivity": { "type": "string", "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED", "UNCLASSIFIED"] },
-    "category": { "type": "string", "enum": ["PII", "MNPI", "REGULATORY", "FINANCIAL", "SECRET"] },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "sensitivity": {
+      "type": "string",
+      "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED", "UNCLASSIFIED"]
+    },
+    "category": {
+      "type": "string",
+      "enum": ["PII", "MNPI", "REGULATORY", "FINANCIAL", "SECRET"]
+    },
     "classificationStatus": {
       "type": "string",
       "enum": ["INGESTED", "RULE_SCANNED", "AI_SCANNED", "CLASSIFIED", "OVERRIDDEN", "ARCHIVED", "REPLAYED"]
@@ -78,16 +123,55 @@
       "additionalProperties": false,
       "required": ["sensitivity", "status"],
       "properties": {
-        "sensitivity": { "$ref": "#/$defs/sensitivity" },
-        "categories": { "type": "array", "items": { "$ref": "#/$defs/category" }, "uniqueItems": true },
-        "publisher_stated_severity": { "oneOf": [{ "$ref": "#/$defs/severity" }, { "type": "null" }] },
-        "algorithm_severity": { "$ref": "#/$defs/severity" },
-        "algorithm_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "final_severity": { "$ref": "#/$defs/severity" },
-        "classification_source": { "type": "string", "enum": ["PRODUCER", "RULES", "AI_SCANNER", "ANALYST"] },
-        "rule_version": { "type": "string" },
-        "classifier_version": { "type": "string" },
-        "status": { "$ref": "#/$defs/classificationStatus" }
+        "sensitivity": {
+          "$ref": "#/$defs/sensitivity"
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/category"
+          },
+          "uniqueItems": true
+        },
+        "publisher_stated_severity": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/severity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_trust_level": {
+          "type": "string",
+          "enum": ["TRUSTED", "UNTRUSTED"],
+          "description": "Trust level of the producing source at ingest time, stamped by the producer (webhook/connector). Events uses it in §1.4.3: publisher_stated_severity counts only when TRUSTED; absent = UNTRUSTED."
+        },
+        "algorithm_severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "algorithm_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "final_severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "classification_source": {
+          "type": "string",
+          "enum": ["PRODUCER", "RULES", "AI_SCANNER", "ANALYST"]
+        },
+        "rule_version": {
+          "type": "string"
+        },
+        "classifier_version": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/classificationStatus"
+        }
       }
     }
   }

@@ -40,6 +40,7 @@ describe("canonical envelope for webhooks (FR-WHK-04/05)", () => {
       rawSha256: "a".repeat(64),
       receivedAt: "2026-11-24T12:00:00.000Z",
       producer: "aegispulse-ingestion@abc1234",
+      trustLevel: "TRUSTED",
       event,
     });
     expect(envelope.eventType).toBe("external.regulatory.published");

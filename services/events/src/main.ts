@@ -1,6 +1,15 @@
-// events composition root (Phase 1e skeleton): config → telemetry → logs → owned clients → probes → HTTP.
-// No business logic: service actions, repositories and adapters arrive with their FRs.
-import { amqpReadyCheck, createAmqpClient } from "@aegispulse/ts-platform/amqp";
+// events composition root: config → telemetry → logs → owned clients → probes → Mongo outbox relay → consumers → HTTP.
+// No business logic here: services own it; adapters only parse and dispatch.
+import { AmqpPublisher, amqpReadyCheck, createAmqpClient } from "@aegispulse/ts-platform/amqp";
+import { ServiceTokenProvider } from "@aegispulse/ts-platform/auth";
+import { InternalServiceClient } from "@aegispulse/ts-platform/http-client";
+import { TenantSettingsCache } from "@aegispulse/ts-platform/tenant-settings";
+import { consumeArchive } from "./adapters/amqp/archive.consumer.js";
+import { ArchiveRepository } from "./db/archive.repository.js";
+import { MongoOutboxRepository } from "./db/outbox.repository.js";
+import { ArchiveService } from "./service/archive.service.js";
+import { MongoOutboxRelay } from "./storage/mongo-outbox-relay.js";
+import { RegistryTenantRetention } from "./storage/tenant-retention.js";
 import { buildVersion } from "@aegispulse/ts-platform/build-info";
 import { ConfigError, loadConfig } from "@aegispulse/ts-platform/config";
 import { connectWithRetry, HealthRegistry, Lifecycle } from "@aegispulse/ts-platform/health";
@@ -8,7 +17,7 @@ import { createHttpServer, registerHealthRoutes } from "@aegispulse/ts-platform/
 import { createLogger } from "@aegispulse/ts-platform/logging";
 import { startTelemetry } from "@aegispulse/ts-platform/telemetry";
 import { configSchema, PORT, SERVICE } from "./config.js";
-import { connectMongo, mongoPingCheck, mongoSchemaCheck } from "./db/mongo.js";
+import { connectMongo, DATABASE, mongoPingCheck, mongoSchemaCheck } from "./db/mongo.js";
 import { createObjectStore, objectStoreCheck } from "./storage/objectstore.js";
 
 async function main(): Promise<void> {
@@ -41,6 +50,47 @@ async function main(): Promise<void> {
   await connectWithRetry("rabbitmq", () => amqp.init(), { logger });
   health.addCheck("rabbitmq", amqpReadyCheck(amqp));
   lifecycle.onShutdown("consumers", "rabbitmq", () => amqp.close({ drainTimeoutMs: 20_000 }));
+
+  const db = mongo.db(DATABASE);
+  const outbox = new MongoOutboxRepository(db);
+  const relay = new MongoOutboxRelay({ repository: outbox, publisher: new AmqpPublisher(amqp), logger });
+  relay.start();
+  lifecycle.onShutdown("outbox", "relay", () => relay.stop());
+
+  // Registry calls (tenant retentionDays, FR-EVT-03) use events' own SERVICE token (§5.7.4 registry.getTenantSettings).
+  const registryAuth = new InternalServiceClient("registry", {
+    name: "registry",
+    baseUrl: config.REGISTRY_URL,
+    timeoutMs: 3_000,
+  });
+  const tokens = new ServiceTokenProvider({
+    clientId: config.SERVICE_CLIENT_ID,
+    clientSecret: config.SERVICE_CLIENT_SECRET,
+    issue: (input) =>
+      registryAuth.invoke<"issueClientCredentialsToken", { accessToken: string; expiresIn: number }>(
+        "issueClientCredentialsToken",
+        input,
+      ),
+  });
+  const registry = new InternalServiceClient("registry", {
+    name: "registry",
+    baseUrl: config.REGISTRY_URL,
+    timeoutMs: 1_000,
+    serviceToken: tokens.token,
+  });
+  lifecycle.onShutdown("pools", "registry", async () => {
+    await registry.close();
+    await registryAuth.close();
+  });
+  const archive = new ArchiveService({
+    client: mongo,
+    archive: new ArchiveRepository(db),
+    outbox,
+    tenants: new RegistryTenantRetention(TenantSettingsCache.forRegistry(registry), logger),
+    version,
+    logger,
+  });
+  consumeArchive(amqp, logger, archive);
 
   const app = createHttpServer({ logger });
   registerHealthRoutes(app, health);

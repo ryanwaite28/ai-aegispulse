@@ -409,6 +409,11 @@ services:
       S3_ACCESS_KEY_ID: ${S3_EVENTS_ACCESS_KEY:?run make env}
       S3_SECRET_ACCESS_KEY: ${S3_EVENTS_SECRET_KEY:?run make env}
       S3_BUCKET_PREFIX: aegispulse-local
+      REGISTRY_URL: http://registry:8084
+      JWT_ISSUER: aegispulse-registry
+      JWT_AUDIENCE: aegispulse
+      SERVICE_CLIENT_ID: svc-events
+      SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET_EVENTS:-}
     ports: ["127.0.0.1:8083:8083"]
     read_only: true
     tmpfs: ["/tmp"]

@@ -11,6 +11,11 @@ const valid = {
   S3_SECRET_ACCESS_KEY: "s",
   S3_BUCKET_PREFIX: "aegispulse-local",
   MONGO_URI: "mongodb://svc_events:pw@mongo:27017/aegispulse_events?replicaSet=rs0",
+  REGISTRY_URL: "http://registry:8084",
+  JWT_ISSUER: "aegispulse-registry",
+  JWT_AUDIENCE: "aegispulse",
+  SERVICE_CLIENT_ID: "svc-events",
+  SERVICE_CLIENT_SECRET: "0".repeat(32),
 };
 
 describe("events config (§6.9, §10.4, NFR-11)", () => {

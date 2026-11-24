@@ -48,6 +48,11 @@ class ClassificationStatus(StrEnum):
     REPLAYED = 'REPLAYED'
 
 
+class SourceTrustLevel(StrEnum):
+    TRUSTED = 'TRUSTED'
+    UNTRUSTED = 'UNTRUSTED'
+
+
 class ClassificationSource(StrEnum):
     PRODUCER = 'PRODUCER'
     RULES = 'RULES'
@@ -62,6 +67,10 @@ class Classification(BaseModel):
     sensitivity: Sensitivity
     categories: list[Category] | None = None
     publisher_stated_severity: Severity | None = None
+    source_trust_level: SourceTrustLevel | None = Field(
+        None,
+        description='Trust level of the producing source at ingest time, stamped by the producer (webhook/connector). Events uses it in §1.4.3: publisher_stated_severity counts only when TRUSTED; absent = UNTRUSTED.',
+    )
     algorithm_severity: Severity | None = None
     algorithm_confidence: float | None = Field(None, ge=0.0, le=1.0)
     final_severity: Severity | None = None

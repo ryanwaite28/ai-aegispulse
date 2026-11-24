@@ -13,6 +13,14 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 6a events archive and Stage-1 classification (FR-EVT-01..03, FR-CLS-01/02):
+  - **Consumer:** `events.archive.q` → `archiveEvent`. Replay-tagged deliveries only bump `replay`. `rules-v1.0.0` Stage 1: the baseline table, secret/card/SSN/PII-key detectors with masking and `redactions[]`, and the MNPI lexicon.
+  - **Storage:** RESTRICTED → `events_restricted_audit` (7-year expiry), otherwise tenant `retentionDays`.
+  - **Severity:** `severity-resolver-v1`, elevate-only (publisher severity only from TRUSTED sources).
+  - **Transaction:** one Mongo transaction holds the record plus `classification.finalized` or `classification.scan.requested` (pendingAiScan). Terminal families emit nothing (loop prevention).
+  - **Outbox:** a Mongo outbox relay with leases, backoff and confirms.
+  - **Kit:** consumer `DeliveryContext` carries `exchange`/`routingKey`; `startMongo` (replica set) in the integration harness.
+  - **Ingestion:** stamps `classification.source_trust_level` on webhook events.
 - Phase 5b multipart uploads (FR-FILE-13, `MULTIPART_UPLOADS_ENABLED`):
   - 64–512 MiB files upload as 16 MiB parts. Each presigned part URL signs its exact length, so every request stays under 100 MB.
   - Complete takes the ETag list (exactly parts 1..n, any order) and is retry-safe via HEAD. Abort and the orphan sweep abort the S3 upload.
@@ -144,6 +152,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Model routing policy in `CLAUDE.md`; review agents pinned to models (architecture-reviewer → sonnet, security-reviewer → opus, spec-tracer → haiku).
 
 ### Fixed
+- events: platform-tenant envelopes (FR-TEN-09) were dead-lettered because `getTenantSettings` correctly 404s for the reserved tenant. The retention lookup now uses the default for the platform tenant, tenantless envelopes, and tenants unknown to the registry. Found on the compose stack; the one historical message stays in `events.archive.q.dlq` for the Phase 7 replay tooling.
 - `tests/security/webhooks.spec.ts`: the +301 s skew probe floored the host clock, so up to 0.999 s of its 1 s margin could vanish and request latency landed it inside the window (an intermittent 202). Probes now round away from now.
 - `scripts/dev/ensure-local-vars.sh` appended to `.env` without checking for a trailing newline. On a `.env` whose last line lacked one, the generated `JWT_SIGNING_KEY_CURRENT_PEM` was glued onto `OTEL_EXPORTER_OTLP_HEADERS`, so OpenObserve rejected every OTLP export (401: no local metrics or traces) and the key fragment travelled in that header to the local OpenObserve. The script now starts appends on a fresh line and repairs glued lines: it splits them and keeps the value compose used, never printing values. It also accepts an env-file path (tested on a fake file).
 - FR-WHK-03 `aegispulse_webhook_rejected_total` never recorded. The counter was created at module load, before `startTelemetry()` installed the MeterProvider, and the OTel metrics API has no proxy provider, so it stayed a no-op. The counter is now created with the use case, and a regression test installs the provider after import. Unknown source keys are labelled `source="unknown"`, so internet-supplied keys can't create unbounded series. Found while collecting the Phase 4 exit evidence.
@@ -171,6 +180,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- PROJECT.md amendment (owner-approved 2026-11-24): envelope `classification.source_trust_level` (`TRUSTED|UNTRUSTED`, optional), stamped by the producer at ingest. §1.4.3 counts publisher severity only when it is TRUSTED (absent = UNTRUSTED); §6.4 example and FR-WHK-05 updated. The envelope schema change is additive, and generated types regenerated (Java `Classification` gains the component).
 - PROJECT.md §5.7.3: the object-store `files` row adds delete on `artifacts/*` for the FR-FILE-12 retention purge (clarification).
 - PROJECT.md amendment (owner-approved 2026-11-24): new event `ops.audit.file_deleted {fileId, actorId}` (files → `aegispulse.intelligence` → `cases.audit-ingest.q`). FR-AUD-02 lists file deletions, FR-FILE-12 names the event, and the §6.7 catalog row includes it. Contracts: payload schema + example, AsyncAPI channel, send/receive operations, archive listing (42 event types).
 - PROJECT.md §5.1/§5.3: adds CronJob `aegispulse-cron-secret-expiry` (hourly `ingestion-secret-expiry`, FR-WHK-08), so there are now 9 CronJobs. §5.1 had no name for the job §11 requires (owner-approved amendment). Each run requests 50m CPU / 64Mi, as for every CronJob in §5.4.
@@ -214,6 +224,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 6 slice 6a `RUNTIME-VERIFIED` locally: events unit 32/32, archive integration 5/5, the compose backlog of 1,229 messages archived in < 10 s, a demo webhook archived with trust and lineage, E2E 240/240 ([phase-06a](docs/evidence/phase-06a.md)).
 - Phase 5 `RUNTIME-VERIFIED` locally: slices 5a–5e, E2E 240/240 incl. the 200 MiB multipart upload; exit items captured ([phase-05](docs/evidence/phase-05.md)); the pipeline is pending.
 - Phase 5 slice 5e `RUNTIME-VERIFIED` locally: files integration 19/19 (incl. the 100-upload orphan flood), E2E 239/239, `make trigger` for `files-orphan-sweep` / `files-retention` exit 0 ([phase-05e](docs/evidence/phase-05e.md)).
 - Phase 5 slice 5d `RUNTIME-VERIFIED` locally: files integration 16/16; E2E 232/232, including validation outcomes polled through the gateway and a real clamd quarantine ([phase-05d](docs/evidence/phase-05d.md)).

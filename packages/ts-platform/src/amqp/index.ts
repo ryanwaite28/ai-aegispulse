@@ -214,6 +214,9 @@ export class AmqpPublisher implements EnvelopePublisher {
 
 export interface DeliveryContext {
   readonly queue: WorkQueueName;
+  /** Exchange and routing key the message was published with (archived with the event, FR-EVT-03). */
+  readonly exchange: string;
+  readonly routingKey: string;
   /** Retries already spent (x-retry-count). */
   readonly retryCount: number;
   /** 0 for original deliveries; replays carry x-aegis-replay-generation (dedup key, NFR-02). */
@@ -338,6 +341,8 @@ export function consumeEnvelopes(options: ConsumeOptions): Subscription {
     }
     const context: DeliveryContext = {
       queue,
+      exchange: delivery.message.fields.exchange,
+      routingKey: delivery.message.fields.routingKey,
       retryCount,
       replayGeneration: headerInt(headers, HEADERS.replayGeneration),
       replayJob: headerString(headers, HEADERS.replayJob),
