@@ -36,4 +36,5 @@ if [[ -n "$o2_pw" ]]; then
   mv "$tmp" "$out"
   chmod 600 "$out"
 fi
+"$root/scripts/dev/ensure-local-vars.sh"
 echo "gen-local-secrets: wrote $out"

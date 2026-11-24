@@ -449,6 +449,23 @@ channels:
           autoDelete: false
           vhost: /
         bindingVersion: 0.3.0
+  registry.tenant.deactivated:
+    address: registry.tenant.deactivated
+    title: registry.tenant.deactivated
+    description: Tenant deactivated (terminal). Ids and changed field names only; no secrets or password data. Primary exchange aegispulse.domain.
+    messages:
+      registry.tenant.deactivated:
+        $ref: "#/components/messages/registry.tenant.deactivated"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
   registry.tenant.settings_changed:
     address: registry.tenant.settings_changed
     title: registry.tenant.settings_changed
@@ -761,6 +778,8 @@ channels:
         $ref: "#/components/messages/registry.tenant.suspended"
       registry.tenant.restored:
         $ref: "#/components/messages/registry.tenant.restored"
+      registry.tenant.deactivated:
+        $ref: "#/components/messages/registry.tenant.deactivated"
       registry.tenant.settings_changed:
         $ref: "#/components/messages/registry.tenant.settings_changed"
       registry.user.changed:
@@ -1159,6 +1178,20 @@ operations:
     summary: Published through the transactional outbox with publisher confirms (§6.6).
     messages:
       - $ref: "#/channels/registry.tenant.restored/messages/registry.tenant.restored"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: registry
+  send.registry.registry.tenant.deactivated:
+    action: send
+    channel:
+      $ref: "#/channels/registry.tenant.deactivated"
+    title: registry publishes registry.tenant.deactivated
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/registry.tenant.deactivated/messages/registry.tenant.deactivated"
     bindings:
       amqp:
         deliveryMode: 2
@@ -1570,6 +1603,22 @@ operations:
     title: cases.audit-ingest.q consumes registry.tenant.restored
     messages:
       - $ref: "#/channels/registry.tenant.restored/messages/registry.tenant.restored"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.registry.tenant.deactivated:
+    action: receive
+    channel:
+      $ref: "#/channels/registry.tenant.deactivated"
+    title: cases.audit-ingest.q consumes registry.tenant.deactivated
+    messages:
+      - $ref: "#/channels/registry.tenant.deactivated/messages/registry.tenant.deactivated"
     bindings:
       amqp:
         ack: true
@@ -2184,6 +2233,7 @@ operations:
       - $ref: "#/channels/archive_all_domain/messages/registry.tenant.created"
       - $ref: "#/channels/archive_all_domain/messages/registry.tenant.suspended"
       - $ref: "#/channels/archive_all_domain/messages/registry.tenant.restored"
+      - $ref: "#/channels/archive_all_domain/messages/registry.tenant.deactivated"
       - $ref: "#/channels/archive_all_domain/messages/registry.tenant.settings_changed"
       - $ref: "#/channels/archive_all_domain/messages/registry.user.changed"
       - $ref: "#/channels/archive_all_domain/messages/registry.entity.changed"
@@ -2777,6 +2827,28 @@ components:
         amqp:
           contentEncoding: utf-8
           messageType: registry.tenant.restored
+          bindingVersion: 0.3.0
+    registry.tenant.deactivated:
+      name: registry.tenant.deactivated
+      title: registry.tenant.deactivated
+      summary: Tenant deactivated (terminal)
+      description: "FRs: FR-TEN-03. Payload schema: events/registry.tenant.deactivated.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/registry.tenant.deactivated.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: registry.tenant.deactivated
           bindingVersion: 0.3.0
     registry.tenant.settings_changed:
       name: registry.tenant.settings_changed

@@ -1116,6 +1116,8 @@ export type components = {
     parameters: {
         /** @description Optional idempotency key (<= 128 chars) accepted by all mutations (PROJECT.md §2.0). Same key + same body returns the original response; same key + different body returns 409 IDEMPOTENCY_KEY_REUSED. Mandatory where an FR says "idempotent by". */
         IdempotencyKey: string;
+        /** @description PLATFORM_ADMIN only: act on a specific tenant (UUID). Audited with `actingAs` (FR-AUTH-06). Ignored/forbidden for other roles. */
+        XAegisTenant: components["schemas"]["Uuid"];
     };
     requestBodies: never;
     headers: never;
@@ -1383,6 +1385,8 @@ export interface operations {
             header?: {
                 /** @description Optional idempotency key (<= 128 chars) accepted by all mutations (PROJECT.md §2.0). Same key + same body returns the original response; same key + different body returns 409 IDEMPOTENCY_KEY_REUSED. Mandatory where an FR says "idempotent by". */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /** @description PLATFORM_ADMIN only: act on a specific tenant (UUID). Audited with `actingAs` (FR-AUTH-06). Ignored/forbidden for other roles. */
+                "X-Aegis-Tenant"?: components["parameters"]["XAegisTenant"];
             };
             path?: never;
             cookie?: never;
@@ -1691,7 +1695,10 @@ export interface operations {
     listUsers: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description PLATFORM_ADMIN only: act on a specific tenant (UUID). Audited with `actingAs` (FR-AUTH-06). Ignored/forbidden for other roles. */
+                "X-Aegis-Tenant"?: components["parameters"]["XAegisTenant"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2121,6 +2128,8 @@ export interface operations {
             header?: {
                 /** @description Optional idempotency key (<= 128 chars) accepted by all mutations (PROJECT.md §2.0). Same key + same body returns the original response; same key + different body returns 409 IDEMPOTENCY_KEY_REUSED. Mandatory where an FR says "idempotent by". */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /** @description PLATFORM_ADMIN only: act on a specific tenant (UUID). Audited with `actingAs` (FR-AUTH-06). Ignored/forbidden for other roles. */
+                "X-Aegis-Tenant"?: components["parameters"]["XAegisTenant"];
             };
             path?: never;
             cookie?: never;

@@ -5,9 +5,14 @@ import org.jspecify.annotations.Nullable;
 
 /** Tenant created. Ids and changed field names only; no secrets or password data. Producer: registry. Exchange: aegispulse.domain. FRs: FR-TEN-01. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13). */
 public record RegistryTenantCreatedPayload(
+    @Nullable ActingAs actingAs, // Set when the actor changed another tenant's resource via X-Aegis-Tenant (FR-AUTH-06, FR-AUD-01 actingAs).
     @Nullable String actorId, // User or service account that made the change.
     java.util.@Nullable List<String> changedFields, // Names of changed fields (names only, not values).
     @Nullable String slug,
     String tenantId
 ) {
+  /** Set when the actor changed another tenant's resource via X-Aegis-Tenant (FR-AUTH-06, FR-AUD-01 actingAs). */
+  public enum ActingAs {
+    PLATFORM_ADMIN
+  }
 }

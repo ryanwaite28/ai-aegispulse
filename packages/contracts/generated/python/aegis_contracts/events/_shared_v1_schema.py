@@ -128,6 +128,10 @@ class ChangedField(RootModel[str]):
     root: str = Field(..., min_length=1)
 
 
+class ActingAs(StrEnum):
+    PLATFORM_ADMIN = 'PLATFORM_ADMIN'
+
+
 class IntelMetric(BaseModel):
     metric: str = Field(
         ...,
@@ -274,6 +278,10 @@ class RegistryChange(BaseModel):
     )
     actorId: canonical_envelope_v1_schema.Uuid | None = Field(
         None, description='User or service account that made the change.'
+    )
+    actingAs: ActingAs | None = Field(
+        None,
+        description="Set when the actor changed another tenant's resource via X-Aegis-Tenant (FR-AUTH-06, FR-AUD-01 actingAs).",
     )
 
 

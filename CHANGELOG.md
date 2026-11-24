@@ -13,6 +13,17 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 2a registry tenants, users and platform bootstrap (FR-TEN-01/02/03/04/05/09):
+  - migrations `V3__tenants` (platform table, no RLS), `V4__users_roles` (RLS, `ck_user_roles_platform`) and `R__platform_tenant`;
+  - internal actions `createTenant`, `updateTenantStatus`, `createUser`, `listUsers`, `updateUser`;
+  - tenant state machine (DEACTIVATED terminal), mandatory `Idempotency-Key` on createTenant;
+  - Argon2id (password4j) and nbvcxz password policy, case-insensitive unique email, last-TENANT_ADMIN rule under a tenant row lock, keyset pagination;
+  - `PLATFORM_ADMIN` acting via `X-Aegis-Tenant`, recorded as `actingAs`;
+  - `registry.tenant.created|suspended|restored|deactivated` and `registry.user.changed` through the outbox;
+  - one-shot `bootstrap-platform-admin` command (compose `registry-bootstrap`, profile `tools`).
+  24 unit + 13 Testcontainers tests; every published payload is validated against its event schema.
+- java-platform `UuidV7` (RFC 9562) for envelope `eventId`s.
+- `scripts/dev/ensure-local-vars.sh`: append-only, prints no values; adds `JWT_SIGNING_KEY_CURRENT_PEM` and `PLATFORM_ADMIN_BOOTSTRAP_PASSWORD` to an existing local `.env` (also called by `gen-local-secrets.sh`).
 - `scripts/infisical/seed.py` (MB-06): creates Infisical folders and generates only missing catalog secrets. It is idempotent, prints no values, passes no values on a command line (0600 temp file), defers reference keys to Phase 9, and requires a typed confirmation for prod. 5 unit tests.
 - Phase 1e: 12 runtime skeletons (gateway, ingestion, files, events, registry, cases, risk-scoring, sensitivity-scanner, doc-extraction, data-intel, orchestrator, console). Each has:
   - config validation, JSON logs and traces;
@@ -64,6 +75,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Model routing policy in `CLAUDE.md`; review agents pinned to models (architecture-reviewer → sonnet, security-reviewer → opus, spec-tracer → haiku).
 
 ### Fixed
+- java-platform: servlet-only auto-configuration (correlation filter, error advice, security filter chain) is `@ConditionalOnWebApplication`, so non-web one-shot commands start without a web server.
 - java-platform: idle outbox-relay polling (every 250 ms) flooded traces, about 240 spans per 30 s from registry and cases. Polls now run under an unsampled parent context, giving 0 spans when idle; request traces are unchanged (NFR-07).
 - `ci/check-layer-sizes.sh` measured uncompressed layer size, which no Node or JVM base layer can meet. It now measures the gzip-compressed size that registry pushes actually upload (the Cloudflare 100 MB cap), with the same 95 MB limit.
 - ts-platform telemetry dropped `@opentelemetry/sdk-node` (unused gRPC, protobuf, Zipkin and Prometheus exporters) for `sdk-trace` + `sdk-metrics` + OTLP/HTTP, which keeps service images under the layer cap.
@@ -76,6 +88,9 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- PROJECT.md amendment: FR-TEN-03 emits the new `registry.tenant.deactivated` event (§6.7; contract schema, example and AsyncAPI channel; cases audit via the `registry.#` binding). Owning services apply their suspension gate permanently for deactivated tenants.
+- §6.2 clarification: the gateway forwards `X-Aegis-Tenant` unchanged to tenant-scoped internal actions. It is honored only for `PLATFORM_ADMIN` (otherwise 403), and the platform tenant can never be the acting tenant (404). §8.3 `/v1/users*` now allow PA via `X-Aegis-Tenant`, and the registry event base (`registryChange`) gains optional `actingAs` (additive). Spec `FR-TEN-01-05-09-tenants-users-bootstrap`.
+- PROJECT.md amendment FR-TEN-09 (platform bootstrap): reserved `platform` tenant (fixed id, repeatable migration) hosts `PLATFORM_ADMIN` users; one-shot registry command `bootstrap-platform-admin` creates the first PA from `PLATFORM_ADMIN_BOOTSTRAP_*` (idempotent, audited, forced password change). §10.4 env vars, §11 checklist block, Phase 2 migrations renumbered V3–V6 (V2 is ADR-0016), pre-tenant auth lookups as SECURITY DEFINER functions, secrets catalog `/registry` keys, manual step MB-15.
 - Manual bootstrap: MB-06 seeded Development and Production (60 generated secrets each; 43 reference/external keys deferred). MB-03 (CLI 0.45.14), MB-04 (slugs `dev`/`prod`; `svc_admin` keeps org Admin as a documented homelab simplification, with the enterprise least-privilege alternative) and MB-05 (Infisical Operator chart 0.11.18, CRDs + controller verified) are done.
 - Infisical context and manual bootstrap:
   - `docs/runbooks/manual-bootstrap.md`: register MB-01…MB-14, with a stop-and-direct protocol (PROJECT.md §12 rule 19; CLAUDE.md workflow step 7);
@@ -102,6 +117,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 2 slice 2a `INTEGRATION-VERIFIED` (tenants, users, platform bootstrap): 24 unit + 13 integration tests; V3/V4 applied locally; registry `/readyz` 200 at schema 4 — [evidence](docs/evidence/phase-02a.md). Local bootstrap runtime-verified (create, then no-op; event relayed).
 - Phase 1 slice 1b (`ts-platform`) `INTEGRATION-VERIFIED`: 46 unit + 19 Testcontainers integration tests against PostgreSQL 18.7 (as `svc_files`, under RLS) and RabbitMQ 4.4.1 (configure-`^$` runtime user) — [evidence](docs/evidence/phase-01b.md). It was briefly paused on `rxjs-rabbitmq` 2.2.3; the owner's 3.0.0 was reviewed and accepted ([review](docs/evidence/rxjs-rabbitmq-3.0.0-review.md)).
 - Platform: ADR-0015 node roles applied on the cluster and runtime-verified (data SSD mounted under the local-path directory on `optiplex-tower`, storage taint moved, `optiplex` relabelled worker, PVC smoke test on the SSD) — [evidence](docs/evidence/platform-node-roles.md).
 - Phase 1 slice 1e `INTEGRATION-VERIFIED`: all 12 runtimes reach `/readyz` 200 under `make up` + `make migrate` — [evidence](docs/evidence/phase-01e.md). Health-request traces are verified in OpenObserve; Phase 1 exit now needs only the commit and a green first GitLab pipeline.

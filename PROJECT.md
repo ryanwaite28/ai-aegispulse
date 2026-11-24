@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-23 (Infisical context + manual bootstrap register, ADR-0012 amended; ADR-0015/0016; token `typ` rules; §6.3 Java records generator) |
+| **Last updated** | 2026-11-23 (`registry.tenant.deactivated` event; FR-TEN-09 platform bootstrap; Infisical context + manual bootstrap register, ADR-0012 amended; ADR-0015/0016; token `typ` rules) |
 
 ---
 
@@ -296,12 +296,13 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 
 - **FR-TEN-01**: `PLATFORM_ADMIN` creates a tenant with `slug` (`^[a-z0-9-]{3,40}$`, unique), `displayName` (1–120), `highValueThresholdUsd` (default 50000), `highRiskCountries` (ISO-3166 alpha-2 list), `demoMode` (default false), `retentionDays` (30–3650, default 400). Creates the tenant `ACTIVE`, emits `registry.tenant.created`, writes audit entry. Duplicate slug → `409 TENANT_SLUG_TAKEN`. Idempotent by `Idempotency-Key`.
 - **FR-TEN-02**: `PLATFORM_ADMIN` suspends (`SUSPENDED`) or restores (`ACTIVE`) a tenant with a reason. While suspended: logins fail `403 TENANT_SUSPENDED`, webhooks for its sources return `403`, transaction/file submissions are rejected, consumers **still archive** in-flight events (no data loss) but sagas skip case creation and emit `ops` warnings. Emits `registry.tenant.suspended|restored`.
-- **FR-TEN-03**: `PLATFORM_ADMIN` deactivates a tenant (`DEACTIVATED`, terminal): all credentials revoked, sources disabled, data retained until retention purge (FR-EVT-07, FR-FILE-12). Hard delete is out of scope.
+- **FR-TEN-03**: `PLATFORM_ADMIN` deactivates a tenant (`DEACTIVATED`, terminal): all credentials revoked, sources disabled, data retained until retention purge (FR-EVT-07, FR-FILE-12). Emits `registry.tenant.deactivated` (audited per FR-AUD-02); owning services apply the same tenant-status gate as for suspension, permanently. Hard delete is out of scope.
 - **FR-TEN-04**: `TENANT_ADMIN` invites/creates users with `email` (RFC 5322, unique per tenant, stored lower-case), `displayName`, `roles[]` (non-empty subset of §1.4.6 tenant roles), and an initial password (≥ 14 chars, zxcvbn score ≥ 3) that must be changed at first login (`mustChangePassword`). Passwords hashed with Argon2id (m=64 MiB, t=3, p=1).
 - **FR-TEN-05**: `TENANT_ADMIN` lists (filter by role, status; paginated), updates roles, disables, and re-enables users. A tenant must always retain ≥ 1 active `TENANT_ADMIN` (`409 LAST_TENANT_ADMIN`). Role changes revoke the user's refresh tokens and emit `registry.user.changed`; audited.
 - **FR-TEN-06**: `TENANT_ADMIN` creates service accounts (role `INTEGRATION`) returning `clientId` and a one-time-displayed `clientSecret` (32 random bytes, base64url; stored as Argon2id hash). Supports rotate (new secret; previous valid for 24 h grace) and revoke. Audited.
 - **FR-TEN-07**: Internal `SERVICE` accounts (one per runtime, §5.7) are provisioned by migration seed + Infisical secret; their allowed internal actions are an explicit allowlist claim `act[]` in the token. SERVICE token claims: `sub` (`svc-<runtime>`), `typ=service`, `act[]`, `iss=aegispulse-registry`, `aud=aegispulse-internal`, `jti`, `iat`, `exp`, `kid` header; no `tid`/`roles` (ADR-0010).
 - **FR-TEN-08**: Tenant settings (`highValueThresholdUsd`, `highRiskCountries`, `retentionDays`, `demoMode`) are readable by internal services via `getTenantSettings` and cached ≤ 60 s by callers; changes emit `registry.tenant.settings_changed`.
+- **FR-TEN-09**: Platform bootstrap. A reserved tenant (`slug = platform`, fixed id `00000000-0000-0000-0000-000000000001`, seeded by a repeatable migration, not creatable/suspendable via the API) hosts `PLATFORM_ADMIN` users only. The registry one-shot command `bootstrap-platform-admin` (Kubernetes Job / compose `tools` profile) creates the first `PLATFORM_ADMIN` from `PLATFORM_ADMIN_BOOTSTRAP_EMAIL` + `PLATFORM_ADMIN_BOOTSTRAP_PASSWORD` when no active `PLATFORM_ADMIN` exists (no-op otherwise), with `mustChangePassword = true`, and writes an audit entry. A `PLATFORM_ADMIN` creates every other tenant's first `TENANT_ADMIN` by acting on that tenant via `X-Aegis-Tenant` (FR-AUTH-06).
 
 ### 2.2 Authentication & Authorization (Owner: `services/registry`; enforced in every service)
 
@@ -1142,7 +1143,7 @@ Layout rules: `gateway/` and `workers/` contain no datastore clients; `services/
 
 ### 6.2 Service Layer Internal RPC Contract
 
-Every internal operation is a named `ServiceAction`. Each action maps 1:1 to an internal REST operation (`operationId` = action name) in `packages/contracts/openapi/{service}.internal.yaml`; TypeScript, Java, and Python types are generated from those specs. Every `ServiceAction` is **invoked by dispatch adapters** (gateway handlers, consumer adapters, scheduler-trigger) or by orchestrators through typed clients, and is **implemented by service-layer modules only**.
+Every internal operation is a named `ServiceAction`. Each action maps 1:1 to an internal REST operation (`operationId` = action name) in `packages/contracts/openapi/{service}.internal.yaml`; TypeScript, Java, and Python types are generated from those specs. Tenant-scoped actions accept the `X-Aegis-Tenant` header (UUID), which the gateway forwards unchanged. The owning service honors it only for a `PLATFORM_ADMIN` user token and records `actingAs`; for any other principal a present header returns `403 FORBIDDEN`, and the reserved `platform` tenant (FR-TEN-09) can never be the acting tenant (`404`). Every `ServiceAction` is **invoked by dispatch adapters** (gateway handlers, consumer adapters, scheduler-trigger) or by orchestrators through typed clients, and is **implemented by service-layer modules only**.
 
 ```typescript
 // packages/contracts/src/service-actions.ts  (generated index + hand-written union)
@@ -1380,7 +1381,7 @@ outbox_events(id, tenant_id, event_id UNIQUE, exchange, routing_key, envelope JS
 | `risk.evaluation.recorded` | domain | cases | `evaluationId, transactionEventId, score, band, factors, modelVersion, caseId?` |
 | `case.opened` · `case.transitioned` · `case.escalated` · `case.resolved` · `case.disposition.recorded` · `case.evidence.attached` | domain | cases | `caseId, caseNumber, type, from, to, severity, policyScore, policyVersion, entityIds, disposition?` |
 | `correlation.requested` | domain | cases | `caseId, entityIds, lookbackDays` |
-| `registry.tenant.created|suspended|restored|settings_changed` · `registry.user.changed` · `registry.entity.changed` · `registry.watchlist.changed` | domain | registry | ids + changed fields (no secrets/password data) |
+| `registry.tenant.created|suspended|restored|deactivated|settings_changed` · `registry.user.changed` · `registry.entity.changed` · `registry.watchlist.changed` | domain | registry | ids + changed fields (no secrets/password data) |
 | `notification.requested` | domain/enrichment/intelligence | cases, events, files, ingestion, data-intel | `templateId, severity, notificationKey, vars` |
 | `intel.rollup.completed` · `intel.drift.detected` · `intel.eval.completed` | intelligence | data-intel | `metric, scope, value, threshold, window` |
 | `ops.dead_letter.recorded` · `ops.replay.started|completed` · `ops.audit.quarantine_download` · `ops.audit.source_trust_changed` | intelligence | events / files / ingestion | operational ids + actor |
@@ -1521,7 +1522,9 @@ CREATE TABLE registry.user_roles (
   role        TEXT NOT NULL CHECK (role IN ('PLATFORM_ADMIN','TENANT_ADMIN','ANALYST','VIEWER','COMPLIANCE_AUDITOR')),
   granted_by  UUID REFERENCES registry.users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (user_id, role)
+  PRIMARY KEY (user_id, role),
+  -- FR-TEN-09: PLATFORM_ADMIN exists only in the reserved platform tenant, which holds nothing else
+  CONSTRAINT ck_user_roles_platform CHECK ((tenant_id = '00000000-0000-0000-0000-000000000001') = (role = 'PLATFORM_ADMIN'))
 );
 CREATE INDEX ix_user_roles_tenant_role ON registry.user_roles (tenant_id, role);
 ```
@@ -2350,9 +2353,9 @@ Error:
 | POST | `/v1/tenants` 🔒 PA | create tenant |
 | GET | `/v1/tenants/{tenantId}` 🔒 PA/TA | tenant detail + settings |
 | PATCH | `/v1/tenants/{tenantId}` 🔒 PA/TA | settings (TA) or status (PA) |
-| GET | `/v1/users` 🔒 TA | list users |
-| POST | `/v1/users` 🔒 TA | create user |
-| PATCH | `/v1/users/{userId}` 🔒 TA | roles / status / display name |
+| GET | `/v1/users` 🔒 TA, PA via `X-Aegis-Tenant` | list users |
+| POST | `/v1/users` 🔒 TA, PA via `X-Aegis-Tenant` | create user |
+| PATCH | `/v1/users/{userId}` 🔒 TA, PA via `X-Aegis-Tenant` | roles / status / display name |
 | GET | `/v1/service-accounts` 🔒 TA | list |
 | POST | `/v1/service-accounts` 🔒 TA | create (secret returned once) |
 | POST | `/v1/service-accounts/{id}/rotate-secret` 🔒 TA | rotate |
@@ -2742,6 +2745,8 @@ JWT_SIGNING_KEY_CURRENT_KID=local-2026-11
 JWT_SIGNING_KEY_PREVIOUS_PEM=                      # [secret] optional during rotation
 SERVICE_CLIENT_ID=svc-<runtime>                    # per runtime
 SERVICE_CLIENT_SECRET=<secret>                     # [secret] per runtime
+PLATFORM_ADMIN_BOOTSTRAP_EMAIL=admin@aegispulse.local  # registry bootstrap command only (FR-TEN-09)
+PLATFORM_ADMIN_BOOTSTRAP_PASSWORD=<secret>         # [secret] registry bootstrap command only; must satisfy FR-TEN-04 policy
 
 # ── postgres (per owning service) ─────────────────────────────────────
 PG_HOST=postgres
@@ -2860,7 +2865,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 |---|---|---|---|
 | 0 | Project Scaffold & Toolchain | SOURCE-IMPLEMENTED (local runtime verified; CI pipeline pending) | [phase-00](docs/evidence/phase-00.md) |
 | 1 | Contracts, Platform Kits & Data Foundations | IN PROGRESS: slice 1a INTEGRATION-VERIFIED (contracts + data foundations); slices 1a–1e INTEGRATION-VERIFIED; all 12 runtimes `/readyz` 200 locally; health-request traces in OpenObserve; remaining exit evidence: commit + green first GitLab pipeline | [phase-01a](docs/evidence/phase-01a.md), [phase-01b](docs/evidence/phase-01b.md), [phase-01c](docs/evidence/phase-01c.md), [phase-01d](docs/evidence/phase-01d.md), [phase-01e](docs/evidence/phase-01e.md) |
-| 2 | Registry: Tenancy, Identity & RBAC | PENDING | — |
+| 2 | Registry: Tenancy, Identity & RBAC | IN PROGRESS (2a INTEGRATION-VERIFIED) | [phase-02a](docs/evidence/phase-02a.md) |
 | 3 | Entities & Watchlists | PENDING | — |
 | 4 | Webhook Ingestion | PENDING | — |
 | 5 | Files Subsystem | PENDING | — |
@@ -2954,31 +2959,37 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 ### Phase 2 — Registry: Tenancy, Identity & RBAC
 
 #### FR-TEN-01 / FR-TEN-02 / FR-TEN-03 — Tenant lifecycle
-- [ ] Migration `V2__tenants.sql` (`registry.tenants`, RLS exempt for platform table, indexes §7.1)
-- [ ] `TenantService.create/updateStatus/deactivate` with state rules (`DEACTIVATED` terminal), idempotency via `idempotency_records`
-- [ ] Internal API `createTenant`, `updateTenantStatus`; gateway handlers `POST /v1/tenants`, `PATCH /v1/tenants/{id}`
-- [ ] Outbox `registry.tenant.created|suspended|restored`; PA-only authorization; audit consumed later by cases (Phase 8)
-- [ ] Tests: unit (state machine), integration (duplicate slug 409, idempotent retry), E2E (suspended tenant login → 403)
+- [x] Migration `V3__tenants.sql` (`registry.tenants`, RLS exempt for platform table, indexes §7.1)
+- [x] `TenantService.create/updateStatus/deactivate` with state rules (`DEACTIVATED` terminal), idempotency via `idempotency_records`
+- [ ] Internal API `createTenant`, `updateTenantStatus` ✅ (2a); gateway handlers `POST /v1/tenants`, `PATCH /v1/tenants/{id}` (2c)
+- [x] Outbox `registry.tenant.created|suspended|restored|deactivated`; PA-only authorization; audit consumed later by cases (Phase 8)
+- [ ] Tests: unit (state machine) ✅, integration (duplicate slug 409, idempotent retry) ✅, E2E (suspended tenant login → 403; needs login, 2b/2c)
 
 #### FR-TEN-04 / FR-TEN-05 — Users and roles
-- [ ] Migration `V3__users_roles.sql` (`users`, `user_roles`, RLS)
-- [ ] `UserService` create/list/update/disable with Argon2id hashing, password policy (length + zxcvbn-equivalent `nbvcxz`), last-admin invariant
-- [ ] Internal + gateway routes `GET/POST /v1/users`, `PATCH /v1/users/{id}`; pagination
-- [ ] Role change → refresh-token revocation + `registry.user.changed`
-- [ ] Tests: last-admin 409, email uniqueness per tenant (citext), cross-tenant 404
+- [x] Migration `V4__users_roles.sql` (`users`, `user_roles`, RLS)
+- [x] `UserService` create/list/update/disable with Argon2id hashing, password policy (length + zxcvbn-equivalent `nbvcxz`), last-admin invariant
+- [ ] Internal + gateway routes `GET/POST /v1/users`, `PATCH /v1/users/{id}`; pagination (internal ✅ 2a; gateway 2c)
+- [ ] Role change → refresh-token revocation (2b, needs `refresh_tokens`) + `registry.user.changed` ✅
+- [x] Tests: last-admin 409, email uniqueness per tenant (citext), cross-tenant 404
 
 #### FR-TEN-06 / FR-TEN-07 — Service accounts
-- [ ] Migration `V4__service_accounts.sql` (`service_accounts`, `service_account_secrets`)
+- [ ] Migration `V5__service_accounts.sql` (`service_accounts`, `service_account_secrets`)
 - [ ] `ServiceAccountService` create/rotate (24 h grace)/revoke; internal SERVICE accounts seeded by `R__seed_service_accounts.sql` with `allowed_actions` (§5.7.4); secrets from Infisical
 - [ ] Routes `/v1/service-accounts*`; secret displayed once
 - [ ] Tests: rotated secret valid for 24 h then rejected (clock-controlled test)
+
+#### FR-TEN-09 — Platform bootstrap
+- [x] `R__platform_tenant.sql` (reserved `platform` tenant, fixed id); API rejects creating/suspending slug `platform`
+- [x] `bootstrap-platform-admin` command (Spring `ApplicationRunner` profile, run as Job / compose `tools` service): first `PLATFORM_ADMIN` from `PLATFORM_ADMIN_BOOTSTRAP_*`, idempotent, audited (compose `registry-bootstrap`; the k8s Job is Phase 9)
+- [ ] 🛑 MANUAL (MB-15) dev/prod: set `PLATFORM_ADMIN_BOOTSTRAP_EMAIL` in Infisical `/registry`, re-run the seeder (generates the password), run the Job at first deploy, log in once and change the password
+- [x] Tests: second run is a no-op; generated password passes FR-TEN-04 policy; PA can create a tenant and its first TENANT_ADMIN
 
 #### FR-TEN-08 — Tenant settings
 - [ ] `getTenantSettings`/`updateTenantSettings` + `registry.tenant.settings_changed`; caller-side 60 s cache in kits
 - [ ] Tests: settings change propagates to scoring threshold within 60 s (integration)
 
 #### FR-AUTH-01 / FR-AUTH-02 / FR-AUTH-03 / FR-AUTH-07 — User authentication
-- [ ] Migration `V5__auth.sql` (`refresh_tokens`, `signing_keys`)
+- [ ] Migration `V6__auth.sql` (`refresh_tokens`, `signing_keys`)
 - [ ] `AuthService.login/refresh/logout/changePassword` with RS256 signing (Nimbus), refresh rotation families, reuse detection → family revoke + security audit event, Redis login rate limit
 - [ ] Gateway routes `/v1/auth/*`; uniform error messages; no user enumeration
 - [ ] Tests: refresh reuse revokes family; 6th failed login → 429; token claims match §2.2
@@ -2995,7 +3006,8 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [ ] Tests: every Phase-2 route × every role matrix (generated table test)
 
 **Phase 2 exit evidence:** E2E auth flows over the gateway (login, refresh, rotate, logout); cross-tenant suite green; JWKS rotation drill log.
-**Phase note:** status `PENDING`.
+**Phase note:** migrations are V3–V6 (V2 is ADR-0016's `enforced_rls_bypass`). Auth lookups that precede tenant context (refresh token by hash, service account by client id) are `SECURITY DEFINER` functions per ADR-0016. Delivered in slices: 2a tenants + users + platform bootstrap; 2b signing keys/JWKS, auth flows, service accounts, client credentials; 2c settings, gateway routes, role matrix, cross-tenant suite, E2E + rotation drill.
+**Phase note:** status **`IN PROGRESS`**. Slice 2a (tenants, users, platform bootstrap) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-02a](docs/evidence/phase-02a.md)): 24 unit + 13 Testcontainers tests, migrations applied locally, registry `/readyz` 200 at schema 4. Local bootstrap runtime-verified (create, then no-op; event relayed `SENT`). `registry.tenant.deactivated` added by amendment (2026-11-23).
 
 ---
 

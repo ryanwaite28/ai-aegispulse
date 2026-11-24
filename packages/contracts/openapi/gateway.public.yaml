@@ -694,6 +694,7 @@ paths:
       security:
         - bearerJwt: []
       parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
         - $ref: ./components/common.yaml#/components/parameters/Limit
         - $ref: ./components/common.yaml#/components/parameters/Cursor
         - name: role
@@ -739,6 +740,7 @@ paths:
           $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
       x-aegis-roles:
         - TENANT_ADMIN
+        - PLATFORM_ADMIN
       x-aegis-backing-action:
         - registry.listUsers
       x-aegis-fr:
@@ -759,6 +761,7 @@ paths:
       security:
         - bearerJwt: []
       parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
         - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
       requestBody:
         required: true
@@ -801,6 +804,7 @@ paths:
           $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
       x-aegis-roles:
         - TENANT_ADMIN
+        - PLATFORM_ADMIN
       x-aegis-backing-action:
         - registry.createUser
       x-aegis-fr:
@@ -826,6 +830,7 @@ paths:
       security:
         - bearerJwt: []
       parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
         - name: userId
           in: path
           required: true
@@ -876,6 +881,7 @@ paths:
           $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
       x-aegis-roles:
         - TENANT_ADMIN
+        - PLATFORM_ADMIN
       x-aegis-backing-action:
         - registry.updateUser
       x-aegis-fr:

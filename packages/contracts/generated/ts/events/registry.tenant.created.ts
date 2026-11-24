@@ -20,4 +20,8 @@ export interface RegistryChange {
    * User or service account that made the change.
    */
   actorId?: string;
+  /**
+   * Set when the actor changed another tenant's resource via X-Aegis-Tenant (FR-AUTH-06, FR-AUD-01 actingAs).
+   */
+  actingAs?: "PLATFORM_ADMIN";
 }

@@ -28,6 +28,7 @@ Some steps cannot (or must not) be automated by the AI agent or CI. They need a 
 | MB-12 | GitLab: protections, `dev`/`prod` environments, CI variables, schedules (§9.3 8) | Phase 10 pipeline | GitLab owner | OPEN (Phase 10) |
 | MB-13 | cosign key pair → GitLab variables; public key committed (§9.3 9) | Phase 10 sign/deploy | GitLab owner | OPEN (Phase 10) |
 | MB-14 | k3s: upgrade the server to the agents' minor; add Tailscale IP to `tls-san` (K3S_CONTEXT §8) | cluster hygiene | cluster admin | OPEN (outside AegisPulse) |
+| MB-15 | First `PLATFORM_ADMIN` in dev/prod (FR-TEN-09): set `PLATFORM_ADMIN_BOOTSTRAP_EMAIL` in Infisical `/registry`, re-run `seed.py` (adds the password), run the bootstrap Job at first deploy, then log in and change the password | Phase 9/10 first deploy | operator | OPEN (Phase 9) |
 
 Infisical steps MB-03 to MB-06 and MB-08 are detailed in [infisical.md](infisical.md).
 

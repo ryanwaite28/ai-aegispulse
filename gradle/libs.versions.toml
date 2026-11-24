@@ -10,6 +10,8 @@ jspecify = "1.0.1"
 json-schema-validator = "3.0.9"
 archunit = "1.5.1"
 otel-javaagent = "2.34.0"
+password4j = "1.8.4"
+nbvcxz = "1.5.1"
 
 [libraries]
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
@@ -19,6 +21,8 @@ jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
 json-schema-validator = { module = "com.networknt:json-schema-validator", version.ref = "json-schema-validator" }
 archunit = { module = "com.tngtech.archunit:archunit", version.ref = "archunit" }
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+password4j = { module = "com.password4j:password4j", version.ref = "password4j" }
+nbvcxz = { module = "me.gosimple:nbvcxz", version.ref = "nbvcxz" }
 otel-javaagent = { module = "io.opentelemetry.javaagent:opentelemetry-javaagent", version.ref = "otel-javaagent" }
 
 [plugins]

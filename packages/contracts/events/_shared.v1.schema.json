@@ -247,6 +247,11 @@
         "actorId": {
           "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid",
           "description": "User or service account that made the change."
+        },
+        "actingAs": {
+          "type": "string",
+          "enum": ["PLATFORM_ADMIN"],
+          "description": "Set when the actor changed another tenant's resource via X-Aegis-Tenant (FR-AUTH-06, FR-AUD-01 actingAs)."
         }
       }
     },

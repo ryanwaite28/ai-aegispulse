@@ -37,6 +37,7 @@ public final class EventTypes {
       java.util.Map.entry("ops.replay.started", io.aegispulse.contracts.events.OpsReplayStartedPayload.class),
       java.util.Map.entry("registry.entity.changed", io.aegispulse.contracts.events.RegistryEntityChangedPayload.class),
       java.util.Map.entry("registry.tenant.created", io.aegispulse.contracts.events.RegistryTenantCreatedPayload.class),
+      java.util.Map.entry("registry.tenant.deactivated", io.aegispulse.contracts.events.RegistryTenantDeactivatedPayload.class),
       java.util.Map.entry("registry.tenant.restored", io.aegispulse.contracts.events.RegistryTenantRestoredPayload.class),
       java.util.Map.entry("registry.tenant.settings_changed", io.aegispulse.contracts.events.RegistryTenantSettingsChangedPayload.class),
       java.util.Map.entry("registry.tenant.suspended", io.aegispulse.contracts.events.RegistryTenantSuspendedPayload.class),

@@ -32,6 +32,7 @@ import type { OpsReplayCompletedPayload } from "./events/ops.replay.completed.js
 import type { OpsReplayStartedPayload } from "./events/ops.replay.started.js";
 import type { RegistryEntityChangedPayload } from "./events/registry.entity.changed.js";
 import type { RegistryTenantCreatedPayload } from "./events/registry.tenant.created.js";
+import type { RegistryTenantDeactivatedPayload } from "./events/registry.tenant.deactivated.js";
 import type { RegistryTenantRestoredPayload } from "./events/registry.tenant.restored.js";
 import type { RegistryTenantSettingsChangedPayload } from "./events/registry.tenant.settings_changed.js";
 import type { RegistryTenantSuspendedPayload } from "./events/registry.tenant.suspended.js";
@@ -73,6 +74,7 @@ export interface EventPayloadMap {
   "ops.replay.started": OpsReplayStartedPayload;
   "registry.entity.changed": RegistryEntityChangedPayload;
   "registry.tenant.created": RegistryTenantCreatedPayload;
+  "registry.tenant.deactivated": RegistryTenantDeactivatedPayload;
   "registry.tenant.restored": RegistryTenantRestoredPayload;
   "registry.tenant.settings_changed": RegistryTenantSettingsChangedPayload;
   "registry.tenant.suspended": RegistryTenantSuspendedPayload;
@@ -83,5 +85,5 @@ export interface EventPayloadMap {
 }
 export type EventType = keyof EventPayloadMap;
 export type Envelope<K extends EventType> = Omit<CanonicalEnvelope, "eventType" | "payload"> & { eventType: K; payload: EventPayloadMap[K] };
-export const EVENT_TYPES = ["case.disposition.recorded","case.escalated","case.evidence.attached","case.opened","case.resolved","case.transitioned","classification.finalized","classification.overridden","classification.scan.requested","correlation.requested","doc.extraction.completed","doc.extraction.review_required","doc.file.ready","external.acquisition.announced","external.compliance.disclosed","external.ipo.filed","external.market.alert","external.regulatory.published","file.status.changed","file.uploaded","intel.drift.detected","intel.eval.completed","intel.rollup.completed","notification.requested","ops.audit.quarantine_download","ops.audit.source_trust_changed","ops.dead_letter.recorded","ops.replay.completed","ops.replay.started","registry.entity.changed","registry.tenant.created","registry.tenant.restored","registry.tenant.settings_changed","registry.tenant.suspended","registry.user.changed","registry.watchlist.changed","risk.evaluation.recorded","txn.submitted"] as const;
+export const EVENT_TYPES = ["case.disposition.recorded","case.escalated","case.evidence.attached","case.opened","case.resolved","case.transitioned","classification.finalized","classification.overridden","classification.scan.requested","correlation.requested","doc.extraction.completed","doc.extraction.review_required","doc.file.ready","external.acquisition.announced","external.compliance.disclosed","external.ipo.filed","external.market.alert","external.regulatory.published","file.status.changed","file.uploaded","intel.drift.detected","intel.eval.completed","intel.rollup.completed","notification.requested","ops.audit.quarantine_download","ops.audit.source_trust_changed","ops.dead_letter.recorded","ops.replay.completed","ops.replay.started","registry.entity.changed","registry.tenant.created","registry.tenant.deactivated","registry.tenant.restored","registry.tenant.settings_changed","registry.tenant.suspended","registry.user.changed","registry.watchlist.changed","risk.evaluation.recorded","txn.submitted"] as const;
 export type { CanonicalEnvelope };

@@ -23,6 +23,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -43,7 +44,8 @@ import tools.jackson.databind.json.JsonMapper;
  * java-platform auto-configuration (PROJECT.md §6.1, Phase 1c): correlation ids, §8.2 error
  * envelopes, JWT resource server with the AegisPulse token rules and probe paths open, act[]
  * authorizer, tenant scope, Flyway readiness, envelope codec, confirmed publisher, listener
- * factory, and the outbox relay when {@code aegis.outbox.schema} is set.
+ * factory, and the outbox relay when {@code aegis.outbox.schema} is set. Servlet-only beans are
+ * skipped in non-web one-shot commands (e.g. registry bootstrap-platform-admin).
  */
 @AutoConfiguration
 @EnableConfigurationProperties(AegisPlatformProperties.class)
@@ -52,6 +54,7 @@ public class AegisPlatformAutoConfiguration {
   static final List<String> PROBE_PATHS = List.of("/livez", "/readyz", "/healthz");
 
   @Bean
+  @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
   FilterRegistrationBean<CorrelationIdFilter> aegisCorrelationIdFilter() {
     FilterRegistrationBean<CorrelationIdFilter> registration =
         new FilterRegistrationBean<>(new CorrelationIdFilter());
@@ -60,6 +63,7 @@ public class AegisPlatformAutoConfiguration {
   }
 
   @Bean
+  @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
   ErrorEnvelopeAdvice aegisErrorEnvelopeAdvice() {
     return new ErrorEnvelopeAdvice();
   }
@@ -76,6 +80,7 @@ public class AegisPlatformAutoConfiguration {
   }
 
   @Bean
+  @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
   @ConditionalOnMissingBean(SecurityFilterChain.class)
   SecurityFilterChain aegisSecurityFilterChain(
       HttpSecurity http, AegisPlatformProperties properties, JwtDecoder decoder, JsonMapper json) {

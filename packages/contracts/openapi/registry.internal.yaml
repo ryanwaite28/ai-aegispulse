@@ -622,6 +622,7 @@ paths:
       security:
         - bearerJwt: []
       parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
         - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
       requestBody:
         required: true
@@ -681,6 +682,8 @@ paths:
         - registry
       security:
         - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
       requestBody:
         required: true
         content:
@@ -740,6 +743,7 @@ paths:
       security:
         - bearerJwt: []
       parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
         - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
       requestBody:
         required: true

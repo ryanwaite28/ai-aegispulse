@@ -192,6 +192,36 @@ services:
       postgres: { condition: service_healthy }
     restart: "no"
 
+  # FR-TEN-09: first PLATFORM_ADMIN (idempotent). `docker compose --profile tools run --rm registry-bootstrap`
+  registry-bootstrap:
+    profiles: [tools]
+    image: aegispulse-registry:local
+    command: ["bootstrap-platform-admin"]
+    environment:
+      AEGIS_ENV: local
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_SDK_DISABLED: "true"
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_DATABASE: aegispulse
+      PG_USER: svc_registry
+      PG_PASSWORD: ${PG_SVC_PASSWORD_REGISTRY:?run make env}
+      AMQP_URL: amqp://svc_registry:${RABBITMQ_PASSWORD_REGISTRY:?run make env}@rabbitmq:5672/aegispulse-local
+      REDIS_URL: redis://registry:${REDIS_PASSWORD_REGISTRY:?run make env}@redis:6379/0
+      REGISTRY_URL: http://registry:8084
+      JWT_ISSUER: aegispulse-registry
+      JWT_AUDIENCE: aegispulse
+      PLATFORM_ADMIN_BOOTSTRAP_EMAIL: admin@aegispulse.local
+      PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${PLATFORM_ADMIN_BOOTSTRAP_PASSWORD:-} # empty → exit 2 naming the variable (scripts/dev/ensure-local-vars.sh)
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    restart: "no"
+
   # ---------- application runtimes (Phase 1e skeletons; PROJECT.md §5.4) ----------
   # Each runtime gets only its own credentials (interpolated from ../../.env), runs non-root with a read-only root FS
   # (tmpfs /tmp), drops all capabilities, and is probed from the host on 127.0.0.1:<port>/readyz by compose-wait.sh.

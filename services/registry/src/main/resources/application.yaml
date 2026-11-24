@@ -16,6 +16,9 @@ spring:
   data:
     redis:
       url: ${REDIS_URL}
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true # contract schemas are additionalProperties: false
 
 server:
   port: 8084
@@ -34,7 +37,7 @@ aegis:
     audience: ${JWT_AUDIENCE}
   readiness:
     schema: registry
-    min-flyway-version: "2"
+    min-flyway-version: "4"
   outbox:
     schema: registry
 
