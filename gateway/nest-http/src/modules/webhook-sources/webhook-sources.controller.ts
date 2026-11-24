@@ -80,4 +80,22 @@ export class WebhookSourcesController {
     );
     return success(r.data);
   }
+
+  @Operation("listWebhookDeliveries")
+  @Get(":id/deliveries")
+  async deliveries(
+    @Headers() headers: H,
+    @Param("id") id: string,
+    @Query() query: Record<string, unknown>,
+  ): Promise<Success<IngestionSchemas["WebhookDelivery"][]>> {
+    const r = await this.ingestion.call<"listWebhookDeliveries", IngestionSchemas["WebhookDelivery"][]>(
+      "listWebhookDeliveries",
+      {
+        ...(pageQuery(query) as Omit<IngestionSchemas["ListDeliveriesQuery"], "sourceId">),
+        sourceId: uuidParam(id, "id"),
+      },
+      forwardFrom(headers),
+    );
+    return success(r.data, r.meta.nextCursor);
+  }
 }

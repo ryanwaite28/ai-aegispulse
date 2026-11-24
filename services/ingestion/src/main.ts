@@ -1,7 +1,9 @@
 // ingestion composition root: config → telemetry → logs → owned clients → probes → outbox relay → HTTP routes.
 // No business logic here: services own it; adapters only parse and dispatch.
 import { AmqpPublisher, amqpReadyCheck, createAmqpClient } from "@aegispulse/ts-platform/amqp";
-import { JwtVerifier } from "@aegispulse/ts-platform/auth";
+import { JwtVerifier, ServiceTokenProvider } from "@aegispulse/ts-platform/auth";
+import { InternalServiceClient } from "@aegispulse/ts-platform/http-client";
+import { TenantSettingsCache } from "@aegispulse/ts-platform/tenant-settings";
 import { buildVersion } from "@aegispulse/ts-platform/build-info";
 import { ConfigError, loadConfig } from "@aegispulse/ts-platform/config";
 import {
@@ -16,14 +18,18 @@ import { createLogger } from "@aegispulse/ts-platform/logging";
 import { IdempotencyRepository } from "@aegispulse/ts-platform/idempotency";
 import { OutboxRelay, OutboxRepository } from "@aegispulse/ts-platform/outbox";
 import { startTelemetry } from "@aegispulse/ts-platform/telemetry";
+import { registerWebhookDeliveryRoutes } from "./adapters/http/webhook-delivery.routes.js";
 import { registerWebhookSourceRoutes } from "./adapters/http/webhook-sources.routes.js";
+import { WebhookDeliveryRepository } from "./db/webhook-deliveries.repository.js";
+import { IngestWebhookUseCase } from "./service/orchestrators/ingest-webhook.usecase.js";
+import { RedisNonceStore, RegistryTenantStatus, S3RawStore } from "./storage/webhook-infra.js";
 import { WebhookSourceRepository } from "./db/webhook-sources.repository.js";
 import { parseKek } from "./domain/crypto.js";
 import { WebhookSourceService } from "./service/webhook-source.service.js";
 import { configSchema, PORT, SERVICE } from "./config.js";
 import { createPostgresPool } from "./db/postgres.js";
 import { connectRedis, redisCheck } from "./storage/redis.js";
-import { createObjectStore, objectStoreCheck } from "./storage/objectstore.js";
+import { bucketName, createObjectStore, objectStoreCheck } from "./storage/objectstore.js";
 
 async function main(): Promise<void> {
   const config = loadConfig(configSchema);
@@ -41,7 +47,7 @@ async function main(): Promise<void> {
 
   const pg = createPostgresPool(config);
   await connectWithRetry("postgres", async () => pg.query("SELECT 1"), { logger });
-  health.addCheck("postgres", postgresPingCheck(pg)).addCheck("schema", flywaySchemaVersionCheck(pg, "ingestion", "3"));
+  health.addCheck("postgres", postgresPingCheck(pg)).addCheck("schema", flywaySchemaVersionCheck(pg, "ingestion", "4"));
   lifecycle.onShutdown("pools", "postgres", () => pg.end());
   const redis = await connectWithRetry("redis", () => connectRedis(config), { logger });
   health.addCheck("redis", redisCheck(redis));
@@ -80,9 +86,47 @@ async function main(): Promise<void> {
     logger,
   });
 
+  // Registry calls (tenant status, FR-WHK-03) use ingestion's own SERVICE token (§5.7.4 registry.getTenantSettings).
+  const registryAuth = new InternalServiceClient("registry", {
+    name: "registry",
+    baseUrl: config.REGISTRY_URL,
+    timeoutMs: 3_000,
+  });
+  const tokens = new ServiceTokenProvider({
+    clientId: config.SERVICE_CLIENT_ID,
+    clientSecret: config.SERVICE_CLIENT_SECRET,
+    issue: (input) =>
+      registryAuth.invoke<"issueClientCredentialsToken", { accessToken: string; expiresIn: number }>(
+        "issueClientCredentialsToken",
+        input,
+      ),
+  });
+  const registry = new InternalServiceClient("registry", {
+    name: "registry",
+    baseUrl: config.REGISTRY_URL,
+    timeoutMs: 1_000,
+    serviceToken: tokens.token,
+  });
+  lifecycle.onShutdown("pools", "registry", async () => {
+    await registry.close();
+    await registryAuth.close();
+  });
+  const ingest = new IngestWebhookUseCase({
+    pool: pg,
+    deliveries: new WebhookDeliveryRepository(),
+    outbox,
+    nonces: new RedisNonceStore(redis),
+    raw: new S3RawStore(s3, bucketName(config)),
+    tenants: new RegistryTenantStatus(TenantSettingsCache.forRegistry(registry)),
+    kek,
+    version,
+    logger,
+  });
+
   const app = createHttpServer({ logger });
   registerHealthRoutes(app, health);
   registerWebhookSourceRoutes(app, verifier, sources);
+  registerWebhookDeliveryRoutes(app, verifier, ingest);
   await app.listen({ host: "0.0.0.0", port: PORT });
   lifecycle
     .onShutdown("http", "fastify", () => app.close())

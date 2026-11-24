@@ -149,3 +149,73 @@ export async function startRedis(aclUser: string, passwordVar: string): Promise<
     },
   };
 }
+
+export interface ObjectStoreEnv {
+  readonly endpoint: string;
+  /** Values substituted into s3.json.tmpl, keyed by placeholder name (e.g. S3_INGESTION_ACCESS_KEY). */
+  readonly secrets: Readonly<Record<string, string>>;
+  stop(): Promise<void>;
+}
+
+/**
+ * SeaweedFS S3 (the compose image) with the compose identity template (deploy/compose/init/objectstore/s3.json.tmpl),
+ * so a service writes as its real, prefix-restricted identity (§5.7.3). Callers create buckets with the admin
+ * identity (`secrets.S3_ADMIN_*`) using their own S3 client; the S3 gateway may answer before the filer is ready,
+ * so retry the first CreateBucket.
+ */
+export async function startObjectStore(): Promise<ObjectStoreEnv> {
+  const { readFileSync } = await import("node:fs");
+  const secrets: Record<string, string> = {};
+  const conf = readFileSync(join(repoRoot, "deploy/compose/init/objectstore/s3.json.tmpl"), "utf8").replace(
+    /__([A-Z0-9_]+)__/g,
+    (_m: string, name: string) => (secrets[name] ??= randomBytes(16).toString("hex")),
+  );
+  const container = await new GenericContainer("chrislusf/seaweedfs:4.54")
+    .withCopyContentToContainer([{ content: conf, target: "/etc/seaweedfs/s3.json" }])
+    .withCommand([
+      "server",
+      "-s3",
+      "-s3.config=/etc/seaweedfs/s3.json",
+      "-dir=/data",
+      "-volume.max=0",
+      "-master.volumeSizeLimitMB=64",
+    ])
+    .withExposedPorts(8333)
+    .withWaitStrategy(Wait.forListeningPorts())
+    .withStartupTimeout(120_000)
+    .start();
+  return {
+    endpoint: `http://${container.getHost()}:${String(container.getMappedPort(8333))}`,
+    secrets,
+    stop: async () => {
+      await container.stop();
+    },
+  };
+}
+
+/** Test-side only: an exclusive queue bound to `exchange` with `bindingKey`, declared with the admin user. */
+export async function bindTestQueue(adminUrl: string, exchange: string, bindingKey: string): Promise<string> {
+  const amqp = (await import("amqplib")).default;
+  const conn = await amqp.connect(adminUrl);
+  const ch = await conn.createChannel();
+  const name = `test.${randomBytes(4).toString("hex")}`;
+  await ch.assertQueue(name, { durable: true, autoDelete: false }); // RabbitMQ 4: no transient non-exclusive queues
+  await ch.bindQueue(name, exchange, bindingKey);
+  await conn.close();
+  return name;
+}
+
+/** Drains a queue and returns the parsed JSON bodies (test-side inspection). */
+export async function drainQueue(adminUrl: string, queue: string): Promise<unknown[]> {
+  const amqp = (await import("amqplib")).default;
+  const conn = await amqp.connect(adminUrl);
+  const ch = await conn.createChannel();
+  const out: unknown[] = [];
+  for (;;) {
+    const m = await ch.get(queue, { noAck: true });
+    if (m === false) break;
+    out.push(JSON.parse(m.content.toString("utf8")) as unknown);
+  }
+  await conn.close();
+  return out;
+}

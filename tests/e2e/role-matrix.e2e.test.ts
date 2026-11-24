@@ -55,6 +55,7 @@ const IMPLEMENTED: Record<string, readonly string[]> = {
     "updateWebhookSource",
     "rotateWebhookSecret",
     "deleteWebhookSource",
+    "listWebhookDeliveries",
   ],
 };
 const implemented = new Set(Object.values(IMPLEMENTED).flat());

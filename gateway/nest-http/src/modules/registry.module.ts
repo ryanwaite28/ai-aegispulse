@@ -7,6 +7,7 @@ import { TenantsController } from "./tenants/tenants.controller.js";
 import { UsersController } from "./users/users.controller.js";
 import { WatchlistsController } from "./watchlists/watchlists.controller.js";
 import { WebhookSourcesController } from "./webhook-sources/webhook-sources.controller.js";
+import { WebhooksController } from "./webhooks/webhooks.controller.js";
 import { WellKnownController } from "./well-known/well-known.controller.js";
 
 @Module({
@@ -18,6 +19,7 @@ import { WellKnownController } from "./well-known/well-known.controller.js";
     EntitiesController,
     WatchlistsController,
     WebhookSourcesController,
+    WebhooksController,
     WellKnownController,
   ],
 })

@@ -83,6 +83,9 @@ export class RegistryClient {
     return this.call<A, R>(action, payload, { authorization: `Bearer ${await this.serviceToken.token()}` });
   }
 
+  /** The gateway's own SERVICE token (svc-gateway), cached until shortly before expiry. */
+  gatewayToken = (): Promise<string> => this.serviceToken.token();
+
   /** FR-AUTH-05: the bare JWK Set, passed through unchanged. */
   async jwks(): Promise<{ body: unknown; cacheControl: string | undefined }> {
     const res = await this.raw.request<unknown>({ method: "GET", path: "/.well-known/jwks.json" });

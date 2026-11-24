@@ -74,3 +74,21 @@ describe("createHttpServer (§8.2, NFR-07)", () => {
     });
   });
 });
+
+describe("§8.4 error code statuses", () => {
+  it("maps every code in PROJECT.md §8.4 to its documented status (no silent 409 default)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { STATUS_BY_CODE, toErrorResponse } = await import("./index.js");
+    const { DomainError } = await import("../errors/index.js");
+    const project = readFileSync(new URL("../../../../PROJECT.md", import.meta.url), "utf8");
+    const section = project.slice(project.indexOf("### 8.4 Error Codes"), project.indexOf("## 9."));
+    const documented = [...section.matchAll(/^\| `([A-Z_]+)` \| (\d{3}) \|/gm)].map(
+      (m) => [m[1], Number(m[2])] as const,
+    );
+    expect(documented.length).toBeGreaterThan(40);
+    expect(Object.fromEntries(documented)).toEqual(STATUS_BY_CODE);
+    expect(toErrorResponse(new DomainError("WEBHOOK_SOURCE_NOT_FOUND", "x")).status).toBe(404);
+    expect(toErrorResponse(new DomainError("WEBHOOK_SIGNATURE_INVALID", "x")).status).toBe(401);
+    expect(toErrorResponse(new DomainError("TENANT_SUSPENDED", "x")).status).toBe(403);
+  });
+});

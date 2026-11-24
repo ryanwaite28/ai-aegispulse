@@ -9,7 +9,7 @@
     "start": "node --import @aegispulse/ts-platform/telemetry/register dist/main.js",
     "test": "vitest run --dir src",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:integration": "vitest run --dir tests/integration"
+    "test:integration": "vitest run --dir tests/integration --testTimeout=60000"
   },
   "dependencies": {
     "@aegispulse/contracts": "workspace:*",
@@ -23,6 +23,8 @@
     "@types/node": "26.6.6",
     "@types/pg": "8.23.1",
     "typescript": "6.0.3",
-    "vitest": "5.1.1"
+    "vitest": "5.1.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
   }
 }

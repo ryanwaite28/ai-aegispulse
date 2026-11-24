@@ -4,7 +4,7 @@
 |---|---|
 | Phase | 04 — Webhook Ingestion (`PROJECT.md` §11). FR-WHK-06 attachments is Phase 11 |
 | Owner runtime(s) | `services/ingestion` (TS/Fastify); gateway `POST /webhooks/:sourceKey`, `/v1/webhook-sources*` |
-| Status | 4a INTEGRATION-VERIFIED (2026-11-24); 4b, 4c pending |
+| Status | 4a RUNTIME-VERIFIED locally (2026-11-24); 4b RUNTIME-VERIFIED locally (2026-11-24, E2E 192/192); 4c pending |
 | Slices | **4a** source management + secret crypto · **4b** signature verification, delivery persistence, outbox → `aegispulse.ingress`, gateway webhook route, adversarial suite · **4c** secret expiry + orphan sweep + scheduler trigger |
 | Related | ADR-0002, ADR-0004 (outbox), ADR-0009 (pointers only), ADR-0010, ADR-0016 (definer lookups); NFR-02, NFR-06, NFR-08 |
 
@@ -37,7 +37,7 @@
 - **listDeliveries** (4b): metadata only, never the raw body.
 
 ### Ingest (FR-WHK-02..05; 4b)
-- The gateway reads the raw request bytes (Nest `rawBody`, 1 MiB route limit) and forwards them unparsed, as `ingestWebhookDelivery{sourceKey, headers, rawBodyBase64, receivedAt, clientIp}`, with its SERVICE token.
+- The gateway reads the raw request bytes and forwards them unparsed. Clarification: instead of Nest `rawBody: true`, the gateway replaces Fastify's JSON parser with one buffer parser (`src/common/body-parsing.ts`). Webhook routes keep the `Buffer` (1 MiB route limit, so malformed JSON reaches signature verification instead of a gateway 400); every other route is `JSON.parse`d strictly at 256 KiB. The bytes go as `ingestWebhookDelivery{sourceKey, headers, rawBodyBase64, receivedAt, clientIp}`, with its SERVICE token.
 - **IngestWebhookUseCase**, in this order. A failure at any step → that code, the `aegispulse_webhook_rejected_total{source,reason}` metric, and a log line without the body:
   1. Look up the source by key: SECURITY DEFINER `ingestion.webhook_source_for_delivery(key)` (pre-tenant, ADR-0016). Unknown, deleted or DISABLED → `404 WEBHOOK_SOURCE_NOT_FOUND`.
   2. Tenant status (registry `getTenantSettings`, kit 60 s cache): not ACTIVE → `403 TENANT_SUSPENDED`.
@@ -70,6 +70,8 @@
 - **`V4__webhook_deliveries.sql`** (4b): `webhook_deliveries` (§7.2) under RLS.
 
 ## 4. Tests
+Demo: `scripts/demo/webhook-sign.mts` (the §11 exit item names `webhook-sign.ts`; `.mts` so Node runs it directly, like `scripts/dev/seed.mts`). The secret comes from `WEBHOOK_SECRET`, never an argument.
+
 | Level | Test | Proves |
 |---|---|---|
 | Unit | `crypto.test.ts` | seal/open round-trip; tamper (ciphertext, tag, wrapped key, nonce) fails; wrong KEK fails; KEK length enforced |
@@ -77,5 +79,6 @@
 | Unit | config | missing / short KEK → startup config error naming the variable |
 | Integration (Testcontainers PG+Redis+RabbitMQ+SeaweedFS) | `webhook-sources.integration.test.ts` | create/dup 409 (incl. other tenant), secret once, rotate keeps previous 72 h (clock), trust change audit event, delete, RLS isolation |
 | Integration | `ingest.integration.test.ts` (4b) | 202 → envelope on a test queue bound to `external.#` exactly once across relay restarts; duplicate externalId → `duplicate: true`, no event |
+| Unit | gateway `webhooks.test.ts` (4b) | raw bytes forwarded byte-exact with the gateway SERVICE token; 1 MiB only on the webhook route; strict parsing elsewhere |
 | Security | `tests/security/webhooks.spec.ts` (4b) | adversarial: wrong secret, truncated signature, skew ±301 s, replayed id, oversize, malformed JSON, missing headers → codes |
 | Integration | expiry/sweep (4c) | clock-controlled expiry; orphan deleted, referenced object kept |

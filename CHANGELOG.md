@@ -13,6 +13,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 4b webhook ingestion (FR-WHK-02..05):
+  - **Ingestion:** `V4__webhook_deliveries` (RLS; definer `webhook_source_for_delivery`). `IngestWebhookUseCase`: source → tenant status → HMAC over `{ts}.{deliveryId}.{raw}` against CURRENT and PREVIOUS (every pair compared with `timingSafeEqual`) → ±300 s skew → Redis nonce → `AEGIS_MARKET_EVENT_V1` validation → raw object PUT → delivery row + outbox envelope on `aegispulse.ingress`; a repeated idempotency key records `DUPLICATE` and emits nothing. Rejections count in `aegispulse_webhook_rejected_total{source,reason}`; logs never carry the body.
+  - **Gateway:** public `POST /webhooks/:sourceKey` forwards the raw bytes (1 MiB route limit; 256 KiB strict JSON elsewhere) with its own SERVICE token; `GET /v1/webhook-sources/:id/deliveries` (metadata only).
+  - **Tests:** ingestion integration (exactly once across 3 relay restarts, duplicate, rejections, 72 h rotation), `tests/security/webhooks.spec.ts` adversarial suite, role matrix + `listWebhookDeliveries`. Kit integration env gains a SeaweedFS starter.
+  - **Demo:** `scripts/demo/webhook-sign.mts` sends a signed sample event (secret from the environment).
 - Phase 4a webhook sources (FR-WHK-01/07):
   - **Ingestion:** `V3__webhook_sources` (sources + encrypted secrets, RLS; sourceKey globally unique, even after deletion).
   - **Crypto:** envelope encryption with a per-secret data key, AES-256-GCM, and the key wrapped by the KEK with AES-KW (RFC 3394). Ingestion refuses to start without a 32-byte `INGESTION_KEK_BASE64`.
@@ -109,6 +114,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Model routing policy in `CLAUDE.md`; review agents pinned to models (architecture-reviewer → sonnet, security-reviewer → opus, spec-tracer → haiku).
 
 ### Fixed
+- Kit `toErrorResponse` now maps all 50 §8.4 codes (`STATUS_BY_CODE`, kept in sync with PROJECT.md by a test); service codes such as `WEBHOOK_SOURCE_NOT_FOUND` had fallen back to 409.
 - Local KEK: `gen-local-secrets.sh` generated `INGESTION_KEK_BASE64` in the wrong format, and ingestion refused it. The generator now emits base64 of 32 bytes, and `ensure-local-vars.sh` replaces a KEK that does not decode to 32 bytes.
 - E2E role matrix: authorized calls now also fail on 5xx. A down service (503) previously counted as "allowed".
 - CI `test-node` failed in a clean checkout for the same reason as typecheck (ts-platform `dist/` missing). The root `test`, `typecheck` and `test:integration` scripts now run `build:kits` first.
@@ -171,6 +177,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 4 slice 4b `RUNTIME-VERIFIED` locally: E2E 192/192 incl. the adversarial webhook suite ([phase-04b](docs/evidence/phase-04b.md)).
 - Phase 2 slice 2a `INTEGRATION-VERIFIED` (tenants, users, platform bootstrap): 24 unit + 13 integration tests; V3/V4 applied locally; registry `/readyz` 200 at schema 4 — [evidence](docs/evidence/phase-02a.md). Local bootstrap runtime-verified (create, then no-op; event relayed).
 - Phase 1 slice 1b (`ts-platform`) `INTEGRATION-VERIFIED`: 46 unit + 19 Testcontainers integration tests against PostgreSQL 18.7 (as `svc_files`, under RLS) and RabbitMQ 4.4.1 (configure-`^$` runtime user) — [evidence](docs/evidence/phase-01b.md). It was briefly paused on `rxjs-rabbitmq` 2.2.3; the owner's 3.0.0 was reviewed and accepted ([review](docs/evidence/rxjs-rabbitmq-3.0.0-review.md)).
 - Platform: ADR-0015 node roles applied on the cluster and runtime-verified (data SSD mounted under the local-path directory on `optiplex-tower`, storage taint moved, `optiplex` relabelled worker, PVC smoke test on the SSD) — [evidence](docs/evidence/platform-node-roles.md).
