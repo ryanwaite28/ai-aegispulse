@@ -231,6 +231,9 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0001 through ADR-0012, plus spec and evidence templates.
 
 ### Changed
+- CI speed:
+  - `lint:java` runs one Gradle invocation (`spotlessCheck classes testClasses`) instead of three (`projects`, `spotlessCheck`, `assemble`). Each extra invocation cost a JVM start and a configuration pass in CI, and lint does not need Boot-jar packaging.
+  - `test:java` pulls the shared `.gradle-home` cache without uploading it again. Error Prone and `-Werror` still run on main and test sources.
 - `make env` always generates a local-only `.env` and no longer tries `infisical export --env=local`, so a laptop can never pull dev or prod secrets (ADR-0012 amendment).
 - Dependencies: `rxjs-rabbitmq` 3.0.0 adopted inside pnpm's minimum-release-age window by explicit owner decision. The exception is scoped to that single version in `pnpm-workspace.yaml` and is removed once the window passes. `docs/libs/RXJS_RABBITMQ.md` now carries the 3.0.0 README; the temporary upgrade brief was deleted on adoption.
 - Cluster topology (ADR-0015): the storage node is now `optiplex-tower` (8 vCPU / 30 GiB / 1 TB data SSD); `optiplex` becomes the app-compute worker; NFR-03 and §5.4 budgets are expressed per tier (compute/storage) with unchanged numbers. PROJECT.md §1.5, NFR-03, NFR-12, §4.3, §5.3, §5.4, §9.3, Phase 9, §13.1, and A18 are amended. K3S_CONTEXT, CLAUDE.md, the kubernetes-platform skill (which gains a troubleshooting-access section) and the systems-architect skill are updated.

@@ -92,6 +92,12 @@ test:python:
 test:java:
   <<: *java
   stage: test
+  # Pull-only: lint:java (earlier stage, same key) already pushed the dependency + build cache; skipping a second
+  # upload of .gradle-home saves time on every pipeline.
+  cache:
+    key: { files: [gradle/wrapper/gradle-wrapper.properties, gradle/libs.versions.toml] }
+    paths: [.gradle-home]
+    policy: pull
   script: [./ci/test-java.sh]
 
 contract:
