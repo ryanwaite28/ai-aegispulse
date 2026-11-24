@@ -163,4 +163,15 @@ describe("file uploads over the gateway (FR-FILE-01..04)", () => {
     const other = await call("GET", `/v1/files/${String(ids[0])}`, { token: w.b.users.ANALYST.token });
     expect(other.status).toBe(404);
   });
+
+  it("FR-FILE-12 TENANT_ADMIN soft-deletes a file (then 404); ANALYST may not delete", async () => {
+    const w = await world();
+    const init = await call("POST", "/v1/files/uploads/init", { token: w.a.users.ANALYST.token, body: pdf().input });
+    const fileId = String(init.body.data?.["fileId"]);
+    expect((await call("DELETE", `/v1/files/${fileId}`, { token: w.a.users.ANALYST.token })).status).toBe(403);
+    const del = await call("DELETE", `/v1/files/${fileId}`, { token: w.a.users.TENANT_ADMIN.token });
+    expect(del.status).toBe(200);
+    expect((await call("GET", `/v1/files/${fileId}`, { token: w.a.users.ANALYST.token })).status).toBe(404);
+    expect((await call("DELETE", `/v1/files/${fileId}`, { token: w.a.users.TENANT_ADMIN.token })).status).toBe(404);
+  });
 });

@@ -28,6 +28,15 @@ describe("scheduler-trigger job catalog (§5.1, §5.7.4)", () => {
     for (const job of Object.values(JOBS)) expect(row).toContain(`'${job.service}.${job.action}'`);
   });
 
+  it("FR-FILE-10/12 maps the files jobs to files.sweepOrphans / files.purgeRetention", () => {
+    expect(`${resolveJob("files-orphan-sweep").service}.${resolveJob("files-orphan-sweep").action}`).toBe(
+      "files.sweepOrphans",
+    );
+    expect(`${resolveJob("files-retention").service}.${resolveJob("files-retention").action}`).toBe(
+      "files.purgeRetention",
+    );
+  });
+
   it("refuses unknown jobs (usage error, exit 2)", () => {
     expect(() => resolveJob("drop-everything")).toThrow(UsageError);
     expect(() => resolveJob(undefined)).toThrow(UsageError);

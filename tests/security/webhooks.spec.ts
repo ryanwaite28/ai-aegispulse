@@ -116,7 +116,10 @@ describe("adversarial webhooks over the gateway (FR-WHK-02/03)", () => {
       expect({ name, status: r.status, code: r.code }).toEqual({ name, status, code });
     }
     for (const skew of [-301, 301]) {
-      const t = String(Number(ts) + skew);
+      // Round away from now so the probe is ≥ 301 s off when signed: flooring the future side could eat up to
+      // 0.999 s of the 1 s margin, and request latency then landed it inside the ±300 s window (flaky).
+      const nowS = Date.now() / 1000;
+      const t = String(skew > 0 ? Math.ceil(nowS + skew) : Math.floor(nowS + skew));
       const r = await send(s.key, raw, {
         "x-aegis-signature": sign(s.secret, t, `d-skew${String(skew)}`, raw),
         "x-aegis-timestamp": t,

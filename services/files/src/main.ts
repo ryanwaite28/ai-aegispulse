@@ -8,6 +8,8 @@ import { OutboxRelay, OutboxRepository } from "@aegispulse/ts-platform/outbox";
 import { TenantSettingsCache } from "@aegispulse/ts-platform/tenant-settings";
 import { registerUploadRoutes } from "./adapters/http/uploads.routes.js";
 import { registerFileRoutes } from "./adapters/http/files.routes.js";
+import { registerMaintenanceRoutes } from "./adapters/http/maintenance.routes.js";
+import { FileMaintenanceService } from "./service/file-maintenance.service.js";
 import { FileProcessingService } from "./service/file-processing.service.js";
 import { FileQueryService } from "./service/file-query.service.js";
 import { FilesRepository } from "./db/files.repository.js";
@@ -17,8 +19,10 @@ import {
   RedisFileStatusCache,
   RedisInitRateLimiter,
   RedisUploadSessions,
+  RegistryRetention,
   RegistryTenantStatus,
   S3DownloadSigner,
+  S3MaintenanceStore,
   S3UploadStore,
 } from "./storage/upload-infra.js";
 import { buildVersion } from "@aegispulse/ts-platform/build-info";
@@ -37,6 +41,7 @@ import { configSchema, PORT, SERVICE } from "./config.js";
 import { createPostgresPool } from "./db/postgres.js";
 import { connectRedis, redisCheck } from "./storage/redis.js";
 import {
+  artifactsBucketName,
   bucketName,
   createObjectStore,
   createPresigner,
@@ -65,7 +70,7 @@ async function main(): Promise<void> {
 
   const pg = createPostgresPool(config);
   await connectWithRetry("postgres", async () => pg.query("SELECT 1"), { logger });
-  health.addCheck("postgres", postgresPingCheck(pg)).addCheck("schema", flywaySchemaVersionCheck(pg, "files", "4"));
+  health.addCheck("postgres", postgresPingCheck(pg)).addCheck("schema", flywaySchemaVersionCheck(pg, "files", "5"));
   lifecycle.onShutdown("pools", "postgres", () => pg.end());
   const redis = await connectWithRetry("redis", () => connectRedis(config), { logger });
   health.addCheck("redis", redisCheck(redis));
@@ -171,10 +176,25 @@ async function main(): Promise<void> {
     logger,
   });
 
+  const maintenance = new FileMaintenanceService({
+    pool: pg,
+    files: new FilesRepository(),
+    outbox,
+    objects: new S3MaintenanceStore(s3, artifactsBucketName(config)),
+    sessions: new RedisUploadSessions(redis),
+    dedup: new RedisDedupIndex(redis),
+    statusCache,
+    downloads: statusCache,
+    tenants: new RegistryRetention(tenantSettings),
+    version,
+    logger,
+  });
+
   const app = createHttpServer({ logger });
   registerHealthRoutes(app, health);
   registerUploadRoutes(app, verifier, uploads);
   registerFileRoutes(app, verifier, queries, processing);
+  registerMaintenanceRoutes(app, verifier, maintenance);
   await app.listen({ host: "0.0.0.0", port: PORT });
   lifecycle
     .onShutdown("http", "fastify", () => app.close())

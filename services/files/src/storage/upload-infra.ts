@@ -2,6 +2,7 @@
 // quota:files:*); the object store uses the `files` identity; tenant status comes from the registry through the kit's
 // ≤ 60 s cache (FR-TEN-08).
 import {
+  AbortMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -16,6 +17,11 @@ import type { ContentType } from "../domain/file.js";
 import { attachmentDisposition, INITS_PER_MINUTE } from "../domain/file.js";
 import type { DownloadSigner } from "../service/file-processing.service.js";
 import type { DownloadUrl, FileDetail, FileReadCache } from "../service/file-query.service.js";
+import type {
+  DownloadUrlInvalidator,
+  MaintenanceObjectStore,
+  TenantRetentionPort,
+} from "../service/file-maintenance.service.js";
 import type {
   DedupIndex,
   FileStatusCache,
@@ -128,7 +134,7 @@ export class RedisInitRateLimiter implements InitRateLimiter {
 }
 
 /** §7.7 `file:status:{fileId}` (30 s, invalidated on every transition) and `file:dlurl:{fileId}:{actor}` (240 s). */
-export class RedisFileStatusCache implements FileStatusCache, FileReadCache {
+export class RedisFileStatusCache implements FileStatusCache, FileReadCache, DownloadUrlInvalidator {
   constructor(private readonly redis: Redis) {}
 
   async invalidate(fileId: string): Promise<void> {
@@ -151,6 +157,54 @@ export class RedisFileStatusCache implements FileStatusCache, FileReadCache {
 
   async putDownloadUrl(fileId: string, actor: string, url: DownloadUrl, ttlSeconds: number): Promise<void> {
     await this.redis.set(`file:dlurl:${fileId}:${actor}`, JSON.stringify(url), "EX", ttlSeconds);
+  }
+
+  /** FR-FILE-12: drop every cached download URL of a deleted/purged file (one per actor; SCAN by pattern). */
+  async invalidateDownloads(fileId: string): Promise<void> {
+    let cursor = "0";
+    do {
+      const [next, keys] = await this.redis.scan(cursor, "MATCH", `file:dlurl:${fileId}:*`, "COUNT", 200);
+      if (keys.length > 0) await this.redis.del(...keys);
+      cursor = next;
+    } while (cursor !== "0");
+  }
+}
+
+/** FR-FILE-10/12 object deletes with the files identity (raw/quarantine/artifacts write grants). */
+export class S3MaintenanceStore implements MaintenanceObjectStore {
+  constructor(
+    private readonly s3: S3Client,
+    readonly artifactsBucket: string,
+  ) {}
+
+  async deleteObject(bucket: string, key: string): Promise<void> {
+    try {
+      await this.s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    } catch (error: unknown) {
+      if (!(error instanceof S3ServiceException && error.$metadata.httpStatusCode === 404)) throw error;
+    }
+  }
+
+  async abortMultipart(bucket: string, key: string, uploadId: string): Promise<void> {
+    try {
+      await this.s3.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: uploadId }));
+    } catch (error: unknown) {
+      if (!(error instanceof S3ServiceException && error.$metadata.httpStatusCode === 404)) throw error;
+    }
+  }
+}
+
+/** FR-FILE-12 retentionDays from the registry (kit cache ≤ 60 s); NOT_FOUND → undefined. */
+export class RegistryRetention implements TenantRetentionPort {
+  constructor(private readonly settings: TenantSettingsCache) {}
+
+  async retentionDays(tenantId: string): Promise<number | undefined> {
+    try {
+      return (await this.settings.get(tenantId)).retentionDays;
+    } catch (error: unknown) {
+      if ((error as { code?: string }).code === "NOT_FOUND") return undefined;
+      throw error;
+    }
   }
 }
 

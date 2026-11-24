@@ -4,7 +4,7 @@
 |---|---|
 | Phase | 05 — Files Subsystem (`PROJECT.md` §11). FR-FILE-11 (remote fetch with SSRF guard) is Phase 11 |
 | Owner runtime(s) | `services/files` (TS/Fastify); gateway `/v1/files*` |
-| Status | 5a RUNTIME-VERIFIED locally (2026-11-24, E2E 213/213); 5c, 5d RUNTIME-VERIFIED locally (2026-11-24); 5e, 5b pending |
+| Status | 5a RUNTIME-VERIFIED locally (2026-11-24, E2E 213/213); 5c, 5d, 5e RUNTIME-VERIFIED locally (2026-11-24); 5b pending |
 | Slices | **5a** init, dedup, quotas, complete/abort (FR-FILE-01..04) · **5c** validation consumer (FR-FILE-05) · **5d** processing lifecycle + reads/downloads (FR-FILE-06..09) · **5e** sweeps, retention, delete (FR-FILE-10/12) · **5b** multipart (FR-FILE-13, named "Phase 5b" in §2.7, delivered last behind `MULTIPART_UPLOADS_ENABLED`) |
 | Related | ADR-0002, ADR-0004 (outbox), ADR-0009 (pointers only), ADR-0011 (object store), ADR-0016 (RLS); NFR-02, NFR-08 |
 
@@ -111,6 +111,23 @@ Steps, in order:
   - QUARANTINED → only a TENANT_ADMIN user with `acknowledgeQuarantine=true` (otherwise `403 FILE_QUARANTINED`). The URL points at the quarantine bucket, is never cached, and every call emits `ops.audit.quarantine_download {fileId, actorId}` (intelligence) with a warning log.
   - Other statuses → `409 FILE_NOT_DOWNLOADABLE`.
 
+### Sweeps, retention, delete (FR-FILE-10/12; 5e)
+- **Discovery:** cross-tenant discovery uses the V5 definers `files.orphan_candidates(cutoff, limit)` and `files.retention_tenants()` (ADR-0016). Every change runs per tenant under RLS.
+- **`sweepOrphans`** (scheduler-trigger `files-orphan-sweep`, every 15 min; SERVICE only):
+  - INITIATED files with `created_at` more than 1 h ago → optimistic `INITIATED → EXPIRED` (reason `ORPHAN_TIMEOUT`) plus `file.status.changed`.
+  - After commit: delete any object that landed without a complete, abort a multipart upload (FR-FILE-13), delete the session, release the dedup pointer, invalidate the status cache.
+  - Batches of 500, at most 20 per run; re-running is a no-op.
+- **`purgeRetention`** (`files-retention`, daily; SERVICE only):
+  - For each tenant with unpurged files, `retentionDays` comes from the registry (kit cache); a tenant the registry does not know is skipped with a warning.
+  - Files created before `now − retentionDays` first lose their object (raw or quarantine bucket) and every recorded artifact object (idempotent deletes).
+  - Then the tombstone: `purged_at` set, `deleted_at` set if unset, artifact rows removed, history `RETENTION_PURGE`. The `files` row stays. A crash between the deletes and the tombstone is finished by the next run.
+- **`deleteFile`** (TENANT_ADMIN, contract roles):
+  - Soft delete (`deleted_at`); the object stays until the purge.
+  - The status cache and every cached download URL of the file (`SCAN file:dlurl:{fileId}:*`) are dropped. Afterwards get, list and download → 404.
+  - Repeat → 404.
+- **"Audited"** (FR-FILE-12, clarification): FR-AUD-02 does not list file deletion and no catalog event exists for it. The deletion is recorded in `files.file_status_history` (reason `DELETED`, actor `user:{id}`) and logged at warn. Adding it to the cases audit chain would need a new event (open question).
+- **Object-store grant** (§5.7.3, clarification forced by FR-FILE-12): the `files` identity gains write (delete) on `artifacts/*` for the purge. It already had read; doc-extraction remains the writer of artifact contents.
+
 ### Gateway (5a)
 - `FilesClient` forwards the caller's token, `X-Aegis-Tenant` and `Idempotency-Key`.
 - Init maps to `201` (new) or `200` (`deduplicated: true`), as the contract states.
@@ -118,6 +135,7 @@ Steps, in order:
 
 ## 3. Data
 - **`V3__files.sql`** (5a): `files.files` and `files.file_status_history` (§7.3) under RLS.
+- **`V5__file_maintenance.sql`** (5e): the definers `files.orphan_candidates` and `files.retention_tenants` (no table changes).
 - **`V4__file_artifacts.sql`** (5d): `files.file_artifacts` (§7.3) under RLS, plus the definer `files.file_tenant(uuid)` (EXECUTE for `svc_files` only).
 
 ## 4. Tests
@@ -131,4 +149,6 @@ Steps, in order:
 | Integration | `validation.integration.test.ts` (5c) | clean PDF → VALIDATED + doc.file.ready + status event, redelivery no-op; EICAR (fake AV) → quarantine copy, raw deleted, N-03 vars; PDF-as-CSV → TYPE_MISMATCH; checksum/size/missing → FAILED; interrupted move finished on redelivery; wrong tenant → PermanentError |
 | Unit | `attachmentDisposition` (5d); gateway GET routes | ASCII fallback + RFC 5987 name, no quote break-out; filters pass through, `acknowledgeQuarantine` true/false only |
 | Integration | `lifecycle.integration.test.ts` (5d) | VALIDATED → PROCESSING → PROCESSED + one artifact + one CONFIDENTIAL `doc.extraction.completed`; replays idempotent; REVIEW_REQUIRED; retryable vs final failure; illegal transitions → 409; user token → 403; unknown → 404; row counts only for batches; internal download fetched; getFile cache + invalidation + no cross-tenant hit; list filters + keyset pages; download URL fetched with UTF-8 disposition, cached per actor; quarantine: ANALYST 403, TA without ack 403, TA with ack 200 + one audit event per call; other tenant 404 |
+| Unit | scheduler-trigger `jobs.test.ts` (5e) | `files-orphan-sweep` → files.sweepOrphans, `files-retention` → files.purgeRetention, both on the svc-scheduler-trigger allowlist |
+| Integration | `maintenance.integration.test.ts` (5e) | orphan flood: 100 real inits (25 with a PUT) backdated 2 h → 100 EXPIRED + 100 events, zero objects left under the tenant, sessions released, a young upload kept; user token 403; purge: PROCESSED+artifact and QUARANTINED past 30 days → objects in raw/quarantine/artifacts deleted, tombstones (purged+deleted, no artifact rows), a 10-day file kept, an unknown tenant skipped, a re-run is a no-op; delete: ANALYST 403, TA → caches dropped, get/download 404, list excludes, object kept, history DELETED by `user:{id}`, repeat 404 |
 | E2E | `tests/e2e/files.e2e.test.ts` + role matrix Phase 5 | the same flow through the gateway against compose, PUT to `PUBLIC_OBJECTS_URL`, tenant B → 404 |

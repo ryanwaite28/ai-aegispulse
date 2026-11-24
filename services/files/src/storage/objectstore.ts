@@ -27,6 +27,11 @@ export function bucketName(config: Config): string {
   return `${config.S3_BUCKET_PREFIX}-raw`;
 }
 
+/** §7.8 artifacts bucket (doc-extraction writes; files reads and, for the retention purge, deletes). */
+export function artifactsBucketName(config: Config): string {
+  return `${config.S3_BUCKET_PREFIX}-artifacts`;
+}
+
 /** §7.8 quarantine bucket (30-day lifecycle; admin-only download). */
 export function quarantineBucketName(config: Config): string {
   return `${config.S3_BUCKET_PREFIX}-quarantine`;

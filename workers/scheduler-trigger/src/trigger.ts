@@ -25,16 +25,28 @@ export async function trigger(config: Config, job: JobDefinition): Promise<JobRu
         input,
       ),
   });
-  const target = new InternalServiceClient(job.service, {
-    name: job.service,
-    baseUrl: job.baseUrl(config),
-    timeoutMs: job.timeoutMs,
-    serviceToken: tokens.token,
-  });
+  const options = { baseUrl: job.baseUrl(config), timeoutMs: job.timeoutMs, serviceToken: tokens.token };
   try {
-    return await target.invoke<typeof job.action, JobRunSummary>(job.action, {});
+    // One typed client per owning service (the catalog is a discriminated union on `service`).
+    switch (job.service) {
+      case "ingestion": {
+        const target = new InternalServiceClient("ingestion", { name: "ingestion", ...options });
+        try {
+          return await target.invoke<typeof job.action, JobRunSummary>(job.action, {});
+        } finally {
+          await target.close();
+        }
+      }
+      case "files": {
+        const target = new InternalServiceClient("files", { name: "files", ...options });
+        try {
+          return await target.invoke<typeof job.action, JobRunSummary>(job.action, {});
+        } finally {
+          await target.close();
+        }
+      }
+    }
   } finally {
-    await target.close();
     await registry.close();
   }
 }

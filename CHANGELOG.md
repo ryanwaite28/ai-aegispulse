@@ -13,6 +13,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 5e file sweeps, retention and delete (FR-FILE-10/12):
+  - **Files:** `V5__file_maintenance` (cross-tenant definers). `sweepOrphans`: INITIATED > 1 h → EXPIRED, landed objects deleted, multipart aborted, session and dedup released. `purgeRetention`: objects and artifacts past each tenant's `retentionDays` deleted, then tombstones (`purged_at`). `deleteFile`: TENANT_ADMIN soft delete; history and caches, including cached download URLs.
+  - **Gateway:** `DELETE /v1/files/{id}`.
+  - **scheduler-trigger:** jobs `files-orphan-sweep` and `files-retention`. The catalog is now a discriminated union per service.
+  - **Object store:** the `files` identity may delete `artifacts/*` (retention purge).
 - Phase 5d file lifecycle and reads (FR-FILE-06..09):
   - **Files:** `V4__file_artifacts` (artifacts under RLS, plus the definer `file_tenant` for SERVICE callers that only know a fileId).
   - **doc-extraction actions:** `markProcessing`, `recordExtractionResult` (artifact unique per extractor version; emits CONFIDENTIAL `doc.extraction.completed|review_required`), `recordProcessingFailure`, `getInternalDownloadUrl`.
@@ -133,6 +138,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Model routing policy in `CLAUDE.md`; review agents pinned to models (architecture-reviewer → sonnet, security-reviewer → opus, spec-tracer → haiku).
 
 ### Fixed
+- `tests/security/webhooks.spec.ts`: the +301 s skew probe floored the host clock, so up to 0.999 s of its 1 s margin could vanish and request latency landed it inside the window (an intermittent 202). Probes now round away from now.
 - `scripts/dev/ensure-local-vars.sh` appended to `.env` without checking for a trailing newline. On a `.env` whose last line lacked one, the generated `JWT_SIGNING_KEY_CURRENT_PEM` was glued onto `OTEL_EXPORTER_OTLP_HEADERS`, so OpenObserve rejected every OTLP export (401: no local metrics or traces) and the key fragment travelled in that header to the local OpenObserve. The script now starts appends on a fresh line and repairs glued lines: it splits them and keeps the value compose used, never printing values. It also accepts an env-file path (tested on a fake file).
 - FR-WHK-03 `aegispulse_webhook_rejected_total` never recorded. The counter was created at module load, before `startTelemetry()` installed the MeterProvider, and the OTel metrics API has no proxy provider, so it stayed a no-op. The counter is now created with the use case, and a regression test installs the provider after import. Unknown source keys are labelled `source="unknown"`, so internet-supplied keys can't create unbounded series. Found while collecting the Phase 4 exit evidence.
 - Kit `toErrorResponse` now maps all 50 §8.4 codes (`STATUS_BY_CODE`, kept in sync with PROJECT.md by a test); service codes such as `WEBHOOK_SOURCE_NOT_FOUND` had fallen back to 409.
@@ -159,6 +165,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- PROJECT.md §5.7.3: the object-store `files` row adds delete on `artifacts/*` for the FR-FILE-12 retention purge (clarification). FR-FILE-12 "Audited" is met by the file's status history (actor + reason `DELETED`), because FR-AUD-02 has no file-deletion event (open question).
 - PROJECT.md §5.1/§5.3: adds CronJob `aegispulse-cron-secret-expiry` (hourly `ingestion-secret-expiry`, FR-WHK-08), so there are now 9 CronJobs. §5.1 had no name for the job §11 requires (owner-approved amendment). Each run requests 50m CPU / 64Mi, as for every CronJob in §5.4.
 - PROJECT.md §5.7.3: the object-store `ingestion` row now reads read/write (incl. delete)/list on `raw/webhooks/*`, as FR-WHK-08's sweep requires (clarification).
 - Phase 4 migrations renumbered to V3/V4 (V2 is ADR-0016). Spec `FR-WHK-01-08-webhook-ingestion` (secret envelope encryption with AES-KW-wrapped data keys, verification order, slices 4a–4c).
@@ -200,6 +207,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 5 slice 5e `RUNTIME-VERIFIED` locally: files integration 19/19 (incl. the 100-upload orphan flood), E2E 239/239, `make trigger` for `files-orphan-sweep` / `files-retention` exit 0 ([phase-05e](docs/evidence/phase-05e.md)).
 - Phase 5 slice 5d `RUNTIME-VERIFIED` locally: files integration 16/16; E2E 232/232, including validation outcomes polled through the gateway and a real clamd quarantine ([phase-05d](docs/evidence/phase-05d.md)).
 - Phase 5 slice 5c `RUNTIME-VERIFIED` locally: validation integration 4/4; with the real clamd on the compose stack, EICAR → QUARANTINED (`MALWARE:Eicar-Test-Signature`) and PDF-as-CSV → QUARANTINED; E2E 214/214 ([phase-05c](docs/evidence/phase-05c.md)).
 - Phase 5 slice 5a `RUNTIME-VERIFIED` locally: files integration 7/7, E2E 213/213 ([phase-05a](docs/evidence/phase-05a.md)).

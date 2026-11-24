@@ -22,6 +22,7 @@ export interface FileRecord {
   readonly status: FileStatus;
   readonly failureReason: string | null;
   readonly extractorVersion: string | null;
+  readonly multipartUploadId: string | null;
   readonly correlationId: string;
   readonly version: number;
   readonly deletedAt: string | null;
@@ -48,6 +49,7 @@ interface Row {
   status: FileStatus;
   failure_reason: string | null;
   extractor_version: string | null;
+  multipart_upload_id: string | null;
   correlation_id: string;
   version: number;
   deleted_at: Date | null;
@@ -75,6 +77,7 @@ function map(r: Row): FileRecord {
     status: r.status,
     failureReason: r.failure_reason,
     extractorVersion: r.extractor_version,
+    multipartUploadId: r.multipart_upload_id,
     correlationId: r.correlation_id,
     version: r.version,
     deletedAt: r.deleted_at === null ? null : r.deleted_at.toISOString(),
@@ -332,6 +335,85 @@ export class FilesRepository {
       args,
     );
     return r.rows.map(map);
+  }
+
+  /** FR-FILE-10 cross-tenant candidates (definer files.orphan_candidates, ADR-0016). */
+  async orphanCandidates(
+    db: SqlExecutor,
+    cutoff: Date,
+    limit: number,
+  ): Promise<{ fileId: string; tenantId: string }[]> {
+    const r = await db.query<{ file_id: string; tenant_id: string }>(
+      "SELECT file_id, tenant_id FROM files.orphan_candidates($1, $2)",
+      [cutoff, limit],
+    );
+    return r.rows.map((x) => ({ fileId: x.file_id, tenantId: x.tenant_id }));
+  }
+
+  /** FR-FILE-12 tenants holding unpurged files (definer files.retention_tenants). */
+  async retentionTenants(db: SqlExecutor): Promise<string[]> {
+    const r = await db.query<{ t: string }>("SELECT t FROM files.retention_tenants() AS t");
+    return r.rows.map((x) => x.t);
+  }
+
+  /** Files of the current tenant created before the cutoff and not yet purged (oldest first). */
+  async retentionCandidates(tx: SqlExecutor, cutoff: Date, limit: number): Promise<FileRecord[]> {
+    const r = await tx.query<Row>(
+      "SELECT * FROM files.files WHERE created_at < $1 AND purged_at IS NULL ORDER BY created_at LIMIT $2",
+      [cutoff, limit],
+    );
+    return r.rows.map(map);
+  }
+
+  /** Every artifact object key recorded for the file (§7.8 artifacts/…). */
+  async artifactKeys(tx: SqlExecutor, fileId: string): Promise<string[]> {
+    const r = await tx.query<{ k: string | null }>(
+      `SELECT unnest(ARRAY[text_key, chunks_key, extraction_key, row_errors_key]) AS k
+         FROM files.file_artifacts WHERE file_id = $1`,
+      [fileId],
+    );
+    return r.rows.flatMap((x) => (x.k === null ? [] : [x.k]));
+  }
+
+  /**
+   * FR-FILE-12 tombstone: sets purged_at (and deleted_at if unset), removes artifact rows, records the purge in
+   * the history. The row itself stays.
+   */
+  async markPurged(tx: SqlExecutor, tenantId: string, file: FileRecord, actor: string): Promise<boolean> {
+    const r = await tx.query(
+      "UPDATE files.files SET purged_at = now(), deleted_at = COALESCE(deleted_at, now()) WHERE id = $1 AND purged_at IS NULL",
+      [file.id],
+    );
+    if ((r.rowCount ?? 0) === 0) return false;
+    await tx.query("DELETE FROM files.file_artifacts WHERE file_id = $1", [file.id]);
+    await this.history(tx, {
+      tenantId,
+      fileId: file.id,
+      from: file.status,
+      to: file.status,
+      reason: "RETENTION_PURGE",
+      actor,
+      eventId: null,
+    });
+    return true;
+  }
+
+  /** FR-FILE-12 soft delete (idempotent); false when it was already deleted. */
+  async softDelete(tx: SqlExecutor, tenantId: string, file: FileRecord, actor: string): Promise<boolean> {
+    const r = await tx.query("UPDATE files.files SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL", [
+      file.id,
+    ]);
+    if ((r.rowCount ?? 0) === 0) return false;
+    await this.history(tx, {
+      tenantId,
+      fileId: file.id,
+      from: file.status,
+      to: file.status,
+      reason: "DELETED",
+      actor,
+      eventId: null,
+    });
+    return true;
   }
 
   private async history(

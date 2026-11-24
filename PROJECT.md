@@ -985,7 +985,7 @@ No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY`
 | Redis ACL `risk_scoring` | `~feat:*` |
 | Redis ACL `registry` | `~auth:* ~ratelimit:auth:*` |
 | RabbitMQ user per service | configure: `^$` (topology asserted by migration Job user `aegis_topology`), write: owning exchanges + `aegispulse.retry` + `aegispulse.dlx`, read: own queues only |
-| Object store `files` | `raw/*`, `quarantine/*`, `artifacts/*` (read) on its buckets; presign rights |
+| Object store `files` | `raw/*`, `quarantine/*`; `artifacts/*` read, plus delete for the FR-FILE-12 retention purge; presign rights |
 | Object store `ingestion` | `aegispulse-{env}-raw/raw/webhooks/*` read, write (incl. delete) and list, prefix-scoped (FR-WHK-08 orphan sweep) |
 | Object store `doc_extraction` | `artifacts/*` write; reads raw only via Files-issued presigned URLs |
 | Object store `events` | `aegispulse-{env}-archive/*` write |
@@ -2873,7 +2873,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 2 | Registry: Tenancy, Identity & RBAC | IN PROGRESS (2a, 2b INTEGRATION-VERIFIED; 2c RUNTIME-VERIFIED locally; drill + pipeline pending) | [phase-02a](docs/evidence/phase-02a.md), [phase-02b](docs/evidence/phase-02b.md), [phase-02c](docs/evidence/phase-02c.md) |
 | 3 | Entities & Watchlists | IN PROGRESS (RUNTIME-VERIFIED locally; pipeline pending) | [phase-03](docs/evidence/phase-03.md) |
 | 4 | Webhook Ingestion | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-04](docs/evidence/phase-04.md) ([4a](docs/evidence/phase-04a.md), [4b](docs/evidence/phase-04b.md), [4c](docs/evidence/phase-04c.md)) |
-| 5 | Files Subsystem | IN PROGRESS (5a, 5c, 5d RUNTIME-VERIFIED locally) | [phase-05a](docs/evidence/phase-05a.md), [phase-05c](docs/evidence/phase-05c.md), [phase-05d](docs/evidence/phase-05d.md) |
+| 5 | Files Subsystem | IN PROGRESS (5a, 5c, 5d, 5e RUNTIME-VERIFIED locally; 5b multipart pending) | [phase-05a](docs/evidence/phase-05a.md), [phase-05c](docs/evidence/phase-05c.md), [phase-05d](docs/evidence/phase-05d.md), [phase-05e](docs/evidence/phase-05e.md) |
 | 6 | Events Archive & Stage-1 Classification | PENDING | — |
 | 7 | Messaging Resilience & Dead Letters | PENDING | — |
 | 8 | Transactions, Scoring & Risk Cases (MVP slice) | PENDING | — |
@@ -3104,9 +3104,9 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [x] Tests: cached status invalidated on transition; quarantined download without ack → 403
 
 #### FR-FILE-10 / FR-FILE-12 — Sweeps & retention
-- [ ] `sweepOrphans` (INITIATED > 1 h → EXPIRED, delete object, abort multipart), `purgeRetention`, `deleteFile` (soft)
-- [ ] scheduler-trigger jobs `files-orphan-sweep` (*/15), `files-retention` (daily)
-- [ ] Tests: orphan flood scenario (100 inits, no PUT) → all EXPIRED, no leaked objects
+- [x] `sweepOrphans` (INITIATED > 1 h → EXPIRED, delete object, abort multipart), `purgeRetention`, `deleteFile` (soft)
+- [x] scheduler-trigger jobs `files-orphan-sweep` (*/15), `files-retention` (daily) (CronJobs `aegispulse-cron-file-sweep` / `aegispulse-cron-retention` ship with Phase 9)
+- [x] Tests: orphan flood scenario (100 inits, no PUT) → all EXPIRED, no leaked objects
 
 #### FR-FILE-13 — Multipart uploads (Phase 5b, behind `MULTIPART_UPLOADS_ENABLED`)
 - [ ] Init returns `uploadId` + part URLs (16 MiB); complete with ETags; abort path
@@ -3114,7 +3114,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 **Phase 5 exit evidence:** `scripts/demo/upload.ts` init→PUT→complete→VALIDATED with `doc.file.ready` on broker; EICAR quarantine evidence; orphan sweep logs.
 **Phase note:** migrations V3/V4 (V2 is ADR-0016's). Slices: 5a init/dedup/quotas/complete/abort; 5c validation consumer; 5d lifecycle + reads; 5e sweeps/retention; 5b multipart (§2.7's "Phase 5b") last. Spec `FR-FILE-01-13-files`.
-**Phase note:** status **`IN PROGRESS`**: slice 5a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05a](docs/evidence/phase-05a.md); E2E 213/213); slice 5c `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05c](docs/evidence/phase-05c.md); real clamd EICAR → QUARANTINED); slice 5d `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05d](docs/evidence/phase-05d.md); E2E 232/232).
+**Phase note:** status **`IN PROGRESS`**: slice 5a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05a](docs/evidence/phase-05a.md); E2E 213/213); slice 5c `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05c](docs/evidence/phase-05c.md); real clamd EICAR → QUARANTINED); slice 5d `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05d](docs/evidence/phase-05d.md); E2E 232/232); slice 5e `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05e](docs/evidence/phase-05e.md); E2E 239/239, both files jobs via `make trigger`).
 
 ---
 

@@ -243,6 +243,7 @@ services:
       OTEL_SDK_DISABLED: "true"
       REGISTRY_URL: http://registry:8084
       INGESTION_URL: http://ingestion:8081
+      FILES_URL: http://files:8082
       SERVICE_CLIENT_ID: svc-scheduler-trigger
       SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET_SCHEDULER_TRIGGER:-} # empty → exit 2 naming the variable
     read_only: true

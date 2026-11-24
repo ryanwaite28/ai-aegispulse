@@ -1,6 +1,6 @@
 // /v1/files* (FR-FILE-01..04, 07..09): transport only. The files service authorizes (contract roles, X-Aegis-Tenant
 // for PLATFORM_ADMIN) and owns dedup, quotas, presigning and the lifecycle.
-import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query, Res } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Headers, HttpCode, Inject, Param, Post, Query, Res } from "@nestjs/common";
 import { DomainError } from "@aegispulse/ts-platform/errors";
 import { FILES } from "../../config.js";
 import type { FilesClient, FilesSchemas } from "../../clients/files.client.js";
@@ -103,6 +103,18 @@ export class FilesController {
     const r = await this.files.call<"getDownloadUrl", FilesSchemas["DownloadUrl"]>(
       "getDownloadUrl",
       { fileId: uuidParam(fileId, "fileId"), acknowledgeQuarantine: ack === "true" },
+      forwardFrom(headers, { tenant: true }),
+    );
+    return success(r.data);
+  }
+
+  /** FR-FILE-12: TENANT_ADMIN soft delete (the object stays until the retention purge). */
+  @Operation("deleteFile")
+  @Delete(":fileId")
+  async remove(@Headers() headers: H, @Param("fileId") fileId: string): Promise<Success<Record<string, never>>> {
+    const r = await this.files.call<"deleteFile", Record<string, never>>(
+      "deleteFile",
+      { fileId: uuidParam(fileId, "fileId") },
       forwardFrom(headers, { tenant: true }),
     );
     return success(r.data);
