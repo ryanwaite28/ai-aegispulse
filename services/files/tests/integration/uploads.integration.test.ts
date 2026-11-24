@@ -2,7 +2,13 @@
 // presigned PUT through the S3 API). Tenant status is a port (the registry call is covered by the compose E2E).
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Writable } from "node:stream";
-import { CreateBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  CreateBucketCommand,
+  HeadObjectCommand,
+  ListPartsCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { Redis } from "ioredis";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PLATFORM_TENANT_ID, type Principal, type UserPrincipal } from "@aegispulse/ts-platform/auth";
@@ -43,6 +49,7 @@ let redis: Redis;
 let s3: S3Client;
 let presigner: S3Client;
 let service: FileUploadService;
+let deps: ConstructorParameters<typeof FileUploadService>[0];
 const suspended = new Set<string>();
 
 const user = (tenantId: string, roles: string[] = ["ANALYST"]): UserPrincipal => ({
@@ -118,7 +125,7 @@ beforeAll(async () => {
     requestChecksumCalculation: "WHEN_REQUIRED",
   });
   redis = new Redis(cache.url, { maxRetriesPerRequest: 1 });
-  service = new FileUploadService({
+  deps = {
     pool: db.pool,
     files: new FilesRepository(),
     outbox: new OutboxRepository("files"),
@@ -128,10 +135,12 @@ beforeAll(async () => {
     rate: new RedisInitRateLimiter(redis),
     objects: new S3UploadStore(s3, presigner, BUCKET),
     statusCache: new RedisFileStatusCache(redis),
+    multipartEnabled: true,
     tenants: { status: (t) => Promise.resolve(suspended.has(t) ? "SUSPENDED" : "ACTIVE") },
     version: "abc1234",
     logger,
-  });
+  };
+  service = new FileUploadService(deps);
 }, 900_000);
 
 afterAll(async () => {
@@ -311,7 +320,7 @@ describe("uploads (FR-FILE-01..04)", () => {
       await code(service.initUpload(p, undefined, undefined, { ...content().input, contentType: "application/zip" })),
     ).toBe("FILE_TYPE_NOT_ALLOWED");
     expect(
-      await code(service.initUpload(p, undefined, undefined, { ...content().input, sizeBytes: 64 * 1024 * 1024 + 1 })),
+      await code(service.initUpload(p, undefined, undefined, { ...content().input, sizeBytes: 512 * 1024 * 1024 + 1 })),
     ).toBe("FILE_TOO_LARGE");
     const evil = await service.initUpload(p, undefined, undefined, { ...content().input, filename: "..\u0000passwd" });
     const row = await withTenantTransaction(
@@ -400,6 +409,113 @@ describe("uploads (FR-FILE-01..04)", () => {
     expect(replay.body.fileId).toBe(first.body.fileId);
     expect(await code(service.initUpload(user(tenant), undefined, key, content().input))).toBe(
       "IDEMPOTENCY_KEY_REUSED",
+    );
+  });
+
+  it("FR-FILE-13 multipart: 70 MiB in 16 MiB parts (signed part length) → complete with ETags → UPLOADED; bad lists refused", async () => {
+    const tenant = randomUUID();
+    const p = user(tenant);
+    const size = 70 * 1024 * 1024;
+    const body = Buffer.alloc(size);
+    for (let i = 0; i < size; i += 4096) body.writeUInt32BE(i, i); // non-repeating content
+    const input: InitUploadInput = {
+      filename: "large.csv",
+      contentType: "text/csv",
+      sizeBytes: size,
+      sha256: createHash("sha256").update(body).digest("hex"),
+      purpose: "TRANSACTION_BATCH",
+    };
+    const init = await service.initUpload(p, undefined, undefined, input);
+    expect(init.httpStatus).toBe(201);
+    expect(init.body.upload).toBeUndefined();
+    const mp = init.body.multipart;
+    if (mp === undefined) throw new Error("no multipart");
+    expect(mp.partSizeBytes).toBe(16 * 1024 * 1024);
+    expect(mp.parts.map((x) => x.partNumber)).toEqual([1, 2, 3, 4, 5]);
+    for (const part of mp.parts) expect(part.url).not.toContain("large.csv");
+    const fileId = init.body.fileId;
+
+    // Each part URL commits to its length: a short body is refused.
+    const first = mp.parts[0];
+    if (first === undefined) throw new Error("no part");
+    expect((await fetch(first.url, { method: "PUT", body: body.subarray(0, 1024) })).status).toBe(403);
+
+    const etags: { partNumber: number; etag: string }[] = [];
+    for (const part of mp.parts.slice(0, 4)) {
+      const start = (part.partNumber - 1) * mp.partSizeBytes;
+      const res = await fetch(part.url, {
+        method: "PUT",
+        body: body.subarray(start, Math.min(size, start + mp.partSizeBytes)),
+      });
+      expect(res.status).toBe(200);
+      etags.push({ partNumber: part.partNumber, etag: res.headers.get("etag") ?? "" });
+    }
+    // Missing part 5 in the list → 422; listed but never uploaded → 409.
+    expect(await code(service.completeUpload(p, undefined, undefined, { fileId, parts: etags }))).toBe(
+      "VALIDATION_ERROR",
+    );
+    expect(
+      await code(
+        service.completeUpload(p, undefined, undefined, {
+          fileId,
+          parts: [...etags, { partNumber: 5, etag: '"nope"' }],
+        }),
+      ),
+    ).toBe("UPLOAD_NOT_FOUND_IN_STORAGE");
+    const last = mp.parts[4];
+    if (last === undefined) throw new Error("no part 5");
+    const lastRes = await fetch(last.url, { method: "PUT", body: body.subarray(4 * mp.partSizeBytes) });
+    expect(lastRes.status).toBe(200);
+    etags.push({ partNumber: 5, etag: lastRes.headers.get("etag") ?? "" });
+
+    const done = await service.completeUpload(p, undefined, undefined, { fileId, parts: [...etags].reverse() });
+    expect(done.status).toBe("UPLOADED");
+    expect(await outboxTypes(fileId)).toEqual(["file.status.changed", "file.uploaded"]);
+    // A single-PUT file may not send parts.
+    const single = await service.initUpload(p, undefined, undefined, content().input);
+    expect(
+      await code(
+        service.completeUpload(p, undefined, undefined, {
+          fileId: single.body.fileId,
+          parts: [{ partNumber: 1, etag: "x" }],
+        }),
+      ),
+    ).toBe("VALIDATION_ERROR");
+  });
+
+  it("FR-FILE-13 abort aborts the multipart upload; multipart disabled → 413 above 64 MiB", async () => {
+    const tenant = randomUUID();
+    const p = user(tenant);
+    const size = 65 * 1024 * 1024;
+    const init = await service.initUpload(p, undefined, undefined, {
+      filename: "big.txt",
+      contentType: "text/plain",
+      sizeBytes: size,
+      sha256: "c".repeat(64),
+      purpose: "OTHER",
+    });
+    const mp = init.body.multipart;
+    if (mp === undefined) throw new Error("no multipart");
+    const first = mp.parts[0];
+    if (first === undefined) throw new Error("no part");
+    expect((await fetch(first.url, { method: "PUT", body: Buffer.alloc(mp.partSizeBytes, 0x61) })).status).toBe(200);
+    expect((await service.abortUpload(p, undefined, undefined, { fileId: init.body.fileId })).status).toBe("EXPIRED");
+    const key = await withTenantTransaction(
+      db.pool,
+      tenant,
+      async (tx) =>
+        (await tx.query<{ k: string }>("SELECT storage_key AS k FROM files.files WHERE id = $1", [init.body.fileId]))
+          .rows[0]?.k ?? "",
+    );
+    const listed = await s3.send(new ListPartsCommand({ Bucket: BUCKET, Key: key, UploadId: mp.uploadId })).then(
+      () => "still open",
+      (e: unknown) => (e as { name?: string }).name ?? "error",
+    );
+    expect(listed).toBe("NoSuchUpload");
+
+    const off = new FileUploadService({ ...deps, multipartEnabled: false });
+    expect(await code(off.initUpload(p, undefined, undefined, { ...content().input, sizeBytes: size }))).toBe(
+      "FILE_TOO_LARGE",
     );
   });
 });

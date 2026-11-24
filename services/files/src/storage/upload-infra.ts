@@ -3,13 +3,17 @@
 // ≤ 60 s cache (FR-TEN-08).
 import {
   AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3ServiceException,
+  UploadPartCommand,
   type S3Client,
 } from "@aws-sdk/client-s3";
+import { DomainError } from "@aegispulse/ts-platform/errors";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { TenantSettingsCache } from "@aegispulse/ts-platform/tenant-settings";
 import type { Redis } from "ioredis";
@@ -279,6 +283,70 @@ export class S3UploadStore implements UploadObjectStore {
 
   async delete(key: string): Promise<void> {
     await this.internal.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+
+  async createMultipart(key: string, contentType: ContentType): Promise<string> {
+    const r = await this.internal.send(
+      new CreateMultipartUploadCommand({ Bucket: this.bucket, Key: key, ContentType: contentType }),
+    );
+    if (r.UploadId === undefined) throw new Error("object store returned no UploadId");
+    return r.UploadId;
+  }
+
+  /** One part URL for the public host; the part's exact length is a signed header. */
+  async presignPart(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    sizeBytes: number,
+    ttlSeconds: number,
+  ): Promise<string> {
+    return getSignedUrl(
+      this.presigner,
+      new UploadPartCommand({
+        Bucket: this.bucket,
+        Key: key,
+        UploadId: uploadId,
+        PartNumber: partNumber,
+        ContentLength: sizeBytes,
+      }),
+      { expiresIn: ttlSeconds, signableHeaders: new Set(["content-length"]) },
+    );
+  }
+
+  async completeMultipart(
+    key: string,
+    uploadId: string,
+    parts: readonly { partNumber: number; etag: string }[],
+  ): Promise<void> {
+    try {
+      await this.internal.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+          MultipartUpload: {
+            Parts: [...parts]
+              .sort((a, b) => a.partNumber - b.partNumber)
+              .map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })),
+          },
+        }),
+      );
+    } catch (error: unknown) {
+      const name = (error as { name?: string }).name ?? "";
+      if (["InvalidPart", "InvalidPartOrder", "NoSuchUpload", "EntityTooSmall"].includes(name)) {
+        throw new DomainError("UPLOAD_NOT_FOUND_IN_STORAGE", "the parts were not all uploaded (or the ETags differ)");
+      }
+      throw error;
+    }
+  }
+
+  async abortMultipart(key: string, uploadId: string): Promise<void> {
+    try {
+      await this.internal.send(new AbortMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId }));
+    } catch (error: unknown) {
+      if (!(error instanceof S3ServiceException && error.$metadata.httpStatusCode === 404)) throw error;
+    }
   }
 }
 

@@ -13,6 +13,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 5b multipart uploads (FR-FILE-13, `MULTIPART_UPLOADS_ENABLED`):
+  - 64–512 MiB files upload as 16 MiB parts. Each presigned part URL signs its exact length, so every request stays under 100 MB.
+  - Complete takes the ETag list (exactly parts 1..n, any order) and is retry-safe via HEAD. Abort and the orphan sweep abort the S3 upload.
+  - Compose enables the flag locally and raises clamd's limits to 520M.
+- `make demo-upload` (`scripts/demo/upload.mts`, Phase 5 exit): a clean PDF → VALIDATED and EICAR → QUARANTINED through the gateway.
 - FR-FILE-12 `deleteFile` emits `ops.audit.file_deleted` through the outbox in the same transaction as the soft delete (FR-AUD-02).
 - Phase 5e file sweeps, retention and delete (FR-FILE-10/12):
   - **Files:** `V5__file_maintenance` (cross-tenant definers). `sweepOrphans`: INITIATED > 1 h → EXPIRED, landed objects deleted, multipart aborted, session and dedup released. `purgeRetention`: objects and artifacts past each tenant's `retentionDays` deleted, then tombstones (`purged_at`). `deleteFile`: TENANT_ADMIN soft delete; history and caches, including cached download URLs.
@@ -209,6 +214,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 5 `RUNTIME-VERIFIED` locally: slices 5a–5e, E2E 240/240 incl. the 200 MiB multipart upload; exit items captured ([phase-05](docs/evidence/phase-05.md)); the pipeline is pending.
 - Phase 5 slice 5e `RUNTIME-VERIFIED` locally: files integration 19/19 (incl. the 100-upload orphan flood), E2E 239/239, `make trigger` for `files-orphan-sweep` / `files-retention` exit 0 ([phase-05e](docs/evidence/phase-05e.md)).
 - Phase 5 slice 5d `RUNTIME-VERIFIED` locally: files integration 16/16; E2E 232/232, including validation outcomes polled through the gateway and a real clamd quarantine ([phase-05d](docs/evidence/phase-05d.md)).
 - Phase 5 slice 5c `RUNTIME-VERIFIED` locally: validation integration 4/4; with the real clamd on the compose stack, EICAR → QUARANTINED (`MALWARE:Eicar-Test-Signature`) and PDF-as-CSV → QUARANTINED; E2E 214/214 ([phase-05c](docs/evidence/phase-05c.md)).

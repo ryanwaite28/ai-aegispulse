@@ -100,6 +100,7 @@ export interface NewFile {
   readonly purpose: Purpose;
   readonly relatedEntityIds: readonly string[];
   readonly correlationId: string;
+  readonly multipartUploadId?: string | null;
 }
 
 export interface Transition {
@@ -157,8 +158,9 @@ export class FilesRepository {
   async insert(tx: SqlExecutor, f: NewFile, actor: string): Promise<FileRecord> {
     const r = await tx.query<Row>(
       `INSERT INTO files.files (id, tenant_id, uploaded_by, original_filename, storage_bucket, storage_key, content_type,
-                                size_bytes, sha256_checksum, source_type, purpose, related_entity_ids, status, correlation_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'INITIATED', $13) RETURNING *`,
+                                size_bytes, sha256_checksum, source_type, purpose, related_entity_ids, status, correlation_id,
+                                multipart_upload_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'INITIATED', $13, $14) RETURNING *`,
       [
         f.id,
         f.tenantId,
@@ -173,6 +175,7 @@ export class FilesRepository {
         f.purpose,
         f.relatedEntityIds,
         f.correlationId,
+        f.multipartUploadId ?? null,
       ],
     );
     await this.history(tx, {

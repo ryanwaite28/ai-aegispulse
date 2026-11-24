@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   canTransition,
   checkContentType,
-  checkSize,
+  checkPartList,
   MAX_SINGLE_PUT_BYTES,
+  MULTIPART_PART_BYTES,
+  partSizes,
   rawObjectKey,
   sanitizeFilename,
+  uploadMode,
 } from "./file.js";
 
 const T = "8a92269a-91aa-4d80-b6fd-093a350304fe";
@@ -35,8 +38,10 @@ describe("file rules (FR-FILE-01)", () => {
   it("enforces the type allowlist and the 64 MiB single-PUT bound", () => {
     expect(code(() => checkContentType("application/pdf"))).toBe("ok");
     expect(code(() => checkContentType("application/x-msdownload"))).toBe("FILE_TYPE_NOT_ALLOWED");
-    expect(code(() => checkSize(MAX_SINGLE_PUT_BYTES, false))).toBe("ok");
-    expect(code(() => checkSize(MAX_SINGLE_PUT_BYTES + 1, false))).toBe("FILE_TOO_LARGE");
+    expect(uploadMode(MAX_SINGLE_PUT_BYTES, false)).toBe("single");
+    expect(code(() => uploadMode(MAX_SINGLE_PUT_BYTES + 1, false))).toBe("FILE_TOO_LARGE");
+    expect(uploadMode(MAX_SINGLE_PUT_BYTES + 1, true)).toBe("multipart");
+    expect(code(() => uploadMode(512 * 1024 * 1024 + 1, true))).toBe("FILE_TOO_LARGE");
   });
 
   it("allows only the lifecycle transitions", () => {
@@ -66,5 +71,21 @@ describe("download Content-Disposition (FR-FILE-08)", () => {
       `attachment; filename="R_sum_ _Q3_.pdf"; filename*=UTF-8''R%C3%A9sum%C3%A9%20%22Q3%22.pdf`,
     );
     expect(attachmentDisposition("../../etc/passwd")).toContain('filename="passwd"');
+  });
+});
+
+describe("multipart parts (FR-FILE-13)", () => {
+  it("splits into 16 MiB parts with the remainder last, ≤ 32 parts at 512 MiB", () => {
+    expect(partSizes(200 * 1024 * 1024)).toEqual([...Array<number>(12).fill(MULTIPART_PART_BYTES), 8 * 1024 * 1024]);
+    expect(partSizes(512 * 1024 * 1024)).toHaveLength(32);
+  });
+
+  it("requires exactly parts 1..n, each once, with an ETag", () => {
+    const parts = [1, 2, 3].map((n) => ({ partNumber: n, etag: `"e${String(n)}"` }));
+    expect(code(() => checkPartList(parts, 3))).toBe("ok");
+    expect(code(() => checkPartList([...parts].reverse(), 3))).toBe("ok");
+    expect(code(() => checkPartList(parts.slice(0, 2), 3))).toBe("VALIDATION_ERROR");
+    expect(code(() => checkPartList([...parts, { partNumber: 3, etag: "x" }], 3))).toBe("VALIDATION_ERROR");
+    expect(code(() => checkPartList([{ partNumber: 1, etag: "" }], 1))).toBe("VALIDATION_ERROR");
   });
 });

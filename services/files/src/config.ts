@@ -25,5 +25,7 @@ export const configSchema = platformEnvSchema
     CLAMAV_HOST: z.string().min(1),
     /** Host in presigned URLs (§10.4): http://localhost:9000 locally, the objects ingress in dev/prod. */
     PUBLIC_OBJECTS_URL: z.url(),
+    /** FR-FILE-13: 64–512 MiB uploads as 16 MiB parts (§10.4; default off). */
+    MULTIPART_UPLOADS_ENABLED: envBoolean.default(false),
   });
 export type Config = z.output<typeof configSchema>;

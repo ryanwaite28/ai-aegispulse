@@ -73,15 +73,41 @@ export function isAcceptableFilename(name: string): boolean {
   return !name.startsWith(".") && !/[/\\]/.test(name) && ![...name].some(isControl);
 }
 
-/** FR-FILE-01 size bounds for a single PUT (multipart arrives with FR-FILE-13). */
-export function checkSize(sizeBytes: number, multipartEnabled: boolean): void {
-  if (sizeBytes <= MAX_SINGLE_PUT_BYTES) return;
-  if (!multipartEnabled || sizeBytes > MAX_MULTIPART_BYTES) {
-    throw new DomainError("FILE_TOO_LARGE", "file exceeds the upload size limit", {
-      details: [{ field: "sizeBytes", message: `at most ${String(MAX_SINGLE_PUT_BYTES)} bytes per upload` }],
+/** FR-FILE-13: 16 MiB parts (≤ 32 → 512 MiB), every request well under the 100 MB edge cap. */
+export const MULTIPART_PART_BYTES = 16 * MiB;
+
+/** FR-FILE-01/13 size bounds: ≤ 64 MiB single PUT; 64–512 MiB multipart when enabled. Returns the upload mode. */
+export function uploadMode(sizeBytes: number, multipartEnabled: boolean): "single" | "multipart" {
+  if (sizeBytes <= MAX_SINGLE_PUT_BYTES) return "single";
+  if (multipartEnabled && sizeBytes <= MAX_MULTIPART_BYTES) return "multipart";
+  throw new DomainError("FILE_TOO_LARGE", "file exceeds the upload size limit", {
+    details: [
+      {
+        field: "sizeBytes",
+        message: multipartEnabled
+          ? `at most ${String(MAX_MULTIPART_BYTES)} bytes`
+          : `at most ${String(MAX_SINGLE_PUT_BYTES)} bytes per upload`,
+      },
+    ],
+  });
+}
+
+/** Part sizes for a multipart upload: full 16 MiB parts, the last one holds the remainder. */
+export function partSizes(sizeBytes: number): number[] {
+  const out: number[] = [];
+  for (let left = sizeBytes; left > 0; left -= MULTIPART_PART_BYTES) out.push(Math.min(left, MULTIPART_PART_BYTES));
+  return out;
+}
+
+/** FR-FILE-13 complete: exactly parts 1..n, each once, with an ETag. */
+export function checkPartList(parts: readonly { partNumber: number; etag: string }[], expected: number): void {
+  const numbers = [...parts].map((p) => p.partNumber).sort((a, b) => a - b);
+  const ok = numbers.length === expected && numbers.every((n, i) => n === i + 1) && parts.every((p) => p.etag !== "");
+  if (!ok) {
+    throw new DomainError("VALIDATION_ERROR", "request failed validation", {
+      details: [{ field: "parts", message: `expected parts 1..${String(expected)}, each once with its ETag` }],
     });
   }
-  throw new DomainError("FILE_TOO_LARGE", "multipart uploads are not available yet");
 }
 
 export function checkContentType(contentType: string): asserts contentType is ContentType {

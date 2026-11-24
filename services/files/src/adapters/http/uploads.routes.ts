@@ -113,12 +113,11 @@ export function registerUploadRoutes(app: HttpServer, verifier: JwtVerifier, upl
   app.post("/internal/v1/completeUpload", async (req) => {
     const principal = await auth(req.headers, "completeUpload");
     const input = parse(complete, req.body);
-    if (input.parts !== undefined) throw new DomainError("VALIDATION_ERROR", "multipart uploads are not enabled");
     const f = await uploads.completeUpload(
       principal,
       header(req.headers, "x-aegis-tenant"),
       header(req.headers, "idempotency-key"),
-      { fileId: input.fileId },
+      { fileId: input.fileId, parts: input.parts },
     );
     return { data: toFileView(f), meta: meta() };
   });

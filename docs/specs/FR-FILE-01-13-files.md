@@ -4,7 +4,7 @@
 |---|---|
 | Phase | 05 — Files Subsystem (`PROJECT.md` §11). FR-FILE-11 (remote fetch with SSRF guard) is Phase 11 |
 | Owner runtime(s) | `services/files` (TS/Fastify); gateway `/v1/files*` |
-| Status | 5a RUNTIME-VERIFIED locally (2026-11-24, E2E 213/213); 5c, 5d, 5e RUNTIME-VERIFIED locally (2026-11-24); 5b pending |
+| Status | 5a RUNTIME-VERIFIED locally (2026-11-24, E2E 213/213); 5b, 5c, 5d, 5e RUNTIME-VERIFIED locally (2026-11-24); Phase 5 exit captured |
 | Slices | **5a** init, dedup, quotas, complete/abort (FR-FILE-01..04) · **5c** validation consumer (FR-FILE-05) · **5d** processing lifecycle + reads/downloads (FR-FILE-06..09) · **5e** sweeps, retention, delete (FR-FILE-10/12) · **5b** multipart (FR-FILE-13, named "Phase 5b" in §2.7, delivered last behind `MULTIPART_UPLOADS_ENABLED`) |
 | Related | ADR-0002, ADR-0004 (outbox), ADR-0009 (pointers only), ADR-0011 (object store), ADR-0016 (RLS); NFR-02, NFR-08 |
 
@@ -128,6 +128,25 @@ Steps, in order:
 - **Audited** (FR-FILE-12, amended 2026-11-24): the soft delete enqueues `ops.audit.file_deleted {fileId, actorId}` on `aegispulse.intelligence` in the same transaction. It is bound to `cases.audit-ingest.q` by `ops.audit.*`, and FR-AUD-02 now lists file deletions. The file's history also records it (reason `DELETED`, actor `user:{id}`).
 - **Object-store grant** (§5.7.3, clarification forced by FR-FILE-12): the `files` identity gains write (delete) on `artifacts/*` for the purge. It already had read; doc-extraction remains the writer of artifact contents.
 
+### Multipart uploads (FR-FILE-13; 5b, behind `MULTIPART_UPLOADS_ENABLED`)
+- **Size → mode** (`uploadMode`):
+  - ≤ 64 MiB → single presigned PUT;
+  - 64 MiB–512 MiB with the flag → multipart;
+  - over 64 MiB without the flag → `413 FILE_TOO_LARGE`;
+  - over 512 MiB → `422 VALIDATION_ERROR`, because it exceeds the contract maximum.
+  - The flag defaults to false (§10.4). The local compose stack sets it so the 200 MiB E2E runs; dev and prod set it explicitly.
+- **Init:**
+  - `CreateMultipartUpload` (internal client) first, so the row records `multipart_upload_id`.
+  - Then `multipart {uploadId, partSizeBytes: 16 MiB, parts[{partNumber, url}]}`: one presigned `UploadPart` URL per part (10 min, public host) with the part's exact length as a signed header (16 MiB; the last part holds the remainder).
+  - At most 32 parts, so every request stays under Cloudflare's 100 MB edge cap.
+  - An init that fails after the create leaves an unused multipart upload with no row (rare; object-store lifecycle cleanup).
+- **Complete:**
+  - Allowed `parts[{partNumber, etag}]` only for multipart files (otherwise 422), and it must be exactly 1..n, each once, any order (otherwise 422).
+  - HEAD first: an already-assembled object (a retry after the store completed) skips assembly. Otherwise `CompleteMultipartUpload`; unknown or unuploaded parts / wrong ETags / no such upload → `409 UPLOAD_NOT_FOUND_IN_STORAGE`.
+  - Then the usual size check, transition and events.
+- **Abort and the orphan sweep:** both call `AbortMultipartUpload`.
+- **Validation:** unchanged (streamed). clamd limits in compose are `StreamMaxLength`/`MaxFileSize`/`MaxScanSize` 520M (512 MiB uploads).
+
 ### Gateway (5a)
 - `FilesClient` forwards the caller's token, `X-Aegis-Tenant` and `Idempotency-Key`.
 - Init maps to `201` (new) or `200` (`deduplicated: true`), as the contract states.
@@ -151,4 +170,6 @@ Steps, in order:
 | Integration | `lifecycle.integration.test.ts` (5d) | VALIDATED → PROCESSING → PROCESSED + one artifact + one CONFIDENTIAL `doc.extraction.completed`; replays idempotent; REVIEW_REQUIRED; retryable vs final failure; illegal transitions → 409; user token → 403; unknown → 404; row counts only for batches; internal download fetched; getFile cache + invalidation + no cross-tenant hit; list filters + keyset pages; download URL fetched with UTF-8 disposition, cached per actor; quarantine: ANALYST 403, TA without ack 403, TA with ack 200 + one audit event per call; other tenant 404 |
 | Unit | scheduler-trigger `jobs.test.ts` (5e) | `files-orphan-sweep` → files.sweepOrphans, `files-retention` → files.purgeRetention, both on the svc-scheduler-trigger allowlist |
 | Integration | `maintenance.integration.test.ts` (5e) | orphan flood: 100 real inits (25 with a PUT) backdated 2 h → 100 EXPIRED + 100 events, zero objects left under the tenant, sessions released, a young upload kept; user token 403; purge: PROCESSED+artifact and QUARANTINED past 30 days → objects in raw/quarantine/artifacts deleted, tombstones (purged+deleted, no artifact rows), a 10-day file kept, an unknown tenant skipped, a re-run is a no-op; delete: ANALYST 403, TA → caches dropped, get/download 404, list excludes, object kept, history DELETED by `user:{id}`, repeat 404 |
-| E2E | `tests/e2e/files.e2e.test.ts` + role matrix Phase 5 | the same flow through the gateway against compose, PUT to `PUBLIC_OBJECTS_URL`, tenant B → 404 |
+| Unit | `domain/file.test.ts` (5b) | size → mode (64 MiB / 512 MiB / flag); 16 MiB parts with remainder, 32 at 512 MiB; part list exactly 1..n with ETags |
+| Integration | `uploads.integration.test.ts` (5b) | real 70 MiB multipart on SeaweedFS: 5 part URLs without the filename; a short body → 403 (signed length); complete with a missing part → 422, with an unuploaded part → 409; all 5 (reversed order) → UPLOADED + events; parts on a single-PUT file → 422; abort → EXPIRED and ListParts → NoSuchUpload; flag off → 413 |
+| E2E | `tests/e2e/files.e2e.test.ts` + role matrix Phase 5 (5b: 200 MiB in 13 parts, each request < 100 MB → UPLOADED → VALIDATED after a full SHA-256 + clamd scan) | the same flow through the gateway against compose, PUT to `PUBLIC_OBJECTS_URL`, tenant B → 404 |

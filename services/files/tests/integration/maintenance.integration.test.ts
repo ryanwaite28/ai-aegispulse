@@ -173,6 +173,7 @@ beforeAll(async () => {
     rate: { take: () => Promise.resolve(true) }, // the flood is about orphans, not the 60/min quota
     objects: new S3UploadStore(s3, presigner, RAW),
     statusCache,
+    multipartEnabled: true,
     tenants: { status: () => Promise.resolve("ACTIVE") },
   });
   maintenance = new FileMaintenanceService({

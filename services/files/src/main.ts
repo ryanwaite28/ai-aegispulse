@@ -139,6 +139,7 @@ async function main(): Promise<void> {
     objects: new S3UploadStore(s3, presigner, bucketName(config)),
     statusCache: new RedisFileStatusCache(redis),
     tenants: new RegistryTenantStatus(tenantSettings),
+    multipartEnabled: config.MULTIPART_UPLOADS_ENABLED,
     version,
     logger,
   });

@@ -64,7 +64,7 @@ describe("file uploads over the gateway (FR-FILE-01..04)", () => {
     expect(aborted.body.data).toMatchObject({ status: "EXPIRED" });
   });
 
-  it("type allowlist (422), the filename pattern (422), size bound (413) and PLATFORM_ADMIN via X-Aegis-Tenant", async () => {
+  it("type allowlist (422), the filename pattern (422), contract size bound (422) and PLATFORM_ADMIN via X-Aegis-Tenant", async () => {
     const w = await world();
     const token = w.a.users.ANALYST.token;
     const base = pdf().input;
@@ -83,9 +83,11 @@ describe("file uploads over the gateway (FR-FILE-01..04)", () => {
     });
     const big = await call("POST", "/v1/files/uploads/init", {
       token,
-      body: { ...base, sizeBytes: 64 * 1024 * 1024 + 1 },
+      body: { ...base, sizeBytes: 512 * 1024 * 1024 + 1 },
     });
-    expect({ status: big.status, code: big.body.error?.code }).toEqual({ status: 413, code: "FILE_TOO_LARGE" });
+    // Above the contract maximum (512 MiB) the request itself is invalid (422); FILE_TOO_LARGE (413) is for sizes
+    // the schema allows but the configuration does not (> 64 MiB with multipart off; integration-tested).
+    expect({ status: big.status, code: big.body.error?.code }).toEqual({ status: 422, code: "VALIDATION_ERROR" });
     const pa = await call("POST", "/v1/files/uploads/init", {
       token: w.pa,
       headers: { "x-aegis-tenant": w.a.id },
@@ -174,4 +176,49 @@ describe("file uploads over the gateway (FR-FILE-01..04)", () => {
     expect((await call("GET", `/v1/files/${fileId}`, { token: w.a.users.ANALYST.token })).status).toBe(404);
     expect((await call("DELETE", `/v1/files/${fileId}`, { token: w.a.users.TENANT_ADMIN.token })).status).toBe(404);
   });
+
+  it(
+    "FR-FILE-13 a 200 MiB file uploads as 16 MiB parts (every request < 100 MB) → UPLOADED → VALIDATED",
+    { timeout: 300_000 },
+    async () => {
+      const w = await world();
+      const token = w.a.users.ANALYST.token;
+      const size = 200 * 1024 * 1024;
+      const body = Buffer.alloc(size, `synthetic ledger line ${randomUUID()}\n`);
+      const init = await call("POST", "/v1/files/uploads/init", {
+        token,
+        body: {
+          filename: "ledger-200mib.txt",
+          contentType: "text/plain",
+          sizeBytes: size,
+          sha256: createHash("sha256").update(body).digest("hex"),
+          purpose: "OTHER",
+        },
+      });
+      expect(init.status).toBe(201);
+      const data = init.body.data as unknown as {
+        fileId: string;
+        multipart: { uploadId: string; partSizeBytes: number; parts: { partNumber: number; url: string }[] };
+      };
+      expect(data.multipart.parts).toHaveLength(13);
+      const parts: { partNumber: number; etag: string }[] = [];
+      for (const part of data.multipart.parts) {
+        const start = (part.partNumber - 1) * data.multipart.partSizeBytes;
+        const chunk = body.subarray(start, Math.min(size, start + data.multipart.partSizeBytes));
+        expect(chunk.length).toBeLessThan(100_000_000); // Cloudflare's edge cap
+        const res = await fetch(part.url, { method: "PUT", body: chunk });
+        expect(res.status).toBe(200);
+        parts.push({ partNumber: part.partNumber, etag: res.headers.get("etag") ?? "" });
+      }
+      const done = await call("POST", `/v1/files/uploads/${data.fileId}/complete`, { token, body: { parts } });
+      expect(done.status).toBe(200);
+      expect(done.body.data).toMatchObject({ status: "UPLOADED", sizeBytes: size });
+      let status = "UPLOADED";
+      for (let i = 0; i < 240 && status === "UPLOADED"; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        status = String((await call("GET", `/v1/files/${data.fileId}`, { token })).body.data?.["status"]);
+      }
+      expect(status).toBe("VALIDATED"); // full SHA-256 + clamd scan of 200 MiB
+    },
+  );
 });

@@ -154,9 +154,10 @@ services:
     <<: *restart
     image: clamav/clamav:1.5.5-debian13-slim # multi-arch (amd64+arm64); plain tag is amd64-only
     environment:
-      # FR-FILE-05: INSTREAM must accept the largest single-PUT file (64 MiB; default StreamMaxLength is 25M).
-      CLAMD_CONF_StreamMaxLength: 65M
-      CLAMD_CONF_MaxFileSize: 65M
+      # FR-FILE-05/13: INSTREAM must accept the largest upload (512 MiB multipart; clamd defaults are 25M/100M/400M).
+      CLAMD_CONF_StreamMaxLength: 520M
+      CLAMD_CONF_MaxFileSize: 520M
+      CLAMD_CONF_MaxScanSize: 520M
     ports: ["3310:3310"]
     volumes:
       - clamdb:/var/lib/clamav
@@ -365,6 +366,8 @@ services:
       CLAMAV_HOST: clamav
       # FR-FILE-01: presigned URLs name the host clients reach (objectstore's published port), §10.4.
       PUBLIC_OBJECTS_URL: http://localhost:9000
+      # FR-FILE-13 on locally so the 200 MiB multipart E2E runs (§10.4 default false; dev/prod set it explicitly).
+      MULTIPART_UPLOADS_ENABLED: "true"
       REGISTRY_URL: http://registry:8084
       JWT_ISSUER: aegispulse-registry
       JWT_AUDIENCE: aegispulse

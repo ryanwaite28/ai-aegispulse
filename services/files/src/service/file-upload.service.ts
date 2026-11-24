@@ -12,12 +12,15 @@ import { getContext } from "@aegispulse/ts-platform/logging";
 import { withTenantTransaction, type OutboxRepository, type SqlPool } from "@aegispulse/ts-platform/outbox";
 import {
   checkContentType,
-  checkSize,
+  checkPartList,
   countsForDedup,
   DEDUP_TTL_SECONDS,
+  MULTIPART_PART_BYTES,
+  partSizes,
   PRESIGNED_PUT_TTL_SECONDS,
   rawObjectKey,
   sanitizeFilename,
+  uploadMode,
   STORAGE_QUOTA_BYTES,
   UPLOAD_SESSION_TTL_SECONDS,
   type ContentType,
@@ -65,6 +68,22 @@ export interface UploadObjectStore {
   /** undefined when the object does not exist. */
   head(key: string): Promise<{ sizeBytes: number } | undefined>;
   delete(key: string): Promise<void>;
+  /** FR-FILE-13 multipart: create, presign one part (signed Content-Length), complete with ETags, abort. */
+  createMultipart(key: string, contentType: ContentType): Promise<string>;
+  presignPart(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    sizeBytes: number,
+    ttlSeconds: number,
+  ): Promise<string>;
+  /** Throws DomainError UPLOAD_NOT_FOUND_IN_STORAGE when the upload or a part is unknown to the store. */
+  completeMultipart(
+    key: string,
+    uploadId: string,
+    parts: readonly { partNumber: number; etag: string }[],
+  ): Promise<void>;
+  abortMultipart(key: string, uploadId: string): Promise<void>;
 }
 export interface FileStatusCache {
   invalidate(fileId: string): Promise<void>;
@@ -91,6 +110,11 @@ export interface InitUploadResult {
     readonly status: FileStatus;
     readonly deduplicated: boolean;
     readonly upload?: { method: "PUT"; url: string; headers: Readonly<Record<string, string>>; expiresAt: string };
+    readonly multipart?: {
+      uploadId: string;
+      partSizeBytes: number;
+      parts: readonly { partNumber: number; url: string }[];
+    };
   };
 }
 
@@ -105,6 +129,8 @@ export interface FileUploadDeps {
   readonly objects: UploadObjectStore;
   readonly statusCache: FileStatusCache;
   readonly tenants: TenantStatusPort;
+  /** MULTIPART_UPLOADS_ENABLED (§10.4): 64–512 MiB uploads as 16 MiB parts (FR-FILE-13). */
+  readonly multipartEnabled: boolean;
   readonly version: string;
   readonly logger: Logger;
   readonly now?: () => Date;
@@ -129,7 +155,7 @@ export class FileUploadService {
     }
     checkContentType(input.contentType);
     const contentType = input.contentType;
-    checkSize(input.sizeBytes, false);
+    const mode = uploadMode(input.sizeBytes, this.deps.multipartEnabled);
     await this.requireActiveTenant(access.tenantId);
 
     const tenantId = access.tenantId;
@@ -162,6 +188,8 @@ export class FileUploadService {
 
       const fileId = randomUUID();
       const storageKey = rawObjectKey(tenantId, fileId, this.now());
+      // Multipart: the upload id is created first so the row records it (the orphan sweep aborts it if unused).
+      const uploadId = mode === "multipart" ? await this.deps.objects.createMultipart(storageKey, contentType) : null;
       const file = await this.deps.files.insert(
         tx,
         {
@@ -178,25 +206,51 @@ export class FileUploadService {
           purpose: input.purpose,
           relatedEntityIds: input.relatedEntityIds ?? [],
           correlationId: correlationId(),
+          multipartUploadId: uploadId,
         },
         access.actor,
       );
-      const upload = await this.deps.objects.presignPut(
-        storageKey,
-        contentType,
-        input.sizeBytes,
-        PRESIGNED_PUT_TTL_SECONDS,
-      );
+      const target =
+        uploadId === null
+          ? {
+              upload: {
+                method: "PUT" as const,
+                ...(await this.deps.objects.presignPut(
+                  storageKey,
+                  contentType,
+                  input.sizeBytes,
+                  PRESIGNED_PUT_TTL_SECONDS,
+                )),
+              },
+            }
+          : {
+              multipart: {
+                uploadId,
+                partSizeBytes: MULTIPART_PART_BYTES,
+                parts: await Promise.all(
+                  partSizes(input.sizeBytes).map(async (size, i) => ({
+                    partNumber: i + 1,
+                    url: await this.deps.objects.presignPart(
+                      storageKey,
+                      uploadId,
+                      i + 1,
+                      size,
+                      PRESIGNED_PUT_TTL_SECONDS,
+                    ),
+                  })),
+                ),
+              },
+            };
       await this.deps.sessions.put(
         fileId,
         { tenantId, uploader: access.actor, sizeBytes: input.sizeBytes, sha256: input.sha256, storageKey },
         UPLOAD_SESSION_TTL_SECONDS,
       );
       await this.deps.dedup.set(tenantId, input.sha256, fileId, DEDUP_TTL_SECONDS, true);
-      const body = { fileId, status: file.status, deduplicated: false, upload: { method: "PUT" as const, ...upload } };
+      const body = { fileId, status: file.status, deduplicated: false, ...target };
       if (idem !== undefined) await this.deps.idempotency.complete(tx, idem, 201, body);
       this.deps.logger.info(
-        { tenantId, fileId, sizeBytes: input.sizeBytes, purpose: input.purpose },
+        { tenantId, fileId, sizeBytes: input.sizeBytes, purpose: input.purpose, mode },
         "file.upload.initiated",
       );
       return { httpStatus: 201, body };
@@ -208,7 +262,7 @@ export class FileUploadService {
     principal: Principal,
     actingTenant: string | undefined,
     idempotencyKey: string | undefined,
-    input: { fileId: string },
+    input: { fileId: string; parts?: readonly { partNumber: number; etag: string }[] | undefined },
   ): Promise<FileRecord> {
     const access = tenantAccess(principal, actingTenant, rolesFor("completeUpload"));
     const result = await withTenantTransaction(this.deps.pool, access.tenantId, async (tx) => {
@@ -223,7 +277,18 @@ export class FileUploadService {
       const session = await this.deps.sessions.get(file.id);
       if (session === undefined) throw new DomainError("UPLOAD_SESSION_EXPIRED", "the upload session has expired");
       this.requireUploaderOrAnalyst(access, file, session);
-      const head = await this.deps.objects.head(file.storageKey);
+      let head = await this.deps.objects.head(file.storageKey);
+      if (file.multipartUploadId === null && input.parts !== undefined) {
+        throw new DomainError("VALIDATION_ERROR", "request failed validation", {
+          details: [{ field: "parts", message: "only for multipart uploads" }],
+        });
+      }
+      if (file.multipartUploadId !== null && head === undefined) {
+        // FR-FILE-13: assemble the parts. A retry after the store already assembled them finds the object (HEAD).
+        checkPartList(input.parts ?? [], partSizes(file.sizeBytes).length);
+        await this.deps.objects.completeMultipart(file.storageKey, file.multipartUploadId, input.parts ?? []);
+        head = await this.deps.objects.head(file.storageKey);
+      }
       if (head === undefined) {
         throw new DomainError("UPLOAD_NOT_FOUND_IN_STORAGE", "no object was uploaded for this file");
       }
@@ -295,6 +360,7 @@ export class FileUploadService {
     if (result.changed) {
       const f = result.file;
       await this.deps.objects.delete(f.storageKey); // a PUT may have landed before the abort
+      if (f.multipartUploadId !== null) await this.deps.objects.abortMultipart(f.storageKey, f.multipartUploadId);
       await this.deps.sessions.delete(f.id);
       await this.deps.dedup.release(f.tenantId, f.sha256, f.id);
       await this.deps.statusCache.invalidate(f.id);
