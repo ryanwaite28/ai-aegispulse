@@ -12,6 +12,8 @@
 
 `CLAUDE.md` is the **AI session primer** — a concise, opinionated set of rules that tells Claude Code exactly how to behave in the repo: coding standards, what not to do, how to run things, and which patterns are canonical.
 
+The **AI governance constructs** (steering docs, ADRs, skills, review agents, hooks, templates, changelog; see [AI Governance & Consistency Constructs](#ai-governance--consistency-constructs)) put `PROJECT.md` into practice and enforce it, so every session produces consistent, high-quality, traceable work. They are generated alongside `PROJECT.md` and never contradict it.
+
 ---
 
 ## PROJECT.md — Section Guide
@@ -467,6 +469,43 @@ npm run dev
 
 ---
 
+## AI Governance & Consistency Constructs
+
+`PROJECT.md` defines *what* to build and `CLAUDE.md` primes each session. Neither enforces anything by itself. Every generated project must also scaffold the constructs below, so that each AI-assisted session reads the same rules, works in the same steps, and gets checked automatically. Create them in the same pass as `PROJECT.md`. Each construct restates or operationalizes `PROJECT.md`; none may introduce decisions of its own, and if one disagrees with `PROJECT.md`, `PROJECT.md` wins.
+
+### Required constructs
+
+| Construct | Location | Purpose & minimum content |
+|---|---|---|
+| **Cross-agent primer** | `AGENTS.md` | Same rules for non-Claude agents (Codex, Cursor, Copilot, Gemini): points to `PROJECT.md` (binding) and `CLAUDE.md`, summarizes §12 non-negotiables, gives a definition-of-done checklist. |
+| **Changelog** | `CHANGELOG.md` | Keep a Changelog + SemVer. Every change adds an `[Unreleased]` line citing FR/NFR ids and phase. Categories include `Docs` and `Status` (status changes link evidence). |
+| **Steering docs** | `docs/steering/` | Always-on context, short and specific to the project: `product.md` (problem, personas, principles, non-goals), `tech.md` (pinned versions table filled in Phase 0 after checking current releases, dependency policy, dependency log), `structure.md` ("where does this code go?" table: location, allowed imports, forbidden imports), `quality.md` (definition of done, error classification, review checklist, status vocabulary). |
+| **Architecture Decision Records** | `docs/adr/` | `0000-template.md` + index `README.md` + one ADR per significant decision already made in `PROJECT.md` (Context, Decision, Options considered, Consequences, Verification). Open decisions are recorded as `Proposed`. An ADR takes effect only when `PROJECT.md` is amended in the same change. |
+| **Spec templates** | `docs/specs/` | `README.md` + `_template.md` for per-FR implementation specs (verbatim FR, behavior incl. forbidden paths, data/migrations, contracts, layer placement, security/observability, test table, runtime acceptance). Specs may not add scope. |
+| **Evidence templates** | `docs/evidence/` | `README.md` + `_template.md` for phase-exit evidence (SHA, date, environment, Runtime Completion Gate checklist, real command output). Never fabricated; append-only after verification. |
+| **Role skills** | `.claude/skills/<role>/SKILL.md` | One skill per engineering discipline the project needs (minimum: systems architect, principal engineer, DevSecOps, database admin, cybersecurity, QA/test; add messaging, ML/AI, data, SRE/observability, platform/Kubernetes, frontend, etc. as the stack requires). Frontmatter `name` + a `description` stating when to use it. The body is a project-specific checklist that cites `PROJECT.md` sections, never generic advice. |
+| **Workflow skills** | `.claude/skills/<verb>/SKILL.md` | Repeatable procedures invoked as slash commands with arguments: `/implement-fr` (contract → migration → domain → repository → service → adapters → gateway → tests → honest status update), `/write-spec`, `/phase-exit-evidence`, `/new-adr`, `/amend-project` (propagates a change to every affected `PROJECT.md` section). |
+| **Review agents** | `.claude/agents/*.md` | Read-only subagents that report findings with section references and a verdict: `architecture-reviewer` (layering, ownership, contracts, migrations, undeclared patterns), `security-reviewer` (authn/z, tenant isolation, input, secrets, infra hardening), `spec-tracer` (FR → spec → code → tests → evidence; flags overclaimed status). |
+| **Guard hook** | `.claude/hooks/` + `.claude/settings.json` (`PreToolUse` on `Edit\|Write\|MultiEdit\|NotebookEdit`) | Blocks (exit 2, message to the agent) edits to committed migrations, generated contract code, and secret-bearing files (`.env*` except `.env.example`, keys). Pipe-test it with sample payloads before relying on it. |
+| **Session recorder hook** | `.claude/hooks/session_log.*` + `SessionStart`, `UserPromptSubmit`, `Stop`, `PreCompact`, `PostCompact`, `SessionEnd` hooks | Writes a per-session trail to `docs/sessions/` (Markdown + JSONL + `INDEX.md`): timestamps, prompts, responses, per-turn tool and file summary, compaction summaries. Masks secret patterns, never blocks the session, logs its own errors to a gitignored file. |
+| **Permission guardrails** | `.claude/settings.json` `permissions.deny` | Deny reads of `.env*` and destructive commands relevant to the platform (e.g., namespace deletion, force push). |
+| **Merge request template** | `.gitlab/merge_request_templates/Default.md` or `.github/pull_request_template.md` | Traceability (FR/NFR, phase, spec, ADR), checklist mirroring `quality.md`, and a "verification performed" block for the commands actually run. |
+| **Repo hygiene** | `README.md`, `.gitignore` | README points to every governance document and states current status honestly. `.gitignore` covers secrets, local Claude settings, build outputs, and recorder error logs. |
+
+### Platform adaptation & source reconciliation
+- The section structure in this guide assumes AWS Lambda/SQS/RDS/Terraform and GitHub Actions. When the project brief or a supplied deployment context names a different target (e.g., Kubernetes, self-hosted GitLab, a homelab cluster), **adapt the sections; don't force AWS**. Keep each section's intent (e.g., §5.4 becomes workload configuration, §5.5 queue configuration for the actual broker, §5.7 Kubernetes ServiceAccounts + datastore principals). Document the real target and keep AWS only as a reference production mapping if useful.
+- Read every supplied context document (concept brief, platform/cluster guides, internal libraries) before writing. Platform hard requirements (ingress conventions, CI system, registry, secrets model, resource limits) are binding inputs.
+- Where the source brief conflicts with this guide (e.g., business logic placed in a gateway), resolve in favor of this guide's architectural rules and record every adaptation in a `PROJECT.md` appendix ("Source Reconciliation & Template Adaptations"), including open decisions to settle via ADR.
+
+### Rules for these constructs
+1. **No new decisions.** Skills, steering, agents, and templates restate `PROJECT.md`. A rule that exists only in a skill is a defect.
+2. **Cite, don't copy.** Reference `PROJECT.md` section numbers so readers jump to the authority, and keep restated rules short.
+3. **Project-specific.** Every skill and steering document names the project's real paths, services, queues, tables, and tools.
+4. **Verified, not assumed.** Hooks are pipe-tested and settings JSON validated before being declared working. Record what wasn't testable (e.g., a guard that only applies once commits exist).
+5. **Kept in sync.** Any `PROJECT.md` amendment updates the affected constructs in the same change (`/amend-project` enforces this), and every change is logged in `CHANGELOG.md`.
+
+---
+
 ## Generation Checklist
 
 When scaffolding a new project from an idea, work through these in order:
@@ -487,6 +526,15 @@ When scaffolding a new project from an idea, work through these in order:
 - [ ] Write Section 13 (Cost Estimates) — portfolio vs. production tables
 - [ ] Write Section 14 (Testing Plan) — unit, integration, e2e strategy
 - [ ] Write `CLAUDE.md` — summary, quick start, rules, commands, conventions
+- [ ] Write `AGENTS.md`, `CHANGELOG.md`, and `README.md`
+- [ ] Write steering docs (`docs/steering/product.md`, `tech.md`, `structure.md`, `quality.md`)
+- [ ] Write ADR template, index, and one ADR per decision already made (open decisions as `Proposed`)
+- [ ] Write spec and evidence templates (`docs/specs/`, `docs/evidence/`)
+- [ ] Write role skills and workflow skills (`.claude/skills/`) and review agents (`.claude/agents/`)
+- [ ] Write and pipe-test the guard hook and the session recorder hook; validate `.claude/settings.json`
+- [ ] Write the merge request template and `.gitignore`
+- [ ] Record template adaptations and source reconciliations in a `PROJECT.md` appendix
+- [ ] Verify traceability: every FR in §2 appears as a parent in §11
 
 ---
 
@@ -505,5 +553,7 @@ A well-written `PROJECT.md` should be comprehensive enough that:
 9. A completion gate or implementation-status ledger distinguishes source-implemented, migration-added, scaffolded, unit-verified, integration-verified, runtime-verified, and pending work.
 10. The repository structure clearly separates the named external gateway from named domain services, and no ambiguous `api-*` or `app-*` directory is presented as the sole entrypoint.
 11. Gateway code contains transport concerns only; domain logic, repositories, transactions, and outbox orchestration are owned exclusively by named service runtimes.
+12. The AI governance constructs (AGENTS.md, changelog, steering, ADRs, spec/evidence templates, role and workflow skills, review agents, guard and session-recorder hooks, MR template) exist, are specific to the project, cite `PROJECT.md` instead of adding decisions, and have tested hooks.
+13. Every adaptation of this template to the real deployment target, and every conflict resolved against the source brief, is recorded in a `PROJECT.md` appendix.
 
 If any of these conditions isn't met, the document isn't done.

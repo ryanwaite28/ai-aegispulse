@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-22 |
+| **Last updated** | 2026-11-24 (envelope `classification.source_trust_level` for §1.4.3; `ops.audit.file_deleted` for FR-FILE-12 / FR-AUD-02; §5.1 CronJob `aegispulse-cron-secret-expiry`, 9 CronJobs; §5.7.3 ingestion object-store list grant for FR-WHK-08) · 2026-11-23 (JVM heap 50%; ADR-0017 SERVICE secret reconciliation; client-credentials rate limit; JWKS source; changePassword session keep; `registry.tenant.deactivated`; FR-TEN-09) |
 
 ---
 
@@ -57,7 +57,7 @@ The platform is organized into four planes:
 ```
 EXTERNAL PUBLISHER (regulator relay, filing feed, market-alert vendor)
   → POST /webhooks/{sourceKey} with HMAC-SHA256 signature, timestamp, delivery id
-  → [gateway/fastify-http] forwards raw bytes + headers to Ingestion Service
+  → [gateway/nest-http] forwards raw bytes + headers to Ingestion Service
   → [Ingestion] verifies signature (constant-time, dual-key), timestamp skew ±5 min,
      Redis nonce (deliveryId) + durable idempotency (sourceKey:externalId:vN)
       ├─ invalid signature / skew / replay → 401/409, metric webhook_rejected_total{reason}
@@ -192,11 +192,12 @@ publisher_sev = publisher_stated_severity (may be null)
 algorithm_severity = max(rule_sev, ai_sev)   if ai_sev present and c ≥ 0.60
                    = rule_sev                otherwise (classification_source = RULES)
 
-final_severity     = max(algorithm_severity, publisher_sev)  if source.trust_level = TRUSTED
+final_severity     = max(algorithm_severity, publisher_sev)  if classification.source_trust_level = TRUSTED
                    = algorithm_severity                      otherwise
 final_severity     = analyst override value                  if an override exists (OVERRIDDEN)
 ```
 - Resolution is **elevate-only** for automated stages. Only an analyst with `ANALYST`+ role may lower severity, with a mandatory justification (≥ 20 chars) that is audited.
+- `classification.source_trust_level` is the source's trust level at ingest time, stamped by the producer (ingestion, for webhook and connector events); absent means `UNTRUSTED`. A later trust change does not re-resolve archived events.
 - `publisher_stated_severity` is preserved verbatim and never mutated; disagreement (`publisher_sev ≠ algorithm_severity`) is a tracked data-intelligence metric.
 
 #### 1.4.4 Transaction Risk Score (`risk-heuristic-v1.0.0`, Phase 8; ML model in Phase 12)
@@ -213,7 +214,7 @@ case_threshold       = 70  → opens TRANSACTION_RISK case
 ```
 - Currency conversion uses a static, versioned FX table (`fx-static-v1`, seeded) — no live FX calls.
 - Velocity/new-counterparty features are kept in Risk Scoring's Redis keyspace (sorted sets, 30-day TTL).
-- **Demo override (local and homelab-demo tenants only):** `metadata.demoScenario = "FORCE_CRITICAL"` adds a 100-point factor named `demo_override`. Ignored unless `tenant.demo_mode = true`.
+- **Demo override (demo-mode tenants only, any environment):** `metadata.demoScenario = "FORCE_CRITICAL"` adds a 100-point factor named `demo_override`. Ignored unless `tenant.demo_mode = true`.
 - Phase 12 adds an IsolationForest anomaly model (`risk-iforest-vN`); final score = `max(heuristic, round(100 × anomaly_score))`, both factor sets returned for explainability.
 
 #### 1.4.5 Case Policy Evaluation (`policy-v1.0.0`)
@@ -256,19 +257,23 @@ Red-flag clause lexicon (`clauses-v1`): *material weakness, going concern, resta
 | Project name | AegisPulse |
 | Repository | `aegispulse` monorepo on self-hosted GitLab (`gitlab.rmwhs.com`) |
 | Domain | Risk, regulatory & market intelligence (FinTech / RegTech) |
-| Console URL (homelab) | `https://aegispulse.rmwhs.com` |
-| API URL (homelab) | `https://aegispulse-api.rmwhs.com` |
-| Object upload URL (homelab) | `https://aegispulse-objects.rmwhs.com` (presigned S3 only) |
+| Console URL (prod) | `https://aegispulse.rmwhs.com` |
+| API URL (prod) | `https://aegispulse-api.rmwhs.com` |
+| Object upload URL (prod) | `https://aegispulse-objects.rmwhs.com` (presigned S3 only) |
+| Console URL (dev) | `https://aegispulse.rmwhs-dev.space` |
+| API URL (dev) | `https://aegispulse-api.rmwhs-dev.space` |
+| Object upload URL (dev) | `https://aegispulse-objects.rmwhs-dev.space` (presigned S3 only) |
+| Domains | `rmwhs.com` = **prod**, `rmwhs-dev.space` = **dev**; both proxied by Cloudflare to the same tunnel → same k3s cluster (ADR-0014) |
 | Local URLs | gateway `http://localhost:8080`, console `http://localhost:5173`, objects `http://localhost:9000` |
-| Kubernetes cluster | homelab k3s: `elitedesk-800` (compute) + `optiplex` (storage-dedicated) |
-| Kubernetes namespace | `aegispulse` |
+| Kubernetes cluster | homelab k3s, 3 nodes (ADR-0015): `elitedesk-800` (control plane + shared platform + spill-over compute), `optiplex` (app-compute worker), `optiplex-tower` (storage-dedicated, 1 TB data SSD) |
+| Kubernetes namespaces | `aegispulse` (prod), `aegispulse-dev` (dev) |
 | Container registry | `registry.rmwhs.com/<group>/aegispulse/<image>` (`$CI_REGISTRY_IMAGE`) |
-| Environments | `local` (Docker Compose), `homelab` (k3s, the portfolio deployment); `production` is a documented reference architecture only |
+| Environments | `local` (Docker Compose), `dev` (homelab k3s, `*.rmwhs-dev.space`), `prod` (homelab k3s, `*.rmwhs.com`, the portfolio deployment); AWS production is a documented reference architecture only |
 | Resource prefix | `aegispulse-` (Kubernetes), `aegispulse.` (RabbitMQ exchanges), `aegispulse-<env>-` (buckets) |
-| RabbitMQ | shared cluster broker (`rabbitmq` namespace), dedicated vhost `aegispulse` |
-| Secrets | Infisical (`infisical.rmwhs.com`), project `aegispulse`, environments `local`, `homelab` |
-| Observability | OpenObserve (`openobserve.rmwhs.com`), stream prefix `aegispulse_` |
-| Notifications | ntfy topic `aegispulse-alerts` (access-token protected) |
+| RabbitMQ | shared cluster broker (`rabbitmq` namespace), vhosts `aegispulse-dev` and `aegispulse-prod` |
+| Secrets | Infisical (`infisical.rmwhs.com`), org **HomeLab**, project **AegisPulse** (`16d178ac-eebb-4295-9243-b52b04ff3286`), environments **Development** (→ `aegispulse-dev`) and **Production** (→ `aegispulse`); local secrets are generated, never in Infisical ([runbook](docs/runbooks/infisical.md), ADR-0012) |
+| Observability | OpenObserve (`openobserve.rmwhs.com`), stream prefixes `aegispulse_dev_` / `aegispulse_prod_` |
+| Notifications | ntfy topics `aegispulse-alerts` (prod) and `aegispulse-alerts-dev` (dev), access-token protected |
 | Cloud account | None for portfolio (homelab). Reference production targets AWS (§5.8). |
 
 ### 1.6 Mission
@@ -292,22 +297,23 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 
 - **FR-TEN-01**: `PLATFORM_ADMIN` creates a tenant with `slug` (`^[a-z0-9-]{3,40}$`, unique), `displayName` (1–120), `highValueThresholdUsd` (default 50000), `highRiskCountries` (ISO-3166 alpha-2 list), `demoMode` (default false), `retentionDays` (30–3650, default 400). Creates the tenant `ACTIVE`, emits `registry.tenant.created`, writes audit entry. Duplicate slug → `409 TENANT_SLUG_TAKEN`. Idempotent by `Idempotency-Key`.
 - **FR-TEN-02**: `PLATFORM_ADMIN` suspends (`SUSPENDED`) or restores (`ACTIVE`) a tenant with a reason. While suspended: logins fail `403 TENANT_SUSPENDED`, webhooks for its sources return `403`, transaction/file submissions are rejected, consumers **still archive** in-flight events (no data loss) but sagas skip case creation and emit `ops` warnings. Emits `registry.tenant.suspended|restored`.
-- **FR-TEN-03**: `PLATFORM_ADMIN` deactivates a tenant (`DEACTIVATED`, terminal): all credentials revoked, sources disabled, data retained until retention purge (FR-EVT-07, FR-FILE-12). Hard delete is out of scope.
+- **FR-TEN-03**: `PLATFORM_ADMIN` deactivates a tenant (`DEACTIVATED`, terminal): all credentials revoked, sources disabled, data retained until retention purge (FR-EVT-07, FR-FILE-12). Emits `registry.tenant.deactivated` (audited per FR-AUD-02); owning services apply the same tenant-status gate as for suspension, permanently. Hard delete is out of scope.
 - **FR-TEN-04**: `TENANT_ADMIN` invites/creates users with `email` (RFC 5322, unique per tenant, stored lower-case), `displayName`, `roles[]` (non-empty subset of §1.4.6 tenant roles), and an initial password (≥ 14 chars, zxcvbn score ≥ 3) that must be changed at first login (`mustChangePassword`). Passwords hashed with Argon2id (m=64 MiB, t=3, p=1).
 - **FR-TEN-05**: `TENANT_ADMIN` lists (filter by role, status; paginated), updates roles, disables, and re-enables users. A tenant must always retain ≥ 1 active `TENANT_ADMIN` (`409 LAST_TENANT_ADMIN`). Role changes revoke the user's refresh tokens and emit `registry.user.changed`; audited.
-- **FR-TEN-06**: `TENANT_ADMIN` creates service accounts (role `INTEGRATION`) returning `clientId` and a one-time-displayed `clientSecret` (32 random bytes, base64url; stored as Argon2id hash). Supports rotate (new secret; previous valid for 24 h grace) and revoke. Audited.
-- **FR-TEN-07**: Internal `SERVICE` accounts (one per runtime, §5.7) are provisioned by migration seed + Infisical secret; their allowed internal actions are an explicit allowlist claim `act[]` in the token.
+- **FR-TEN-06**: `TENANT_ADMIN` creates service accounts (role `INTEGRATION`) returning `clientId` and a one-time-displayed `clientSecret` (32 random bytes, base64url; stored as Argon2id hash). Supports rotate (new secret; previous valid for 24 h grace) and revoke. Audited via `registry.service_account.changed`.
+- **FR-TEN-07**: Internal `SERVICE` accounts (one per runtime, §5.7) are provisioned by migration seed + Infisical secret; their allowed internal actions are an explicit allowlist claim `act[]` in the token. SERVICE token claims: `sub` (`svc-<runtime>`), `typ=service`, `act[]`, `iss=aegispulse-registry`, `aud=aegispulse-internal`, `jti`, `iat`, `exp`, `kid` header; no `tid`/`roles` (ADR-0010). Accounts and `allowed_actions` are seeded by `R__seed_service_accounts.sql` from §5.7.4; the registry reconciles each account's Argon2id secret verifier at startup from `SERVICE_CLIENT_SECRET_{RUNTIME}` (Infisical references to each runtime's own secret; changed secret → new verifier, previous valid 24 h) (ADR-0017).
 - **FR-TEN-08**: Tenant settings (`highValueThresholdUsd`, `highRiskCountries`, `retentionDays`, `demoMode`) are readable by internal services via `getTenantSettings` and cached ≤ 60 s by callers; changes emit `registry.tenant.settings_changed`.
+- **FR-TEN-09**: Platform bootstrap. A reserved tenant (`slug = platform`, fixed id `00000000-0000-0000-0000-000000000001`, seeded by a repeatable migration, not creatable/suspendable via the API) hosts `PLATFORM_ADMIN` users only. The registry one-shot command `bootstrap-platform-admin` (Kubernetes Job / compose `tools` profile) creates the first `PLATFORM_ADMIN` from `PLATFORM_ADMIN_BOOTSTRAP_EMAIL` + `PLATFORM_ADMIN_BOOTSTRAP_PASSWORD` when no active `PLATFORM_ADMIN` exists (no-op otherwise), with `mustChangePassword = true`, and writes an audit entry. A `PLATFORM_ADMIN` creates every other tenant's first `TENANT_ADMIN` by acting on that tenant via `X-Aegis-Tenant` (FR-AUTH-06).
 
 ### 2.2 Authentication & Authorization (Owner: `services/registry`; enforced in every service)
 
 - **FR-AUTH-01**: `POST /v1/auth/login` with tenant slug, email, password returns an RS256 access JWT (TTL 15 min) and a rotating opaque refresh token (TTL 7 d, stored hashed). Claims: `sub`, `tid` (tenant UUID), `tslug`, `roles[]`, `typ=user`, `iss=aegispulse-registry`, `aud=aegispulse`, `jti`, `iat`, `exp`, `kid` header. Failed attempts are rate limited per (tenant, email): 5 per 15 min → `429 AUTH_RATE_LIMITED`; responses never reveal whether the email exists.
-- **FR-AUTH-02**: `POST /v1/auth/refresh` rotates the refresh token (old one invalidated; reuse of an invalidated token revokes the whole token family and emits a security audit entry `AUTH_REFRESH_REUSE`).
+- **FR-AUTH-02**: `POST /v1/auth/refresh` rotates the refresh token (old one invalidated; reuse of an invalidated token revokes the whole token family and emits a security audit entry `AUTH_REFRESH_REUSE` as `registry.auth.refresh_reuse_detected`).
 - **FR-AUTH-03**: `POST /v1/auth/logout` revokes the current refresh-token family. `GET /v1/auth/me` returns profile, tenant, roles.
-- **FR-AUTH-04**: `POST /v1/auth/token` (client credentials) issues access tokens for `INTEGRATION` service accounts (TTL 15 min, no refresh). Internal `SERVICE` accounts use `/internal/v1/oauth/token` with `aud=aegispulse-internal`.
-- **FR-AUTH-05**: Registry publishes a JWKS at `/.well-known/jwks.json` with current and previous signing keys (kid rotation every 90 days, previous key retained 24 h after rotation). Every service validates JWTs locally against the cached JWKS (refresh every 10 min or on unknown `kid`) — no service trusts the gateway's validation alone.
+- **FR-AUTH-04**: `POST /v1/auth/token` (client credentials) issues access tokens for `INTEGRATION` service accounts (TTL 15 min, no refresh) with claims `sub` (clientId), `tid`, `tslug`, `roles=["INTEGRATION"]`, `typ=integration`, `iss=aegispulse-registry`, `aud=aegispulse`, `jti`, `iat`, `exp`, `kid` header. Internal `SERVICE` accounts call `issueClientCredentialsToken` (`POST /internal/v1/issueClientCredentialsToken`, the only unauthenticated internal operation: client credentials in the body, rate limited per `clientId`) with `audience=aegispulse-internal`. Both paths allow 10 failed attempts per `clientId` per 5 min, then `429 AUTH_RATE_LIMITED`; a failure never reveals whether the client exists.
+- **FR-AUTH-05**: Registry publishes a JWKS at `/.well-known/jwks.json` with current and previous signing keys (kid rotation every 90 days, previous key retained 24 h after rotation). The JWKS comes from `registry.signing_keys`: at startup the registry registers the public half of `JWT_SIGNING_KEY_CURRENT_PEM` under `JWT_SIGNING_KEY_CURRENT_KID` as `CURRENT` and demotes the former current key to `PREVIOUS` (published for 24 h, then `RETIRED`). Every service validates JWTs locally against the cached JWKS (refresh every 10 min or on unknown `kid`) — no service trusts the gateway's validation alone.
 - **FR-AUTH-06**: Authorization is enforced in the owning service's service layer by role + tenant: the tenant in the token must equal the tenant of every resource read or mutated; cross-tenant access returns `404` (not `403`) to avoid resource enumeration. `PLATFORM_ADMIN` may pass `X-Aegis-Tenant` to act on a specific tenant; every such action is audited with `actingAs`.
-- **FR-AUTH-07**: Password change endpoint `POST /v1/auth/password` (current + new; same policy as FR-TEN-04) revokes all other refresh-token families.
+- **FR-AUTH-07**: Password change endpoint `POST /v1/auth/password` (current + new; same policy as FR-TEN-04) revokes all other refresh-token families. The caller may pass its current `refreshToken` to keep that session; without it, every family is revoked. Clears `mustChangePassword`.
 
 ### 2.3 Tracked Entities & Watchlists (Owner: `services/registry`)
 
@@ -323,7 +329,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 - **FR-WHK-02**: `POST /webhooks/{sourceKey}` accepts `application/json` ≤ 1 MiB with headers `X-Aegis-Signature: v1=<hex>` (comma-separated list allowed during rotation), `X-Aegis-Timestamp` (Unix seconds), `X-Aegis-Delivery-Id` (≤ 128 chars). Signed string is `{timestamp}.{deliveryId}.{rawBody}` (raw bytes, before JSON parsing). Verification: HMAC-SHA256 compared with constant-time equality against the current **and** previous secret; `|now − timestamp| ≤ 300 s`; Redis `SET NX` on `whk:nonce:{sourceId}:{deliveryId}` with TTL 900 s; durable unique `(source_id, delivery_id)`.
 - **FR-WHK-03**: Outcomes: unknown/disabled source → `404 WEBHOOK_SOURCE_NOT_FOUND`; bad signature → `401 WEBHOOK_SIGNATURE_INVALID`; skew → `401 WEBHOOK_TIMESTAMP_SKEW`; repeated delivery id → `409 WEBHOOK_REPLAY_DETECTED`; schema invalid → `422 VALIDATION_ERROR` (after signature verification only); tenant suspended → `403 TENANT_SUSPENDED`; success → `202 {deliveryId, eventId, duplicate}`. Every rejection increments `aegispulse_webhook_rejected_total{source,reason}` and is logged without the body.
 - **FR-WHK-04**: Payload profile `AEGIS_MARKET_EVENT_V1`: `externalId` (≤ 128), `category` (`REGULATION_PUBLISHED|IPO_FILED|ACQUISITION_ANNOUNCED|MARKET_ALERT|COMPLIANCE_DISCLOSURE`), `title` (≤ 500), `summary?` (≤ 4,000), `body?` (≤ 64 KiB), `publishedAt` (RFC 3339), `severity?` (scale §1.4.1), `url?` (https), `mentionedEntities?` (≤ 50 strings), `tickers?`, `attachments?` (≤ 5 of `{url, filename, contentType}`), `version?` (int, default 1).
-- **FR-WHK-05**: On success, in one PostgreSQL transaction: store raw body to object storage (`raw/webhooks/{tenantId}/{yyyy}/{mm}/{dd}/{deliveryUuid}.json`, written *before* the transaction; orphan objects are swept), insert `webhook_deliveries`, insert the canonical envelope into `outbox_events`. Event type mapping: `REGULATION_PUBLISHED→external.regulatory.published`, `IPO_FILED→external.ipo.filed`, `ACQUISITION_ANNOUNCED→external.acquisition.announced`, `MARKET_ALERT→external.market.alert`, `COMPLIANCE_DISCLOSURE→external.compliance.disclosed`. `idempotencyKey = {sourceKey}:{externalId}:v{version}`; a second delivery with the same key returns `202 {duplicate:true}` and emits nothing. `classification.publisher_stated_severity = payload.severity`.
+- **FR-WHK-05**: On success, in one PostgreSQL transaction: store raw body to object storage (`raw/webhooks/{tenantId}/{yyyy}/{mm}/{dd}/{deliveryUuid}.json`, written *before* the transaction; orphan objects are swept), insert `webhook_deliveries`, insert the canonical envelope into `outbox_events`. Event type mapping: `REGULATION_PUBLISHED→external.regulatory.published`, `IPO_FILED→external.ipo.filed`, `ACQUISITION_ANNOUNCED→external.acquisition.announced`, `MARKET_ALERT→external.market.alert`, `COMPLIANCE_DISCLOSURE→external.compliance.disclosed`. `idempotencyKey = {sourceKey}:{externalId}:v{version}`; a second delivery with the same key returns `202 {duplicate:true}` and emits nothing. `classification.publisher_stated_severity = payload.severity`; `classification.source_trust_level` = the source's `trustLevel` at ingest (§1.4.3).
 - **FR-WHK-06**: Attachments (Phase 11): for each attachment whose host is in `allowedAttachmentHosts`, Ingestion requests Files `registerRemoteFile` (sourceType `WEBHOOK_ATTACHMENT`); the Files Service fetches with SSRF guards (FR-FILE-11). Non-allowlisted hosts are recorded as `attachment_rejected` on the delivery, never fetched.
 - **FR-WHK-07**: `TENANT_ADMIN` lists sources and deliveries (filter by outcome, date; paginated; raw body never returned, only metadata), disables/enables a source, changes trust level (audited — it affects `final_severity`), rotates the secret (new current; old becomes previous for 72 h then cleared by FR-WHK-08), and deletes (soft) a source.
 - **FR-WHK-08**: Scheduled `expirePreviousSecrets` clears previous secrets older than 72 h and sweeps raw webhook objects with no delivery row older than 1 h.
@@ -340,7 +346,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 - **FR-TXN-01**: `INTEGRATION`/`ANALYST` submits `POST /v1/transactions`: `idempotencyKey` (required, ≤ 128), `accountId` (≤ 64), `counterpartyId` (≤ 64), `counterpartyName` (≤ 200), `amount` (decimal string, > 0, ≤ 18 digits, 2–4 decimals), `currency` (ISO 4217 in FX table), `country` (ISO alpha-2), `channel` (`WIRE|ACH|CARD|CRYPTO|INTERNAL`), `occurredAt` (≤ 24 h future skew rejected), `metadata` (object ≤ 4 KiB). Persists `transaction_submissions` + outbox `txn.submitted` atomically; returns `202 {transactionId, eventId}`. Same idempotency key + same body hash → original response; same key + different body → `409 IDEMPOTENCY_KEY_REUSED`.
 - **FR-TXN-02**: Batch intake: a file uploaded with `purpose = TRANSACTION_BATCH` (CSV with header matching FR-TXN-01 fields, or JSON array; ≤ 50,000 rows) is parsed by Doc Extraction, which calls `submitTransactionBatch` in chunks of 500; row idempotency key = `{fileId}:{rowNumber}`. Invalid rows are reported in a row-error artifact; the file is `PROCESSED` with `rowsAccepted/rowsRejected` counts.
 - **FR-TXN-03**: The `ScoreTransactionSaga` (orchestrator) consumes `txn.submitted`: (1) `checkWatchlists` for the counterparty, (2) `scoreTransaction` on Risk Scoring (2 s timeout, circuit breaker), (3) `recordRiskEvaluation` on Cases with `idempotencyKey = risk-eval:{eventId}`. Any step failure → retry tiers (§6.5); exhausted → DLQ. Saga steps are individually idempotent; no saga state is persisted.
-- **FR-TXN-04**: Risk Scoring `POST /v1/score` computes features and the score per §1.4.4, returning `{score, band, factors[{name, value, contribution}], modelVersion, featureVersion, computedAt}`. Feature updates (velocity, counterparty history) are idempotent by `eventId` (Redis `SET NX feat:seen:{tenantId}:{eventId}` TTL 48 h) so redelivery does not inflate velocity.
+- **FR-TXN-04**: Risk Scoring `score` (`POST /internal/v1/score`) computes features and the score per §1.4.4, returning `{score, band, factors[{name, value, contribution}], modelVersion, featureVersion, computedAt}`. Feature updates (velocity, counterparty history) are idempotent by `eventId` (Redis `SET NX feat:seen:{tenantId}:{eventId}` TTL 48 h) so redelivery does not inflate velocity.
 - **FR-TXN-05**: Cases `recordRiskEvaluation` persists the evaluation and emits `risk.evaluation.recorded`. If `score ≥ 70` it opens a `TRANSACTION_RISK` case (FR-CASE-01) in the same transaction. Tenant `SUSPENDED` → evaluation recorded, case suppressed with `suppressedReason = TENANT_SUSPENDED`.
 - **FR-TXN-06**: `GET /v1/transactions/{id}` returns submission, processing status (`ACCEPTED`, `SCORED`, `CASE_OPENED`, `FAILED`), latest evaluation, and linked case id (composed by the gateway from Ingestion + Cases typed clients).
 
@@ -357,7 +363,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 - **FR-FILE-09**: `GET /v1/files` lists files (filter by status, purpose, uploadedBy, date; paginated).
 - **FR-FILE-10**: Orphan sweep (every 15 min): `INITIATED` files older than 1 h → `EXPIRED`, objects deleted, multipart uploads aborted; emits `file.status.changed`.
 - **FR-FILE-11**: `registerRemoteFile(tenantId, url, sourceType, allowedHosts)` fetches remote attachments/connector documents with SSRF protection: https only, host allowlist, resolve DNS and reject private/loopback/link-local/metadata ranges (IPv4+IPv6) before connect and re-check on connect, 30 s timeout, 64 MiB cap, no credentials forwarded. Result enters the lifecycle at `UPLOADED`.
-- **FR-FILE-12**: `DELETE /v1/files/{fileId}` (`TENANT_ADMIN`) soft-deletes (`deletedAt`, object retained until retention purge); retention purge job deletes objects and artifacts past `tenant.retentionDays`, keeping a tombstone row. Audited.
+- **FR-FILE-12**: `DELETE /v1/files/{fileId}` (`TENANT_ADMIN`) soft-deletes (`deletedAt`, object retained until retention purge); retention purge job deletes objects and artifacts past `tenant.retentionDays`, keeping a tombstone row. Audited: the delete emits `ops.audit.file_deleted` (FR-AUD-02) through the outbox and records the actor in the file's status history.
 - **FR-FILE-13** (Phase 5b): Multipart upload for 64–512 MiB files: init returns `uploadId` and presigned part URLs (16 MiB parts, ≤ 32 parts, every request < Cloudflare's 100 MB edge cap); complete accepts the part ETag list.
 
 ### 2.8 Document ETL & Extraction (Owner: `services/doc-extraction`)
@@ -383,7 +389,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 
 - **FR-CLS-01**: Stage 1 runs synchronously inside the archive consumer before insert (§1.4.2): sets `sensitivity`, `categories`, `algorithm_severity` (= rule severity), `classification_source = RULES`, `rule_version`, masks detected values, and sets `status = RULE_SCANNED`. Budget: p95 ≤ 5 ms per event.
 - **FR-CLS-02**: If Stage 2 is not required, the same transaction sets `status = CLASSIFIED`, computes `final_severity` (§1.4.3), and writes `classification.finalized` to the Mongo outbox.
-- **FR-CLS-03**: If Stage 2 is required, the transaction writes `classification.scan.requested` to the outbox. Consumer `events.classification.q` calls Scanner `POST /v1/scan` (10 s timeout, circuit breaker: 50% failures over 20 calls opens for 30 s) with the redacted text fields only.
+- **FR-CLS-03**: If Stage 2 is required, the transaction writes `classification.scan.requested` to the outbox. Consumer `events.classification.q` calls Scanner `scan` (`POST /internal/v1/scan`) (10 s timeout, circuit breaker: 50% failures over 20 calls opens for 30 s) with the redacted text fields only.
 - **FR-CLS-04**: Scanner returns `{sensitivity, categories[], severity, confidence, classifierVersion, spans[]}` validated by Pydantic. Phase 6 records scan requests only; Phase 12a ships a deterministic lexicon stub (`sensitivity-stub-v0`); Phase 12b ships TF-IDF + logistic regression (`sensitivity-clf-v1.x`) and an optional LLM adjudicator for confidence 0.40–0.60 (disabled by default, §6.3).
 - **FR-CLS-05**: Patch: append to `classificationHistory`, set `status AI_SCANNED → CLASSIFIED`, recompute `algorithm_severity`/`final_severity` (elevate-only), set `classification_source = AI_SCANNER`, and emit `classification.finalized`. If sensitivity becomes `RESTRICTED`, move the document to `events_restricted_audit` in the same Mongo transaction and emit `notification.requested` (N-02). Patches are conditional on `classificationRevision` (optimistic concurrency) so duplicate scan results are no-ops.
 - **FR-CLS-06**: Circuit open or retries exhausted → event stays `RULE_SCANNED` with `final_severity` = rule severity (never blocked), flagged `pendingAiScan = true`; a 15-minute sweep re-requests scans for flagged events ≤ 24 h old.
@@ -421,7 +427,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 ### 2.13 Immutable Compliance Audit Log (Owner: `services/cases`)
 
 - **FR-AUD-01**: Append-only `audit_log` entries: `actorType` (`USER|SERVICE|SYSTEM`), `actorId`, `actingAs?`, `action`, `subjectType`, `subjectId`, `triggerEventId?`, `triggerFileId?`, `modelVersion?`, `ruleVersion?`, `before`, `after`, `occurredAt`, per-tenant `seq`, `prevHash`, `hash = SHA-256(canonicalJSON(entry without hash) ‖ prevHash)`. Insert serialized per tenant via `pg_advisory_xact_lock`. The DB role has no `UPDATE`/`DELETE`/`TRUNCATE` grants and a trigger rejects them.
-- **FR-AUD-02**: Cases consumes audit-worthy events from other services (`registry.user.changed`, `registry.tenant.*`, `registry.watchlist.changed`, `classification.overridden`, webhook source trust changes, quarantine downloads, replay jobs) into the same chain, idempotent by source `eventId`.
+- **FR-AUD-02**: Cases consumes audit-worthy events from other services (`registry.user.changed`, `registry.tenant.*`, `registry.service_account.changed`, `registry.auth.refresh_reuse_detected`, `registry.watchlist.changed`, `classification.overridden`, webhook source trust changes, quarantine downloads, file deletions (`ops.audit.file_deleted`), replay jobs) into the same chain, idempotent by source `eventId`.
 - **FR-AUD-03**: `GET /v1/audit` (`COMPLIANCE_AUDITOR`, `TENANT_ADMIN`) filters by subject, actor, action, date; paginated. `GET /v1/audit/verify?fromSeq&toSeq` recomputes the chain and returns `{valid, checked, firstBrokenSeq?}`; a nightly job verifies the last 24 h and emits `notification.requested` (N-06) on failure.
 
 ### 2.14 Cross-Domain Correlation (Owners: `services/orchestrator`, `services/cases`)
@@ -483,7 +489,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 
 ### 2.21 Portfolio Demo Tooling (Owner: `scripts/demo/`)
 
-- **FR-DEMO-01**: `make demo` runs a scripted scenario against local or homelab: signed webhooks for a regulation, IPO, acquisition (mentioning a watchlisted entity), a transaction burst that crosses the case threshold, a filing PDF upload, and a CSV batch — printing correlation ids and console links.
+- **FR-DEMO-01**: `make demo` runs a scripted scenario against local, dev, or prod (`ENV=`): signed webhooks for a regulation, IPO, acquisition (mentioning a watchlisted entity), a transaction burst that crosses the case threshold, a filing PDF upload, and a CSV batch — printing correlation ids and console links.
 - **FR-DEMO-02**: `scripts/demo/webhook-sign.ts` signs arbitrary payloads for a source; `scripts/demo/upload.ts` performs the three-step upload; `scripts/demo/chaos/*.sh` produce duplicate webhook floods, consumer restarts, and scanner latency injection (Phase 18).
 
 ### 2.22 Explicitly Out of Scope (v1.0)
@@ -511,21 +517,21 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 
 ### NFR-03 — Cost Efficiency
 - Portfolio runs on owned homelab hardware: zero cloud spend for compute/data; optional LLM spend capped at USD 5/month via `SCANNER_LLM_MONTHLY_BUDGET_USD` (scanner refuses LLM calls when exceeded, falls back to classifier).
-- Elitedesk-800 app-tier requests ≤ 2.0 vCPU / 4.5 GiB total; optiplex storage-tier requests ≤ 1.0 vCPU / 4 GiB (§5.4).
+- Per-namespace request budgets (§5.4), by node tier (ADR-0015): **prod** compute tier (`optiplex` + `elitedesk-800`) ≤ 2.0 vCPU / 4.5 GiB, storage tier (`optiplex-tower`) ≤ 1.0 vCPU / 4 GiB; **dev** compute ≤ 1.0 vCPU / 3.0 GiB, storage ≤ 0.5 vCPU / 2 GiB. Dev may be scaled to zero when idle (`make env-sleep ENV=dev`, nightly `env-sleep` scheduled pipeline at 01:00 local; any dev deploy wakes it).
 - Evidence: `kubectl describe node` allocation snapshot per release; `ci/check-resource-budget.sh` sums manifest requests and fails over budget.
 
 ### NFR-04 — Testability & Layering
-- Service and domain modules are framework-agnostic: no Fastify/Express/Spring Web/FastAPI/AMQP types import into `src/service/` or `src/domain/` (enforced by `dependency-cruiser` (TS), ArchUnit (Java), `import-linter` (Python)).
+- Service and domain modules are framework-agnostic: no NestJS/Fastify/Express/Spring Web/FastAPI/AMQP types import into `src/service/` or `src/domain/` (enforced by `dependency-cruiser` (TS), ArchUnit (Java), `import-linter` (Python)).
 - Coverage gates: service/domain layers ≥ 85% lines, overall ≥ 75% per runtime (SonarQube quality gate).
 - Evidence: architecture tests in each runtime's unit suite; SonarQube gate status.
 
 ### NFR-05 — Local Dev Parity
-- `docker compose` brings up the same datastores and broker versions as homelab (PostgreSQL 18, MongoDB 8 replica set, Redis 8, RabbitMQ 4, S3-compatible object store, OpenObserve, ClamAV). Same migrations, same topology declarations (`packages/contracts/topology/aegispulse.topology.json`), same images.
+- `docker compose` brings up the same datastores and broker versions as dev and prod (PostgreSQL 18, MongoDB 8 replica set, Redis 8, RabbitMQ 4, S3-compatible object store, OpenObserve, ClamAV). Same migrations, same topology declarations (`packages/contracts/topology/aegispulse.topology.json`), same images.
 - No `if (env === 'local')` business branches; environment differences are configuration only (URLs, replica counts, budgets, feature flags listed in §10.4).
-- Evidence: CI `e2e-compose` job runs the E2E suite against compose; homelab smoke suite runs the same scenarios post-deploy.
+- Evidence: CI `e2e-compose` job runs the E2E suite against compose; dev runs the full smoke + security suites post-deploy and prod runs the smoke subset after promotion.
 
 ### NFR-06 — Environment Isolation
-- `local` and `homelab` share nothing: separate Infisical environments, separate RabbitMQ vhosts (`aegispulse-local` in compose, `aegispulse` on cluster), separate buckets (`aegispulse-local-*`, `aegispulse-homelab-*`), separate signing keys.
+- `local`, `dev`, and `prod` share nothing except cluster-level platform services: separate namespaces (`aegispulse-dev`, `aegispulse`), separate datastores (each namespace runs its own PostgreSQL/MongoDB/Redis/object-store StatefulSets), separate Infisical environments, separate RabbitMQ vhosts (`aegispulse-local` in compose, `aegispulse-dev` / `aegispulse-prod` on cluster) and users, separate buckets (`aegispulse-local-*`, `aegispulse-dev-*`, `aegispulse-prod-*`), separate JWT signing keys and webhook KEKs, separate OpenObserve streams and ntfy topics, separate domains. NetworkPolicies deny all traffic between `aegispulse-dev` and `aegispulse`. Tokens minted in dev are invalid in prod (different `iss` keys and `aud` claim `aegispulse-dev`).
 - Tenant isolation inside an environment: every query is tenant-filtered in repositories; PostgreSQL Row-Level Security on all tenant tables (`app.tenant_id` set with `SET LOCAL` per transaction); Mongo repository wrapper rejects queries without `tenantId`; Redis keys always contain `tenantId` where tenant-scoped; object keys always prefixed by `tenantId`.
 - Evidence: cross-tenant integration suite (tenant B token against tenant A ids → 404 for every route in §8.3).
 
@@ -561,12 +567,12 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 - Startup order is not assumed: each runtime retries dependency connections with backoff (max 60 s) before failing; readiness gates on (a) config + secrets validated, (b) datastore reachable, (c) schema version ≥ expected migration (Flyway history check / Mongo `schema_meta`), (d) broker topology asserted.
 - Probes: `GET /livez` (process alive, no dependency checks), `GET /readyz` (dependencies), `GET /healthz` (aggregated JSON for humans). Liveness never checks dependencies to avoid restart storms.
 - Graceful shutdown on `SIGTERM` (terminationGracePeriodSeconds 30): stop accepting HTTP, cancel consumers, finish in-flight messages (≤ 20 s), flush outbox relay batch, flush telemetry, close pools.
-- Migrations run as Kubernetes Jobs **before** the Deployment rollout (deploy script waits for Job success); apps never auto-migrate in homelab.
+- Migrations run as Kubernetes Jobs **before** the Deployment rollout (deploy script waits for Job success); apps never auto-migrate in dev or prod.
 - Evidence: rollout logs, `kubectl rollout restart` under load with zero lost messages.
 
 ### NFR-12 — Data Durability, Backup & Restore
 - PostgreSQL: nightly `pg_dump -Fc` CronJob → object storage `backups/postgres/` (retain 14 daily, 8 weekly) + WAL archiving deferred to production. MongoDB: nightly `mongodump --archive --gzip` → `backups/mongo/`. MinIO bucket versioning on `raw` and `backups`. Redis is a cache/coordination store (AOF on, but losing it only degrades nonce/dedup windows — Postgres uniqueness is the durable guard).
-- Backups copied off-node (optiplex → elitedesk-800 secondary path or external disk) weekly.
+- Backups copied off-node (storage node `optiplex-tower` → another node's disk or an external disk) weekly; a backup that lives only on the storage node's SSD does not count.
 - Restore drill each release candidate: restore into `aegispulse-restore-test` namespace, run integrity checks (row counts, audit chain verify). RPO 24 h, RTO 2 h (homelab).
 - Evidence: restore drill log in `docs/evidence/`.
 
@@ -576,11 +582,11 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 - Evidence: contract job output; migration review checklist in MR template.
 
 ### NFR-14 — Type Safety & Code Quality
-- TypeScript `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, no `any` (ESLint `@typescript-eslint/no-explicit-any: error`); Java with `-Werror` on compiler warnings, NullAway/Error Prone; Python `mypy --strict` + Ruff. Formatters: Prettier, Spotless (google-java-format), Ruff format.
+- TypeScript `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, no `any` (ESLint `@typescript-eslint/no-explicit-any: error`); the gateway alone additionally enables `experimentalDecorators` + `emitDecoratorMetadata` for NestJS DI (ADR-0013); Java with `-Werror` on compiler warnings, NullAway/Error Prone; Python `mypy --strict` + Ruff. Formatters: Prettier, Spotless (google-java-format), Ruff format.
 - Evidence: lint/type jobs in CI.
 
 ### NFR-15 — Capacity & Resource Limits
-- Every container declares CPU/memory requests and limits (§5.4); JVM `-XX:MaxRAMPercentage=70`; Node `--max-old-space-size` ≤ 75% of limit; Python workers single-process with bounded thread pools.
+- Every container declares CPU/memory requests and limits (§5.4); JVM `-XX:MaxRAMPercentage=50` (measured 2026-11-23: Spring + OTel agent + metaspace ≈ 290 MiB outside the heap, so 70% of a 768Mi limit crash-loops; 50% peaks at 667/768 MiB under Argon2id load); Node `--max-old-space-size` ≤ 75% of limit; Python workers single-process with bounded thread pools.
 - Consumer prefetch bounds in-flight memory (§5.5). Body size limits per NFR-08.
 - Image layers < 95 MB each (Cloudflare 100 MB edge cap on registry pushes) — `ci/check-layer-sizes.sh`.
 - Evidence: CI checks; OOMKilled count = 0 over a 24 h soak.
@@ -596,16 +602,20 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 
 ### NFR-18 — Environment Behavior Matrix
 
-| Concern | Local | Homelab | Reference production |
-|---|---|---|---|
-| TLS | none (localhost) | Cloudflare edge | ALB/ACM + mesh mTLS |
-| Replicas | 1 | 1 (2 for gateway) | ≥ 2 + HPA |
-| Secrets | `.env` from `infisical export --env=local` | Infisical Operator | Infisical/AWS Secrets Manager |
-| LLM adjudicator | off | off (opt-in flag) | configurable |
-| ClamAV | on (compose) | on | on |
-| Backups | none | nightly CronJobs | managed snapshots + PITR |
-| DAST | manual | pipeline post-deploy | pre-prod gate |
-| Demo mode | seed tenant on | `tenant-acme-capital` only | off |
+| Concern | Local | Dev (homelab, `rmwhs-dev.space`) | Prod (homelab, `rmwhs.com`) | Reference production (AWS) |
+|---|---|---|---|---|
+| Deployed by | `make up` | automatically on every `main` pipeline | manual promotion of dev-verified digests, or `v*` tag | — |
+| TLS | none (localhost) | Cloudflare edge | Cloudflare edge | ALB/ACM + mesh mTLS |
+| Replicas | 1 | 1 (can scale to zero when idle) | 1 (2 for gateway) | ≥ 2 + HPA |
+| Resource requests | n/a | reduced (dev budget §5.4) | full (prod budget §5.4) | autoscaled |
+| Secrets | `.env` generated by `make env` (`gen-local-secrets.sh`; never real secrets) | Infisical Operator (env `dev`) | Infisical Operator (env `prod`) | Infisical/AWS Secrets Manager |
+| LLM adjudicator | off | opt-in flag (budget $2) | off (opt-in flag) | configurable |
+| ClamAV | on (compose) | on | on | on |
+| Backups | none | weekly dump, 2 retained | nightly CronJobs (§NFR-12) | managed snapshots + PITR |
+| DAST (ZAP baseline + active API scan) | manual | pipeline post-deploy (blocking) | passive baseline only after promotion | pre-prod gate |
+| Chaos / load / soak | manual | yes (Phase 18) | **never** | game days |
+| Data | synthetic seed | synthetic seed, resettable (`make env-reset ENV=dev`) | demo tenant only, never reset | n/a |
+| Demo mode | seed tenant on | all seed tenants | `tenant-acme-capital` only | off |
 
 ---
 
@@ -615,7 +625,7 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 
 AegisPulse separates **transport** from **business logic** in every runtime and every language:
 
-- **Dispatch Layer** — gateways and adapters only: the external HTTP gateway (`gateway/fastify-http`), internal HTTP route adapters inside each service (`src/adapters/http/`), AMQP consumer adapters (`src/adapters/amqp/`), scheduled triggers (`workers/scheduler-trigger` CronJobs), the webhook receiver route, and transport mappers. They parse/validate transport input, establish auth context, call exactly one service-layer entrypoint, and map the result to transport output.
+- **Dispatch Layer** — gateways and adapters only: the external HTTP gateway (`gateway/nest-http`), internal HTTP route adapters inside each service (`src/adapters/http/`), AMQP consumer adapters (`src/adapters/amqp/`), scheduled triggers (`workers/scheduler-trigger` CronJobs), the webhook receiver route, and transport mappers. They parse/validate transport input, establish auth context, call exactly one service-layer entrypoint, and map the result to transport output.
 - **Orchestration Layer** — application use-case coordinators that live **inside service modules** (`src/service/orchestrators/`, e.g., `ScoreTransactionSaga` in `services/orchestrator`, `CompleteUploadUseCase` in `services/files`). They sequence domain services, repositories, typed clients, and outbox events. Orchestration is not a transport layer and never lives in handlers or consumers.
 - **Service Layer** — domain/application services (`src/service/`, `src/domain/`) of named microservices under `services/<bounded-context>/`. Only service runtimes own data stores.
 
@@ -682,36 +692,38 @@ Additional principles:
 Internet ─▶ Cloudflare (TLS, WAF, 100 MB body cap) ─▶ cloudflared tunnel
                                                         │ plain HTTP
                                          ingress-nginx (class nginx-external)
-            ┌──────────────────────────┬────────────────┴───────────────┐
-  aegispulse.rmwhs.com      aegispulse-api.rmwhs.com      aegispulse-objects.rmwhs.com
-  (console, nginx static)   (gateway)                     (object store S3 API, presigned only)
-┌─────────────────────────────── namespace: aegispulse ─────────────────────────────────────┐
-│ NODE elitedesk-800 (stateless)                                                           │
+          Host-based routing (same tunnel, same ingress controller, two domains):
+   PROD  aegispulse.rmwhs.com        aegispulse-api.rmwhs.com        aegispulse-objects.rmwhs.com      → ns aegispulse
+   DEV   aegispulse.rmwhs-dev.space  aegispulse-api.rmwhs-dev.space  aegispulse-objects.rmwhs-dev.space → ns aegispulse-dev
+         (console, nginx static)     (gateway)                       (object store S3 API, presigned only)
+┌──────────── namespace: aegispulse (prod)  ·  namespace: aegispulse-dev (dev, same shape, reduced) ─────────────┐
+│ COMPUTE TIER: NODE optiplex (worker, preferred) → spill-over NODE elitedesk-800          │
 │   gateway ─▶ ingestion · files · events · registry · cases · orchestrator                │
 │             risk-scoring · sensitivity-scanner · doc-extraction · data-intel · clamav    │
 │   CronJobs: scheduler-trigger (connectors, sweeps, rollups), backups, audit-verify       │
-│ NODE optiplex (dedicated=storage taint; StatefulSets with nodeSelector + toleration)      │
+│ STORAGE TIER: NODE optiplex-tower (dedicated=storage taint; 1 TB SSD at local-path dir)  │
 │   postgresql-18 · mongodb-8 (1-node replica set) · redis-8 · object-store (S3 API)       │
 └───────────────────────────────────────────┬──────────────────────────────────────────────┘
-      shared cluster services: rabbitmq (vhost aegispulse) · infisical (+ operator)
+      shared cluster services: rabbitmq (vhosts aegispulse-prod, aegispulse-dev) · infisical (+ operator; envs prod, dev)
       openobserve (logs/metrics/traces) · trivy-operator · gitlab + runner (kaniko)
       uptime-kuma + ntfy (installed in Phase 18 if absent)
 ```
 
-| Concern | Production (reference) | Portfolio (homelab) |
+| Concern | Production (reference) | Portfolio (homelab dev + prod) |
 |---|---|---|
-| Compute | EKS, 3 AZ, HPA/KEDA/Karpenter | k3s, 2 nodes, fixed capacity, replicas 1 (gateway 2) |
+| Compute | EKS, 3 AZ, HPA/KEDA/Karpenter | k3s, 3 nodes with fixed roles (ADR-0015), fixed capacity, replicas 1 (gateway 2) |
 | Ingress/TLS | ALB + ACM + WAF, mesh mTLS | Cloudflare edge TLS/WAF → tunnel → ingress-nginx (HTTP); JWT on every hop |
-| PostgreSQL | RDS Multi-AZ + PITR | single StatefulSet on optiplex, nightly dumps |
+| PostgreSQL | RDS Multi-AZ + PITR | single StatefulSet on optiplex-tower, nightly dumps |
 | MongoDB | Atlas 3-node | single-member replica set (transactions enabled) |
 | RabbitMQ | Amazon MQ cluster | shared in-cluster broker, dedicated vhost, quorum queues |
 | Redis | ElastiCache Multi-AZ | single StatefulSet, AOF |
-| Object storage | S3 + KMS + Object Lock | S3-compatible store on optiplex (ADR-0011), versioning on |
+| Object storage | S3 + KMS + Object Lock | S3-compatible store on optiplex-tower (ADR-0011), versioning on |
 | Secrets | Secrets Manager/Infisical HA + KMS | self-hosted Infisical + Operator |
 | Registry | ECR | GitLab Container Registry (`registry.rmwhs.com`) |
 | Image policy | Kyverno verify-images | cosign verify in deploy script |
 | Observability | OTel Collector + managed backend | OpenObserve in cluster |
 | Availability | 99.9% target | best effort; single points of failure accepted and documented |
+| Environments | separate AWS accounts per env | two namespaces on one cluster, separated by domain, NetworkPolicy, credentials, and datastores (ADR-0014) |
 
 ### 4.4 Async Event Flows
 
@@ -822,19 +834,20 @@ Pattern: `aegispulse-{component}[-{descriptor}]`.
 
 | Kind | Example |
 |---|---|
-| Namespace | `aegispulse` (restore drills: `aegispulse-restore-test`) |
+| Namespace | `aegispulse` (prod), `aegispulse-dev` (dev); restore drills: `aegispulse-restore-test` |
 | Deployment / Service | `aegispulse-gateway`, `aegispulse-cases` |
 | StatefulSet | `aegispulse-postgres`, `aegispulse-mongo`, `aegispulse-redis`, `aegispulse-objectstore` |
-| CronJob | `aegispulse-cron-connectors`, `aegispulse-cron-file-sweep`, `aegispulse-cron-rollups-15m`, `aegispulse-cron-rollups-nightly`, `aegispulse-cron-backup-postgres`, `aegispulse-cron-backup-mongo`, `aegispulse-cron-audit-verify`, `aegispulse-cron-retention` |
+| CronJob | `aegispulse-cron-connectors`, `aegispulse-cron-file-sweep`, `aegispulse-cron-rollups-15m`, `aegispulse-cron-rollups-nightly`, `aegispulse-cron-backup-postgres`, `aegispulse-cron-backup-mongo`, `aegispulse-cron-audit-verify`, `aegispulse-cron-retention`, `aegispulse-cron-secret-expiry` (hourly, job `ingestion-secret-expiry`, FR-WHK-08) |
 | Migration Job | `aegispulse-migrate-{service}-{shortsha}` |
 | ServiceAccount | `aegispulse-{component}` (+ `aegispulse-ci-deployer`) |
 | Secret (Infisical-managed) | `aegispulse-{component}-secrets` |
 | ConfigMap | `aegispulse-{component}-config` |
 | NetworkPolicy | `aegispulse-{component}-ingress`, `aegispulse-default-deny` |
 | Ingress | `aegispulse-console`, `aegispulse-api`, `aegispulse-objects` |
-| Buckets | `aegispulse-homelab-raw`, `-artifacts`, `-quarantine`, `-archive`, `-analytics`, `-backups` |
-| RabbitMQ | vhost `aegispulse`; exchanges `aegispulse.{ingress,enrichment,domain,intelligence,retry,dlx}`; queues `{owner}.{purpose}.q` |
-| OpenObserve | streams `aegispulse_logs`, `aegispulse_traces`, `aegispulse_metrics` |
+| Buckets | `aegispulse-{dev\|prod}-raw`, `-artifacts`, `-quarantine`, `-archive`, `-analytics`, `-backups` (each in its namespace's own object store) |
+| RabbitMQ | vhosts `aegispulse-dev`, `aegispulse-prod`; exchanges `aegispulse.{ingress,enrichment,domain,intelligence,retry,dlx}`; queues `{owner}.{purpose}.q` |
+| OpenObserve | streams `aegispulse_{dev\|prod}_logs`, `_traces`, `_metrics` |
+| Hostnames | `aegispulse[-api\|-objects].rmwhs.com` (prod), `aegispulse[-api\|-objects].rmwhs-dev.space` (dev). Always one label under the domain (Cloudflare Universal SSL covers first-level subdomains only) |
 
 ### 5.2 Standard Labels & Annotations
 
@@ -857,54 +870,59 @@ metadata:
 
 | Category | Resource | Purpose |
 |---|---|---|
-| Namespace | `aegispulse` | all AegisPulse workloads; `ResourceQuota` (requests.cpu 3.5, requests.memory 9Gi, limits.memory 18Gi) + `LimitRange` defaults |
-| Ingress | `aegispulse-console` → `aegispulse.rmwhs.com` | console static site |
-| Ingress | `aegispulse-api` → `aegispulse-api.rmwhs.com` | gateway (incl. `/webhooks/*`, SSE with `proxy-buffering: off`, `proxy-read-timeout: 3600`) |
-| Ingress | `aegispulse-objects` → `aegispulse-objects.rmwhs.com` | object store S3 API for presigned PUT/GET only (`proxy-body-size: 100m`) |
+| Namespace | `aegispulse` (prod) | prod workloads; `ResourceQuota` (requests.cpu 3.5, requests.memory 9Gi, limits.memory 18Gi) + `LimitRange` defaults |
+| Namespace | `aegispulse-dev` (dev) | dev workloads; `ResourceQuota` (requests.cpu 1.5, requests.memory 5Gi, limits.memory 10Gi) + `LimitRange` defaults |
+| Ingress | `aegispulse-console` → `aegispulse.rmwhs.com` (prod) / `aegispulse.rmwhs-dev.space` (dev) | console static site |
+| Ingress | `aegispulse-api` → `aegispulse-api.rmwhs.com` (prod) / `aegispulse-api.rmwhs-dev.space` (dev) | gateway (incl. `/webhooks/*`, SSE with `proxy-buffering: off`, `proxy-read-timeout: 3600`) |
+| Ingress | `aegispulse-objects` → `aegispulse-objects.rmwhs.com` (prod) / `aegispulse-objects.rmwhs-dev.space` (dev) | object store S3 API for presigned PUT/GET only (`proxy-body-size: 100m`) |
 | Deployments | 12 (§5.4) | application runtimes |
-| StatefulSets | postgres, mongo, redis, objectstore | data stores pinned to `optiplex` |
-| CronJobs | 8 (§5.1) | schedules via `workers/scheduler-trigger` and backup images |
-| Jobs | per-service Flyway migrations, Mongo index migrations, RabbitMQ topology assert, seed (homelab demo tenant) | pre-rollout |
-| PVCs (`local-path`) | postgres 20Gi, mongo 20Gi, redis 1Gi, objectstore 60Gi, clamav-db 2Gi (elitedesk) | persistent data |
+| StatefulSets | postgres, mongo, redis, objectstore | data stores pinned to the storage node `optiplex-tower` (`dedicated: storage`) |
+| CronJobs | 9 (§5.1) | schedules via `workers/scheduler-trigger` and backup images |
+| Jobs | per-service Flyway migrations, Mongo index migrations, RabbitMQ topology assert, seed (dev: all seed tenants; prod: demo tenant only) | pre-rollout |
+| PVCs (`local-path`) | postgres 20Gi, mongo 20Gi, redis 1Gi, objectstore 60Gi, clamav-db 2Gi (`optiplex`, required worker affinity) | persistent data; storage-tier PVs live on `optiplex-tower`'s data SSD |
 | NetworkPolicies | default-deny ingress+egress; explicit allows (§5.7.5) | zero-trust network |
 | InfisicalSecret CRs | one per component | runtime secret sync |
 | RabbitMQ (shared) | vhost, users, policies (quorum queues, max-length on DLQs 100k) | messaging |
-| Infisical (shared) | project `aegispulse`, envs `local`/`homelab`, machine identity for operator | secrets |
+| Infisical (shared) | org HomeLab, project AegisPulse, envs Development/Production; `svc_admin` (org machine identity) for workstation bootstrap/rotation only; operator identities `aegispulse-operator-dev`/`-prod`, each read-only to its env via Kubernetes Auth (MB-08) | secrets |
 | OpenObserve (shared) | org `aegispulse`, streams, alerts, dashboards | observability |
 | GitLab | project, protected branches/tags, CI variables, container registry | CI/CD |
-| Cloudflare | 3 proxied DNS records + tunnel public hostnames, WAF rate rule on `/webhooks/*` and `/v1/auth/*` | edge |
-| Uptime Kuma + ntfy | monitors (§9.7), topic `aegispulse-alerts` | synthetic checks + push |
+| Cloudflare | 6 proxied DNS records (3 per domain) + tunnel public hostnames, WAF rate rule on `/webhooks/*` and `/v1/auth/*` | edge |
+| Uptime Kuma + ntfy | monitors (§9.7), topics `aegispulse-alerts` / `aegispulse-alerts-dev` | synthetic checks + push |
 
 ### 5.4 Workload Configuration
 
 All containers: `runAsNonRoot: true`, `readOnlyRootFilesystem: true` (writable `emptyDir` at `/tmp` only), `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`, `automountServiceAccountToken: false`. Probes: liveness `/livez` (period 10 s, failure 3), readiness `/readyz` (period 5 s, failure 2), startup `/livez` (failure 30 × 2 s; JVM 60 × 2 s).
 
-| Workload | Runtime | Port | Replicas (H) | CPU req/lim | Mem req/lim | Node | Trigger |
+| Workload | Runtime | Port | Replicas (prod) | CPU req/lim (prod) | Mem req/lim (prod) | Node | Trigger |
 |---|---|---|---|---|---|---|---|
-| `aegispulse-gateway` | Node 24 | 8080 | 2 | 100m / 500m | 128Mi / 384Mi | elitedesk | Ingress |
-| `aegispulse-ingestion` | Node 24 | 8081 | 1 | 100m / 500m | 128Mi / 384Mi | elitedesk | HTTP + outbox relay |
-| `aegispulse-files` | Node 24 | 8082 | 1 | 100m / 500m | 128Mi / 384Mi | elitedesk | HTTP + AMQP |
-| `aegispulse-events` | Node 24 | 8083 | 1 | 100m / 500m | 192Mi / 512Mi | elitedesk | AMQP + HTTP |
-| `aegispulse-registry` | Java 25 | 8084 | 1 | 200m / 1000m | 384Mi / 768Mi | elitedesk | HTTP |
-| `aegispulse-cases` | Java 25 | 8085 | 1 | 200m / 1000m | 384Mi / 768Mi | elitedesk | HTTP + AMQP |
-| `aegispulse-risk-scoring` | Python 3.13 | 8086 | 1 | 100m / 500m | 192Mi / 512Mi | elitedesk | HTTP |
-| `aegispulse-scanner` | Python 3.13 | 8087 | 1 | 100m / 1000m | 384Mi / 1Gi | elitedesk | HTTP |
-| `aegispulse-doc-extraction` | Python 3.13 | 8088 | 1 | 200m / 1500m | 512Mi / 1536Mi | elitedesk | AMQP |
-| `aegispulse-data-intel` | Python 3.13 | 8089 | 1 | 100m / 500m | 256Mi / 768Mi | elitedesk | AMQP + HTTP |
-| `aegispulse-orchestrator` | Node 24 | 8090 | 1 | 50m / 500m | 128Mi / 256Mi | elitedesk | AMQP |
-| `aegispulse-console` | nginx-unprivileged | 8080 | 1 | 20m / 100m | 32Mi / 64Mi | elitedesk | Ingress |
-| `aegispulse-clamav` | clamd | 3310 | 1 | 100m / 500m | 1Gi / 1536Mi | elitedesk | TCP (files only) |
-| CronJobs (each) | Node 24 / tool images | — | — | 50m / 250m | 64Mi / 256Mi | elitedesk | schedule |
-| `aegispulse-postgres` | PostgreSQL 18 | 5432 | 1 | 250m / 1000m | 512Mi / 1536Mi | optiplex | — |
-| `aegispulse-mongo` | MongoDB 8 | 27017 | 1 | 250m / 1000m | 768Mi / 1536Mi | optiplex | — |
-| `aegispulse-redis` | Redis 8 | 6379 | 1 | 50m / 250m | 64Mi / 256Mi | optiplex | — |
-| `aegispulse-objectstore` | S3-compatible | 9000 | 1 | 100m / 500m | 256Mi / 768Mi | optiplex | — |
+| `aegispulse-gateway` | Node 24 | 8080 | 2 | 100m / 500m | 128Mi / 384Mi | compute | Ingress |
+| `aegispulse-ingestion` | Node 24 | 8081 | 1 | 100m / 500m | 128Mi / 384Mi | compute | HTTP + outbox relay |
+| `aegispulse-files` | Node 24 | 8082 | 1 | 100m / 500m | 128Mi / 384Mi | compute | HTTP + AMQP |
+| `aegispulse-events` | Node 24 | 8083 | 1 | 100m / 500m | 192Mi / 512Mi | compute | AMQP + HTTP |
+| `aegispulse-registry` | Java 25 | 8084 | 1 | 200m / 1000m | 384Mi / 768Mi | compute | HTTP |
+| `aegispulse-cases` | Java 25 | 8085 | 1 | 200m / 1000m | 384Mi / 768Mi | compute | HTTP + AMQP |
+| `aegispulse-risk-scoring` | Python 3.13 | 8086 | 1 | 100m / 500m | 192Mi / 512Mi | compute | HTTP |
+| `aegispulse-scanner` | Python 3.13 | 8087 | 1 | 100m / 1000m | 384Mi / 1Gi | compute | HTTP |
+| `aegispulse-doc-extraction` | Python 3.13 | 8088 | 1 | 200m / 1500m | 512Mi / 1536Mi | compute | AMQP |
+| `aegispulse-data-intel` | Python 3.13 | 8089 | 1 | 100m / 500m | 256Mi / 768Mi | compute | AMQP + HTTP |
+| `aegispulse-orchestrator` | Node 24 | 8090 | 1 | 50m / 500m | 128Mi / 256Mi | compute | AMQP |
+| `aegispulse-console` | nginx-unprivileged | 8080 | 1 | 20m / 100m | 32Mi / 64Mi | compute | Ingress |
+| `aegispulse-clamav` | clamd | 3310 | 1 | 100m / 500m | 1Gi / 1536Mi | compute | TCP (files only) |
+| CronJobs (each) | Node 24 / tool images | — | — | 50m / 250m | 64Mi / 256Mi | compute | schedule |
+| `aegispulse-postgres` | PostgreSQL 18 | 5432 | 1 | 250m / 1000m | 512Mi / 1536Mi | storage | — |
+| `aegispulse-mongo` | MongoDB 8 | 27017 | 1 | 250m / 1000m | 768Mi / 1536Mi | storage | — |
+| `aegispulse-redis` | Redis 8 | 6379 | 1 | 50m / 250m | 64Mi / 256Mi | storage | — |
+| `aegispulse-objectstore` | SeaweedFS 4.54 (S3 API) | 8333 | 1 | 100m / 500m | 256Mi / 768Mi | storage | — |
 
-Budget totals (requests): elitedesk ≈ 1.77 vCPU / 4.4 GiB (gateway ×2 counted); optiplex ≈ 0.65 vCPU / 1.6 GiB — within NFR-03. Storage StatefulSets carry the `dedicated: storage` nodeSelector **and** the `dedicated=storage:NoSchedule` toleration on first deploy; no other workload tolerates that taint.
+Node column: **compute** = `optiplex` preferred (`preferredDuringScheduling` weight 100 on `node-role.kubernetes.io/worker=true`), spilling to `elitedesk-800`; ClamAV uses a *required* worker affinity so its PVC binds deterministically. **storage** = `optiplex-tower` (ADR-0015).
+
+Budget totals (prod requests): compute tier ≈ 1.77 vCPU / 4.4 GiB (gateway ×2 counted); storage tier ≈ 0.65 vCPU / 1.6 GiB — within NFR-03.
+
+**Dev sizing (`overlays/dev`, namespace `aegispulse-dev`).** Same workloads and images with replicas 1 everywhere (gateway 1) and halved requests. **Limits stay identical to prod** so dev catches OOM and throttling issues that prod would hit. Examples: Node services 50m/96Mi, Java services 100m/256Mi, scanner 50m/256Mi, doc-extraction 100m/384Mi, ClamAV 50m/768Mi, data stores postgres 100m/256Mi, mongo 100m/384Mi, redis 25m/48Mi, objectstore 50m/128Mi. PVCs: postgres 5Gi, mongo 5Gi, redis 1Gi, objectstore 15Gi. Dev totals ≈ 0.9 vCPU / 2.9 GiB (compute tier) and 0.3 vCPU / 0.8 GiB (storage tier), within the dev budget (NFR-03). Dev may be scaled to zero when idle (`env:sleep:dev`). **Capacity watch:** prod + awake dev ≈ 2.7 vCPU of CPU requests, which now lands first on `optiplex`'s 4 vCPU (dedicated to app pods) rather than on `elitedesk-800` alongside GitLab and platform services (ADR-0015). Phase 9 records `kubectl describe node` allocations for both compute nodes, and if CPU requests exceed 85% of the compute tier's allocatable, dev defaults to sleeping outside pipeline runs. Storage StatefulSets carry the `dedicated: storage` nodeSelector **and** the `dedicated=storage:NoSchedule` toleration on first deploy; no other workload tolerates that taint.
 
 ### 5.5 RabbitMQ Queue Configuration
 
-All queues are **quorum** queues (`x-queue-type: quorum`), durable, with `x-delivery-limit: 10` as a backstop. Retry queues are classic durable queues with `x-message-ttl` and `x-dead-letter-exchange: ""`, `x-dead-letter-routing-key: {queue}`. DLQs: `x-max-length: 100000`, `overflow: reject-publish`.
+All queues are **quorum** queues (`x-queue-type: quorum`), durable, with `x-delivery-limit: 10` as a backstop. Retry queues are classic durable queues with `x-message-ttl` and `x-dead-letter-exchange: ""`, `x-dead-letter-routing-key: {queue}`. The retry-tier column is the per-attempt delay plan; one retry queue `{queue}.retry.{delay}` exists per **distinct** delay (e.g. `doc.extraction.q` 5s/30s/30s uses two queues). DLQs: `x-max-length: 100000`, `overflow: reject-publish`.
 
 | Queue | Owner (consumer) | Bindings (exchange → routing key) | Prefetch | Retry tiers | DLQ |
 |---|---|---|---|---|---|
@@ -919,7 +937,7 @@ All queues are **quorum** queues (`x-queue-type: quorum`), durable, with `x-deli
 | `orchestrator.review.q` | orchestrator | enrichment → `doc.extraction.review_required` | 10 | 1s/5s/30s | `.dlq` |
 | `orchestrator.notify.q` | orchestrator | domain/enrichment/intelligence → `notification.requested` | 10 | 1s/5s/30s | `.dlq` |
 | `cases.audit-ingest.q` | cases | domain → `registry.#`; enrichment → `classification.overridden`; intelligence → `ops.replay.*`, `ops.audit.*` | 20 | 1s/5s/30s | `.dlq` |
-| `cases.enrichment-timer.q` | cases | (delayed self-messages via retry exchange, routing `cases.enrichment-timeout`) | 10 | — | `.dlq` |
+| `cases.enrichment-timer.q` | cases | delayed self-messages: publish to `aegispulse.retry` with key `cases.enrichment-timer.q.delay.10m` (TTL 10 min queue dead-letters to this queue) | 10 | — | `.dlq` |
 | `intel.facts.q` | data-intel | domain → `risk.evaluation.recorded`, `case.#`; enrichment → `classification.finalized`, `classification.overridden`, `doc.extraction.#`, `file.status.changed`; intelligence → `ops.dead_letter.recorded` | 50 | 1s/5s/30s | `.dlq` |
 | `gateway.sse.{podId}` | gateway | domain → `case.#`, `risk.evaluation.recorded`; enrichment → `file.status.changed`, `classification.finalized`, `doc.extraction.#` | 100 | none (exclusive, auto-delete, `x-max-length 1000`, drop-head) | — |
 
@@ -934,15 +952,15 @@ Dead-letter routing note: `{queue}.dlq` queues are bound to `aegispulse.dlx` wit
 | Pooling | per-service pool max 10 (Node `pg`), Hikari 10 (Java), SQLAlchemy 5 (Python) | RDS Proxy |
 | MongoDB | 8.0, single-member replica set `rs0` (transactions), WiredTiger cache 0.5 GB, auth enabled | Atlas M30 3-node, PITR, encryption at rest |
 | Redis | 8, AOF `everysec`, `maxmemory 192mb`, `allkeys-lru` disabled → `volatile-ttl` (all keys have TTL), ACL users per service | ElastiCache Multi-AZ, TLS, AUTH |
-| RabbitMQ | shared cluster broker 4.x, vhost `aegispulse`, Prometheus plugin | Amazon MQ for RabbitMQ cluster deployment |
+| RabbitMQ | shared cluster broker 4.x, vhosts `aegispulse-dev` / `aegispulse-prod`, Prometheus plugin | Amazon MQ for RabbitMQ cluster deployment |
 | Object store | S3-compatible single node, versioning on `raw`/`backups`, lifecycle: `quarantine/` 30 d, `tmp/` 1 d | S3 SSE-KMS, Object Lock (governance) on `backups` |
-| Backups | nightly dumps → `aegispulse-homelab-backups`, weekly off-node copy | managed snapshots + cross-region copy |
+| Backups | prod: nightly dumps → `aegispulse-prod-backups`, weekly off-node copy; dev: weekly dump → `aegispulse-dev-backups` (2 retained) | managed snapshots + cross-region copy |
 
 ### 5.7 Identity, Least Privilege & Network Policy
 
 #### 5.7.1 Kubernetes ServiceAccounts
 - One ServiceAccount per workload, `automountServiceAccountToken: false` (no workload talks to the Kubernetes API).
-- `aegispulse-ci-deployer`: Role in `aegispulse` allowing `get/list/watch/create/update/patch` on Deployments, StatefulSets, Services, Ingresses, ConfigMaps, Jobs, CronJobs, NetworkPolicies, ServiceAccounts, PDBs, `InfisicalSecret` CRs; `delete` on Jobs only; **no** access to `Secret` objects (Infisical Operator manages them). Token stored as masked/protected GitLab variable `AEGIS_DEPLOY_SA_TOKEN`.
+- `aegispulse-ci-deployer`: one per namespace (`aegispulse`, `aegispulse-dev`), each a Role scoped to its own namespace, allowing `get/list/watch/create/update/patch` on Deployments, StatefulSets, Services, Ingresses, ConfigMaps, Jobs, CronJobs, NetworkPolicies, ServiceAccounts, PDBs, `InfisicalSecret` CRs; `delete` on Jobs only; **no** access to `Secret` objects (Infisical Operator manages them). Tokens stored as masked/protected GitLab variables `AEGIS_DEPLOY_SA_TOKEN_DEV` and `AEGIS_DEPLOY_SA_TOKEN_PROD` (the prod variable is scoped to the GitLab `prod` environment only).
 
 #### 5.7.2 PostgreSQL Roles
 | Role | Grants |
@@ -952,31 +970,33 @@ Dead-letter routing note: `{queue}.dlq` queues are bound to `aegispulse.dlx` wit
 | `svc_files` | DML on `files.*` |
 | `svc_registry` | DML on `registry.*` |
 | `svc_cases` | `SELECT, INSERT, UPDATE` on `cases.*` except `audit_log` (`SELECT, INSERT` only) |
-| `svc_data_intel` | DML on `analytics.*` |
+| `svc_analytics` | DML on `analytics.*` (data-intel's runtime role; roles follow `svc_{schema}`) |
+| `{schema}_platform` (×5) | `NOLOGIN BYPASSRLS`; owns only the migration-defined `SECURITY DEFINER` functions for cross-tenant operations, with the table privileges they need; `mig_{schema}` is a member `WITH INHERIT FALSE, SET TRUE` (to assign ownership); created by the DB bootstrap (superuser), ADR-0016 |
 | `backup_reader` | `pg_read_all_data` (backup CronJob only) |
-No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY` on tenant tables.
+No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY` on tenant tables; no `svc_*` role can bypass RLS (ADR-0016).
 
 #### 5.7.3 MongoDB, Redis, RabbitMQ, Object Store Principals
 | Principal | Scope |
 |---|---|
-| Mongo `svc_events` | `readWrite` on DB `aegispulse_events` |
+| Mongo `svc_events` | `readWrite` on DB `aegispulse_events` (no `dbAdmin`: cannot alter validators/indexes) |
+| Mongo `mig_events` | `readWrite` + `dbAdmin` on `aegispulse_events`; used only by migrate-mongo (Job / `make migrate`) |
 | Mongo `backup` | `backup` role |
 | Redis ACL `ingestion` | `~whk:* ~idem:ingestion:* +@read +@write +@string -@dangerous` |
 | Redis ACL `files` | `~upload:* ~file:* ~quota:files:*` |
 | Redis ACL `risk_scoring` | `~feat:*` |
 | Redis ACL `registry` | `~auth:* ~ratelimit:auth:*` |
 | RabbitMQ user per service | configure: `^$` (topology asserted by migration Job user `aegis_topology`), write: owning exchanges + `aegispulse.retry` + `aegispulse.dlx`, read: own queues only |
-| Object store `files` | `raw/*`, `quarantine/*`, `artifacts/*` (read) on its buckets; presign rights |
-| Object store `ingestion` | `aegispulse-homelab-raw/raw/webhooks/*` write |
+| Object store `files` | `raw/*`, `quarantine/*`; `artifacts/*` read, plus delete for the FR-FILE-12 retention purge; presign rights |
+| Object store `ingestion` | `aegispulse-{env}-raw/raw/webhooks/*` read, write (incl. delete) and list, prefix-scoped (FR-WHK-08 orphan sweep) |
 | Object store `doc_extraction` | `artifacts/*` write; reads raw only via Files-issued presigned URLs |
-| Object store `events` | `aegispulse-homelab-archive/*` write |
-| Object store `data_intel` | `aegispulse-homelab-analytics/*` RW |
-| Object store `backup` | `aegispulse-homelab-backups/*` write |
+| Object store `events` | `aegispulse-{env}-archive/*` write |
+| Object store `data_intel` | `aegispulse-{env}-analytics/*` RW |
+| Object store `backup` | `aegispulse-{env}-backups/*` write |
 
 #### 5.7.4 Internal Service Action Allowlist (`act[]` claim)
 | Caller (SERVICE account) | Allowed callee actions |
 |---|---|
-| gateway | all public-route actions on behalf of the user (forwards user JWT; uses its own token only for `/.well-known` and health) |
+| gateway | all public-route actions on behalf of the user (forwards the user JWT). Uses its **own SERVICE token** only where no user token can exist yet: `registry.login`, `registry.refreshToken`, `ingestion.ingestWebhookDelivery` (HMAC-verified by ingestion), plus `/.well-known/jwks.json` and health |
 | orchestrator | `registry.resolveEntities`, `registry.checkWatchlists`, `registry.getTenantSettings`, `riskScoring.score`, `cases.recordRiskEvaluation`, `cases.reevaluateOpenCases`, `cases.openCase`, `cases.attachEvidence`, `events.searchEventsForEntities` |
 | ingestion | `files.registerRemoteFile`, `registry.getTenantSettings` |
 | files | `registry.getTenantSettings` |
@@ -987,6 +1007,7 @@ No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY`
 | scheduler-trigger | `ingestion.runDueConnectors`, `ingestion.expirePreviousSecrets`, `files.sweepOrphans`, `files.purgeRetention`, `events.sweepPendingScans`, `events.purgeRetention`, `cases.runEnrichmentTimeouts`, `cases.autoResolveCleared`, `cases.verifyAuditChain`, `dataIntel.runRollups`, `dataIntel.runDriftChecks`, `dataIntel.exportParquet` |
 
 #### 5.7.5 NetworkPolicies (default deny, explicit allow)
+- Identical policy sets in `aegispulse` and `aegispulse-dev`. Every allow rule selects pods **within its own namespace** (or named platform namespaces below). There are no rules between `aegispulse-dev` and `aegispulse`, so dev pods can't reach prod pods or datastores, and the reverse.
 - Ingress to gateway and console only from `ingress-nginx` namespace; objectstore port 9000 from `ingress-nginx` (presigned) and from files/ingestion/doc-extraction/events/data-intel/backup.
 - Service ingress (8081–8090) only from gateway, orchestrator, scheduler CronJobs, and the specific callers in §5.7.4.
 - Datastore ingress only from owners: postgres ← ingestion, files, registry, cases, data-intel, migration Jobs, backup; mongo ← events, mongo-migrate, backup; redis ← ingestion, files, registry, risk-scoring; clamav ← files.
@@ -1010,7 +1031,8 @@ No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY`
 | IaC | Terraform modules (`infra/terraform/aws-reference/`, documentation-grade, not applied) |
 
 ### 5.9 DNS & Edge
-- Cloudflare proxied records → tunnel: `aegispulse`, `aegispulse-api`, `aegispulse-objects` under `rmwhs.com`. No apex binding.
+- Cloudflare proxied records → the same tunnel: `aegispulse`, `aegispulse-api`, `aegispulse-objects` under `rmwhs.com` (**prod**) and under `rmwhs-dev.space` (**dev**). No apex binding on either domain, and hostnames stay one label deep so Universal SSL covers them.
+- ingress-nginx routes by `Host`: each namespace's Ingress objects declare only that environment's hostnames, so a request can never cross environments.
 - Ingress annotations: `nginx.ingress.kubernetes.io/ssl-redirect: "false"`; API host adds `limit-rps: "20"`, `limit-burst-multiplier: "3"`, `proxy-body-size: "2m"`; objects host `proxy-body-size: "100m"`, `proxy-request-buffering: "off"`.
 - Cloudflare WAF custom rules: rate limit `/v1/auth/login` (10/min/IP), `/webhooks/*` (120/min/IP); block non-`POST` on `/webhooks/*`.
 
@@ -1051,13 +1073,15 @@ aegispulse/
 │   ├── java-platform/                 # Spring Boot starter: logging, OTel, JWT, outbox, consumer kit, health
 │   └── py-platform/                   # Python kit: config, structlog, OTel, JWT, aio-pika consumer kit, health
 ├── gateway/
-│   └── fastify-http/                  # SINGLE external HTTP/SSE/webhook entrypoint (Node, Fastify)
-│       ├── src/handlers/              # {domain}.handler.ts — transport adapters only
-│       ├── src/routes/                # route registration + JSON schema wiring
-│       ├── src/clients/               # {service}.service-client.ts (generated types + thin fetch)
-│       ├── src/middleware/            # auth context (JWKS), correlation ids, body limits, error mapping
-│       ├── src/sse/                   # broker subscription → tenant-filtered projections
-│       ├── src/server.ts · src/main.ts
+│   └── nest-http/                     # SINGLE external HTTP/SSE/webhook entrypoint (NestJS on Fastify adapter, ADR-0013)
+│       ├── src/modules/{domain}/      # {domain}.module.ts + {domain}.controller.ts — transport adapters only
+│       ├── src/clients/               # {service}.client.ts — @Injectable typed service clients (generated types + undici)
+│       ├── src/common/guards/         # jwt-auth.guard.ts (JWKS via jose), roles.guard.ts (coarse pre-check only)
+│       ├── src/common/pipes/          # zod-validation.pipe.ts (schemas generated from packages/contracts)
+│       ├── src/common/interceptors/   # correlation-id, logging, timeout, error-envelope mapping (§8.2)
+│       ├── src/common/mappers/        # {domain}.mapper.ts — transport ↔ contract shape mapping
+│       ├── src/stream/                # stream.controller.ts (@Sse) + broker subscription → tenant-filtered projections
+│       ├── src/app.module.ts · src/main.ts   # NestFactory + FastifyAdapter({ bodyLimit }), rawBody: true
 │       └── tests/
 ├── services/
 │   ├── ingestion/                     # Node — webhooks, connectors, transaction intake
@@ -1099,16 +1123,17 @@ aegispulse/
 │   └── runner/                        # evaluation harness (Python)
 ├── scripts/
 │   ├── demo/                          # webhook-sign.ts, upload.ts, scenario.ts, chaos/*.sh
-│   └── dev/                           # seed.ts, reset.sh, infisical-export.sh
+│   ├── dev/                           # seed.ts, reset.sh, gen-local-secrets.sh, pg-bootstrap.sh
+│   └── infisical/                     # seed.py (MB-06): folders + generated secrets from deploy/infisical/secrets-catalog.yaml
 ├── deploy/
 │   ├── compose/docker-compose.yml     # local stack
 │   ├── k8s/base/                      # namespace, quotas, netpols, deployments, statefulsets, cronjobs, ingresses
-│   ├── k8s/overlays/{homelab,k3d-local}/
+│   ├── k8s/overlays/{dev,prod,k3d-local}/
 │   └── observability/                 # OpenObserve dashboards + alert definitions as JSON
 ├── infra/
 │   └── terraform/aws-reference/       # documentation-grade reference only; never applied by CI
 └── tests/
-    ├── e2e/                           # Vitest + fetch E2E against compose/homelab
+    ├── e2e/                           # Vitest + fetch E2E against compose/dev/prod
     ├── contract/                      # Pact-style consumer contracts + schema conformance
     ├── load/                          # k6 scripts
     ├── security/                      # netpol, cross-tenant, adversarial webhooks
@@ -1119,7 +1144,7 @@ Layout rules: `gateway/` and `workers/` contain no datastore clients; `services/
 
 ### 6.2 Service Layer Internal RPC Contract
 
-Every internal operation is a named `ServiceAction`. Each action maps 1:1 to an internal REST operation (`operationId` = action name) in `packages/contracts/openapi/{service}.internal.yaml`; TypeScript, Java, and Python types are generated from those specs. Every `ServiceAction` is **invoked by dispatch adapters** (gateway handlers, consumer adapters, scheduler-trigger) or by orchestrators through typed clients, and is **implemented by service-layer modules only**.
+Every internal operation is a named `ServiceAction`. Each action maps 1:1 to an internal REST operation (`operationId` = action name) in `packages/contracts/openapi/{service}.internal.yaml`; TypeScript, Java, and Python types are generated from those specs. Tenant-scoped actions accept the `X-Aegis-Tenant` header (UUID), which the gateway forwards unchanged. The owning service honors it only for a `PLATFORM_ADMIN` user token and records `actingAs`; for any other principal a present header returns `403 FORBIDDEN`, and the reserved `platform` tenant (FR-TEN-09) can never be the acting tenant (`404`). Every `ServiceAction` is **invoked by dispatch adapters** (gateway handlers, consumer adapters, scheduler-trigger) or by orchestrators through typed clients, and is **implemented by service-layer modules only**.
 
 ```typescript
 // packages/contracts/src/service-actions.ts  (generated index + hand-written union)
@@ -1141,6 +1166,7 @@ type ServiceAction =
   | { service: 'registry'; action: 'createServiceAccount';  payload: CreateServiceAccountInput }
   | { service: 'registry'; action: 'rotateServiceAccountSecret'; payload: { serviceAccountId: UUID } }
   | { service: 'registry'; action: 'revokeServiceAccount';  payload: { serviceAccountId: UUID } }
+  | { service: 'registry'; action: 'listServiceAccounts';   payload: ListServiceAccountsQuery }
   | { service: 'registry'; action: 'createEntity';          payload: CreateEntityInput }
   | { service: 'registry'; action: 'getEntity';             payload: { entityId: UUID } }
   | { service: 'registry'; action: 'listEntities';          payload: ListEntitiesQuery }
@@ -1210,6 +1236,7 @@ type ServiceAction =
   | { service: 'cases'; action: 'recordRiskEvaluation';      payload: RecordRiskEvaluationInput }
   | { service: 'cases'; action: 'openCase';                  payload: OpenCaseInput }
   | { service: 'cases'; action: 'getCase';                   payload: { caseId: UUID } }
+  | { service: 'cases'; action: 'getTransactionEvaluation';  payload: { transactionId: UUID } }   // FR-TXN-06 composition
   | { service: 'cases'; action: 'listCases';                 payload: ListCasesQuery }
   | { service: 'cases'; action: 'getCaseTimeline';           payload: { caseId: UUID } }
   | { service: 'cases'; action: 'assignCase';                payload: { caseId: UUID; assigneeUserId: UUID | null; expectedVersion: number } }
@@ -1248,7 +1275,7 @@ type ServiceAction =
   | { service: 'dataIntel'; action: 'listEvalRuns';          payload: PageQuery };
 ```
 
-Internal route convention: `POST /internal/v1/{action}` for commands, `GET /internal/v1/{resource}` for queries as declared in each internal OpenAPI spec. All internal routes require a JWT (user token forwarded by the gateway, or a `SERVICE` token whose `act[]` includes the action).
+Internal route convention (uniform RPC, decided in Phase 1a): **every** HTTP-invoked action is `POST /internal/v1/{action}` with the payload as the JSON body, commands and queries alike, so one typed client (`invoke(action, payload)`) covers every service. Consumer-invoked actions are not HTTP routes; each internal spec lists them under `x-aegis-consumer-actions`. `make contracts` fails if this union and the internal OpenAPI specs diverge. All internal routes require a JWT (user token forwarded by the gateway, or a `SERVICE` token whose `act[]` includes the action).
 
 ### 6.3 Tech Stack
 
@@ -1256,16 +1283,16 @@ Internal route convention: `POST /internal/v1/{action}` for commands, `GET /inte
 
 | Layer | Technology |
 |---|---|
-| Edge gateway | Node.js 24 LTS, TypeScript 5.x strict, Fastify 5, `@fastify/rate-limit` (per-pod defense only), `jose` (JWKS), Zod + `fastify-type-provider-zod` |
+| Edge gateway | Node.js 24 LTS, TypeScript 6.0 strict (+ `experimentalDecorators`/`emitDecoratorMetadata`, gateway only; TS 7 deferred, see `docs/steering/tech.md`), **NestJS 12 on `@nestjs/platform-fastify` (Fastify 5)** (ADR-0013), `@nestjs/throttler` (in-memory, per-pod defense only), `jose` (JWKS) in a Nest guard, Zod validation pipe (schemas from contracts), `@Sse` + RxJS for streaming, `undici` typed clients. Public OpenAPI is served from `packages/contracts` (no `@nestjs/swagger` generation) |
 | Node services | Node.js 24, TypeScript, Fastify 5 (internal adapters), `pg` + Kysely (typed SQL), `mongodb` driver 6, `ioredis`, `@aws-sdk/client-s3` + `s3-request-presigner`, `opossum` (circuit breaker), `undici` (HTTP client), `pino` |
 | Node messaging | `rxjs-rabbitmq` (author's library, [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md)) on `amqplib`, wrapped by `packages/ts-platform/amqp` with typed generics from the topology contract, publisher confirms, retry/DLQ policy |
-| Java services | Java 25 LTS, Spring Boot 4.x, Spring Web MVC (virtual threads), Spring Security OAuth2 Resource Server + Nimbus JOSE (registry issuer), Spring JDBC `JdbcClient`, Spring AMQP, Resilience4j, Bean Validation, Flyway, Micrometer + OTel Java agent, ArchUnit, password4j (Argon2id) |
+| Java services | Java 25 LTS, Spring Boot 4.2, Spring Web MVC (virtual threads), Spring Security OAuth2 Resource Server + Nimbus JOSE (registry issuer), Spring JDBC `JdbcClient`, Spring AMQP, Resilience4j, Bean Validation, Flyway, Micrometer + OTel Java agent, ArchUnit, password4j (Argon2id) |
 | Python services | Python 3.13, uv, FastAPI, Pydantic v2, `aio-pika`, SQLAlchemy 2 Core + psycopg 3 (data-intel), `redis-py` (risk-scoring), boto3 (S3 API), spaCy 3 (`en_core_web_sm`), scikit-learn, pdfplumber, pytesseract + Tesseract 5, selectolax, polars + pyarrow, structlog, `pybreaker`, OpenTelemetry SDK |
 | Optional LLM adjudicator | Anthropic Claude API (`claude-haiku-5-5`), off by default, budget-capped, redacted text only, behind `LlmAdjudicator` port with deterministic stub |
-| Datastores | PostgreSQL 18, MongoDB 8.0, Redis 8, S3-compatible object store (ADR-0011) |
+| Datastores | PostgreSQL 18, MongoDB 8.0, Redis 8, SeaweedFS 4.54 S3-compatible object store (ADR-0011) |
 | Messaging | RabbitMQ 4.x (quorum queues, Prometheus plugin) |
 | Migrations | Flyway (SQL, all PostgreSQL schemas, run as Jobs), `migrate-mongo` (Mongo indexes/collections) |
-| Contracts | OpenAPI 3.1, AsyncAPI 3.0, JSON Schema 2020-12; generators: `openapi-typescript`, OpenAPI Generator (Java), `datamodel-code-generator` (Pydantic) |
+| Contracts | OpenAPI 3.1, AsyncAPI 3.0, JSON Schema 2020-12; generators: `openapi-typescript`, `datamodel-code-generator` (Pydantic), and Java records for the envelope, event payloads and topology constants emitted by `packages/contracts/scripts/java-records.ts` (dependency-free records + JSpecify, Phase 1c); OpenAPI Generator (Java) is reserved for internal request/response DTOs of the Java services when Phase 2 needs them |
 | Frontend | React 19, Vite, TypeScript, TanStack Router + TanStack Query, Zustand (session), Tailwind CSS + Radix UI primitives, Recharts, `@microsoft/fetch-event-source`, served by `nginx-unprivileged` |
 | Testing | Vitest, Testcontainers (Node/Java/Python), JUnit Jupiter + AssertJ, pytest + hypothesis, Playwright + axe-core, k6, Schemathesis (OpenAPI fuzz) |
 | Local emulation | Docker Compose (§10.3), optional k3d |
@@ -1296,6 +1323,7 @@ Internal route convention: `POST /internal/v1/{action}` for commands, `GET /inte
     "sensitivity": "CONFIDENTIAL",
     "categories": ["REGULATORY", "FINANCIAL"],
     "publisher_stated_severity": "MEDIUM",
+    "source_trust_level": "TRUSTED",
     "algorithm_severity": "HIGH",
     "algorithm_confidence": 0.82,
     "final_severity": "HIGH",
@@ -1325,7 +1353,7 @@ Rules:
 
 ### 6.5 Messaging Topology & Consumer Kit
 
-- Exchanges (topic, durable): `aegispulse.ingress`, `aegispulse.enrichment`, `aegispulse.domain`, `aegispulse.intelligence`; direct: `aegispulse.retry`, `aegispulse.dlx`. Topology lives in `packages/contracts/topology/aegispulse.topology.json` and is asserted by a migration-style Job (`aegispulse-topology`) using the `aegis_topology` RabbitMQ user; runtime users cannot declare/delete resources.
+- Exchanges (topic, durable): `aegispulse.ingress`, `aegispulse.enrichment`, `aegispulse.domain`, `aegispulse.intelligence`; direct: `aegispulse.retry`; **topic**: `aegispulse.dlx` (routing key = original queue name; topic so `events.deadletter.q` can bind `#` while each `{queue}.dlq` binds its exact queue name). Topology lives in `packages/contracts/topology/aegispulse.topology.json` and is asserted by a migration-style Job (`aegispulse-topology`) using the `aegis_topology` RabbitMQ user; runtime users cannot declare/delete resources.
 - Consumer kit responsibilities (TS `packages/ts-platform/amqp`, Java `java-platform`, Python `py-platform`): deserialize + validate envelope; establish log/trace context; dedupe via `processed_messages` when the consumer's service owns a store; call one service action; ack on success; classify failure (`TransientError`, `PermanentError`, `PoisonMessageError`); retry by republishing to `aegispulse.retry` with routing key `{queue}.retry.{tier}` and `x-retry-count+1`; dead-letter by publishing to `aegispulse.dlx` routing `{queue}` with error headers; always ack the original after a successful republish (publisher confirm), otherwise nack-requeue.
 - Circuit breakers: HTTP clients per dependency — open at ≥ 50% failures over a 20-call rolling window, half-open after 30 s, timeout per §2 (scoring 2 s, scanner 10 s, registry 1 s, cases 3 s, events search 3 s). Breaker-open errors are `TransientError`.
 
@@ -1355,10 +1383,10 @@ outbox_events(id, tenant_id, event_id UNIQUE, exchange, routing_key, envelope JS
 | `risk.evaluation.recorded` | domain | cases | `evaluationId, transactionEventId, score, band, factors, modelVersion, caseId?` |
 | `case.opened` · `case.transitioned` · `case.escalated` · `case.resolved` · `case.disposition.recorded` · `case.evidence.attached` | domain | cases | `caseId, caseNumber, type, from, to, severity, policyScore, policyVersion, entityIds, disposition?` |
 | `correlation.requested` | domain | cases | `caseId, entityIds, lookbackDays` |
-| `registry.tenant.created|suspended|restored|settings_changed` · `registry.user.changed` · `registry.entity.changed` · `registry.watchlist.changed` | domain | registry | ids + changed fields (no secrets/password data) |
+| `registry.tenant.created|suspended|restored|deactivated|settings_changed` · `registry.user.changed` · `registry.service_account.changed` · `registry.auth.refresh_reuse_detected` · `registry.entity.changed` · `registry.watchlist.changed` | domain | registry | ids + changed fields (no secrets/password data) |
 | `notification.requested` | domain/enrichment/intelligence | cases, events, files, ingestion, data-intel | `templateId, severity, notificationKey, vars` |
 | `intel.rollup.completed` · `intel.drift.detected` · `intel.eval.completed` | intelligence | data-intel | `metric, scope, value, threshold, window` |
-| `ops.dead_letter.recorded` · `ops.replay.started|completed` · `ops.audit.quarantine_download` · `ops.audit.source_trust_changed` | intelligence | events / files / ingestion | operational ids + actor |
+| `ops.dead_letter.recorded` · `ops.replay.started|completed` · `ops.audit.quarantine_download` · `ops.audit.file_deleted` · `ops.audit.source_trust_changed` | intelligence | events / files / ingestion | operational ids + actor |
 
 ### 6.8 Error Model
 
@@ -1436,10 +1464,18 @@ CREATE INDEX ix_idem_expires ON ingestion.idempotency_records (expires_at);
 ALTER TABLE ingestion.webhook_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ingestion.webhook_sources FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON ingestion.webhook_sources
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid
-         OR current_setting('app.bypass_rls', true) = 'on');   -- bypass only for platform jobs via SET LOCAL
+  USING (tenant_id = ingestion.current_tenant())
+  WITH CHECK (tenant_id = ingestion.current_tenant());
+-- current_tenant() is created per schema by V1__baseline.sql; with no tenant context RLS fails closed (0 rows).
+-- There is no bypass clause (ADR-0016): cross-tenant work goes through SECURITY DEFINER functions, e.g.
+CREATE FUNCTION ingestion.purge_expired_idempotency_records() RETURNS integer
+  LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$ … $$;
+ALTER FUNCTION ingestion.purge_expired_idempotency_records() OWNER TO ingestion_platform;  -- NOLOGIN BYPASSRLS
+REVOKE ALL ON FUNCTION ingestion.purge_expired_idempotency_records() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ingestion.purge_expired_idempotency_records() TO svc_ingestion;
 ```
-Services run `SET LOCAL app.tenant_id = $1` at the start of every transaction; scheduled cross-tenant jobs set `app.bypass_rls = 'on'` inside a dedicated repository method that is audited.
+`outbox_events` and `processed_messages` carry no RLS (never read on behalf of a tenant request). A Flyway `afterMigrate.sql` callback per schema keeps `flyway_schema_history` read-only (SELECT) for `svc_*`, so services can check the schema version for readiness but cannot alter it.
+Services run `SET LOCAL app.tenant_id = $1` at the start of every transaction. No session setting can lift RLS: cross-tenant platform operations (retention purges, scheduled sweeps, tenant-resolving lookups such as webhook source by key) are `SECURITY DEFINER` functions owned by `{schema}_platform` (NOLOGIN, BYPASSRLS), defined in reviewed migrations with a fixed `search_path`, with `EXECUTE` granted to `svc_{schema}` only. Each FR that needs one adds it in its own migration with a migration test (ADR-0016).
 
 ### 7.1 Schema `registry` (Owner: registry)
 
@@ -1488,7 +1524,9 @@ CREATE TABLE registry.user_roles (
   role        TEXT NOT NULL CHECK (role IN ('PLATFORM_ADMIN','TENANT_ADMIN','ANALYST','VIEWER','COMPLIANCE_AUDITOR')),
   granted_by  UUID REFERENCES registry.users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (user_id, role)
+  PRIMARY KEY (user_id, role),
+  -- FR-TEN-09: PLATFORM_ADMIN exists only in the reserved platform tenant, which holds nothing else
+  CONSTRAINT ck_user_roles_platform CHECK ((tenant_id = '00000000-0000-0000-0000-000000000001') = (role = 'PLATFORM_ADMIN'))
 );
 CREATE INDEX ix_user_roles_tenant_role ON registry.user_roles (tenant_id, role);
 ```
@@ -1523,10 +1561,12 @@ CREATE TABLE registry.service_accounts (
   status        TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','REVOKED')),
   created_by    UUID REFERENCES registry.users(id),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT ck_service_accounts_tenant CHECK ((kind = 'SERVICE') = (tenant_id IS NULL))
 );
 CREATE UNIQUE INDEX ux_service_accounts_client_id ON registry.service_accounts (client_id);
 CREATE INDEX ix_service_accounts_tenant ON registry.service_accounts (tenant_id);
+CREATE INDEX ix_service_accounts_tenant_created ON registry.service_accounts (tenant_id, created_at, id);  -- keyset list
 ```
 
 #### registry.service_account_secrets
@@ -1552,6 +1592,7 @@ CREATE TABLE registry.signing_keys (               -- public halves only; privat
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX ix_signing_keys_status ON registry.signing_keys (status);
+CREATE UNIQUE INDEX ux_signing_keys_one_current ON registry.signing_keys ((status)) WHERE status = 'CURRENT';
 ```
 
 #### registry.entities
@@ -2249,7 +2290,8 @@ Collections use `$jsonSchema` validators (`validationLevel: strict`) generated f
 | `feat:txn1h:{tenantId}:{accountId}` | risk-scoring | zset, 2 h | velocity window |
 | `feat:cp:{tenantId}:{accountId}` | risk-scoring | hash(counterpartyId→lastSeen), 30 d | new-counterparty feature |
 | `feat:seen:{tenantId}:{eventId}` | risk-scoring | string, 48 h | feature-update idempotency |
-| `ratelimit:auth:{tenantId}:{emailHash}` | registry | counter, 900 s | login throttling |
+| `ratelimit:auth:{tenantId}:{emailHash}` | registry | counter, 900 s | login throttling (unknown tenant → nil UUID) |
+| `ratelimit:cc:{clientIdHash}` | registry | counter, 300 s | client-credentials throttling (FR-AUTH-04) |
 | `auth:jwks:cache` | registry | string, 600 s | serialized JWKS |
 
 ### 7.8 Object Storage Layout
@@ -2273,8 +2315,9 @@ Collections use `$jsonSchema` validators (`validationLevel: strict`) generated f
 | Environment | API URL | Web App URL | Webhook URL pattern |
 |---|---|---|---|
 | local | `http://localhost:8080` | `http://localhost:5173` | `http://localhost:8080/webhooks/{sourceKey}` |
-| homelab | `https://aegispulse-api.rmwhs.com` | `https://aegispulse.rmwhs.com` | `https://aegispulse-api.rmwhs.com/webhooks/{sourceKey}` |
-| production (reference) | `https://api.aegispulse.<domain>` | `https://app.aegispulse.<domain>` | same pattern |
+| dev | `https://aegispulse-api.rmwhs-dev.space` | `https://aegispulse.rmwhs-dev.space` | `https://aegispulse-api.rmwhs-dev.space/webhooks/{sourceKey}` |
+| prod | `https://aegispulse-api.rmwhs.com` | `https://aegispulse.rmwhs.com` | `https://aegispulse-api.rmwhs.com/webhooks/{sourceKey}` |
+| AWS production (reference) | `https://api.aegispulse.<domain>` | `https://app.aegispulse.<domain>` | same pattern |
 
 Public contract: `packages/contracts/openapi/gateway.public.yaml` (served at `/v1/openapi.json`, used by ZAP API scan). Internal contracts: `{service}.internal.yaml`.
 
@@ -2306,7 +2349,8 @@ Error:
 | POST | `/v1/auth/password` 🔒 | change password |
 | GET | `/v1/auth/me` 🔒 | current principal |
 | POST | `/v1/auth/token` | client-credentials token (IN) |
-| GET | `/.well-known/jwks.json` | public signing keys |
+| GET | `/.well-known/jwks.json` | public signing keys (bare RFC 7517 JWK Set, not the §8.2 envelope) |
+| GET | `/v1/openapi.json` | bundled public OpenAPI document, served from `packages/contracts` (used by ZAP API scans) |
 
 **Tenants, Users, Service Accounts (registry)**
 
@@ -2315,9 +2359,9 @@ Error:
 | POST | `/v1/tenants` 🔒 PA | create tenant |
 | GET | `/v1/tenants/{tenantId}` 🔒 PA/TA | tenant detail + settings |
 | PATCH | `/v1/tenants/{tenantId}` 🔒 PA/TA | settings (TA) or status (PA) |
-| GET | `/v1/users` 🔒 TA | list users |
-| POST | `/v1/users` 🔒 TA | create user |
-| PATCH | `/v1/users/{userId}` 🔒 TA | roles / status / display name |
+| GET | `/v1/users` 🔒 TA, PA via `X-Aegis-Tenant` | list users |
+| POST | `/v1/users` 🔒 TA, PA via `X-Aegis-Tenant` | create user |
+| PATCH | `/v1/users/{userId}` 🔒 TA, PA via `X-Aegis-Tenant` | roles / status / display name |
 | GET | `/v1/service-accounts` 🔒 TA | list |
 | POST | `/v1/service-accounts` 🔒 TA | create (secret returned once) |
 | POST | `/v1/service-accounts/{id}/rotate-secret` 🔒 TA | rotate |
@@ -2423,7 +2467,7 @@ Error:
 | GET | `/v1/stream` 🔒 VI+ | SSE pipeline stream |
 | GET | `/livez` · `/readyz` · `/healthz` | probes (every runtime; `/healthz` internal only) |
 
-**JWT validation note:** the gateway verifies signature (RS256, `kid` from cached JWKS), `iss`, `aud`, `exp`/`nbf` (60 s leeway), and `typ`; it derives the auth context (tenant, roles) and forwards the original `Authorization` header plus `X-Request-Id`, `X-Correlation-Id`, `traceparent`. The owning service re-verifies the token and enforces RBAC + tenant ownership itself. Internal SERVICE tokens additionally require `aud=aegispulse-internal` and an `act[]` containing the invoked action.
+**JWT validation note:** the gateway verifies signature (RS256, `kid` from cached JWKS), `iss`, `aud`, `exp`/`nbf` (60 s leeway), and `typ`; it derives the auth context (tenant, roles) and forwards the original `Authorization` header plus `X-Request-Id`, `X-Correlation-Id`, `traceparent`. The owning service re-verifies the token and enforces RBAC + tenant ownership itself. Internal SERVICE tokens additionally require `aud=aegispulse-internal` and an `act[]` containing the invoked action. **`typ` rule (ADR-0010):** `typ` must be exactly `user` or `integration` on `aud=JWT_AUDIENCE` (with `tid`, `tslug`, `roles[]`, `jti`; integration tokens carry only the `INTEGRATION` role) or exactly `service` on `aud=aegispulse-internal` (with `act[]`, `jti`); a missing or unknown `typ`, or a `typ` presented on the other audience, is rejected with `401 UNAUTHORIZED`.
 
 ### 8.4 Error Codes
 
@@ -2493,21 +2537,24 @@ Error:
 |---|---|---|---|
 | `local` | development, integration and E2E tests | Docker Compose on developer machine (optional k3d) | `make up` |
 | `ci` | unit/integration tests with Testcontainers inside runner pods | GitLab Runner kubernetes executor (namespace `gitlab-runner`) | pipeline |
-| `homelab` | the portfolio deployment; DAST target; demo environment | k3s namespace `aegispulse` | pipeline on `main` |
-| `production` | reference only (documented, never provisioned) | EKS (§4.2, §5.8) | — |
+| `dev` | integration/runtime verification, DAST target, chaos/load/soak, resettable data | k3s namespace `aegispulse-dev`, `*.rmwhs-dev.space` | pipeline on every `main` commit (automatic) |
+| `prod` | the portfolio deployment and public demo; never chaos-tested or reset | k3s namespace `aegispulse`, `*.rmwhs.com` | manual promotion of dev-verified digests, or `v*` tag |
+| AWS production | reference only (documented, never provisioned) | EKS (§4.2, §5.8) | — |
 
 ### 9.2 CI/CD (GitLab)
 
-Pipeline logic lives in `ci/*.sh` (cluster standard §3.2); `.gitlab-ci.yml` stays declarative. Jobs run on the shared runner (tags `default`, `generic`). Per-runtime jobs use `rules:changes` so an MR touching only `services/cases/**` runs Java jobs plus contract/E2E jobs.
+Pipeline logic lives in `ci/*.sh` (cluster standard §3.2); `.gitlab-ci.yml` stays declarative. Pipelines run for merge requests, for branch pushes without an open MR (so feature branches are verified before an MR exists, without duplicate branch+MR pipelines), for `main` (including schedules) and for `vX.Y.Z` tags; deploy, promotion and release jobs carry their own `rules` restricting them to `main`/tags. Jobs run on the shared runner (tags `default`, `generic`). Per-runtime jobs use `rules:changes` so an MR touching only `services/cases/**` runs Java jobs plus contract/E2E jobs.
 
 ```yaml
 # .gitlab-ci.yml (shape)
-stages: [.pre, lint, test, contract, build, scan, sign, deploy, verify, release]
+stages: [.pre, lint, test, contract, build, scan, sign, deploy-dev, verify-dev, deploy-prod, verify-prod, release]
 
 workflow:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"   # MR pipelines
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS    # branch with an open MR: the MR pipeline covers it
+      when: never
+    - if: $CI_COMMIT_BRANCH                               # main, feature branches without an MR, schedules, web runs
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
 include:
@@ -2535,41 +2582,47 @@ build:images:        { stage: build,   parallel: { matrix: [{ IMAGE: [gateway, i
 scan:trivy:          { stage: scan,    script: [./ci/scan-trivy.sh] }             # image + SBOM (syft) ; fail on CRITICAL/HIGH fixable
 check:layers:        { stage: scan,    script: [./ci/check-layer-sizes.sh] }      # every layer < 95 MB
 sign:images:         { stage: sign,    script: [./ci/sign.sh], rules: [{ if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH }, { if: $CI_COMMIT_TAG }] }
-deploy:homelab:      { stage: deploy,  script: [./ci/deploy.sh], environment: { name: homelab, url: https://aegispulse.rmwhs.com },
-                       resource_group: homelab, rules: [{ if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH }] }
-verify:smoke:        { stage: verify,  script: [./ci/smoke.sh] }                  # E2E smoke subset against homelab
-verify:zap:          { stage: verify,  script: [./ci/scan-zap.sh] }               # ZAP baseline (console) + API scan (openapi) ; fail on High
-verify:rollback:     { stage: verify,  script: [./ci/rollback.sh], when: manual } # redeploy previous digest set
-release:             { stage: release, script: [./ci/release.sh], rules: [{ if: $CI_COMMIT_TAG }] }  # promote digests, release notes from CHANGELOG
+deploy:dev:          { stage: deploy-dev, script: [./ci/deploy.sh dev], environment: { name: dev, url: https://aegispulse.rmwhs-dev.space },
+                       resource_group: dev, rules: [{ if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH }] }
+verify:dev:smoke:    { stage: verify-dev, script: [./ci/smoke.sh dev] }            # full E2E smoke against rmwhs-dev.space
+verify:dev:zap:      { stage: verify-dev, script: [./ci/scan-zap.sh dev] }         # ZAP baseline (console) + active API scan (openapi); fail on High
+verify:dev:netpol:   { stage: verify-dev, script: [./ci/netpol-test.sh dev] }      # incl. dev→prod isolation probe
+deploy:prod:         { stage: deploy-prod, script: [./ci/deploy.sh prod], environment: { name: prod, url: https://aegispulse.rmwhs.com },
+                       resource_group: prod, needs: [verify:dev:smoke, verify:dev:zap, verify:dev:netpol],
+                       rules: [{ if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH, when: manual }, { if: $CI_COMMIT_TAG }] }   # same digests as dev; never rebuilt
+verify:prod:smoke:   { stage: verify-prod, script: [./ci/smoke.sh prod] }          # read-mostly smoke subset; passive ZAP baseline only
+verify:prod:rollback: { stage: verify-prod, script: [./ci/rollback.sh prod], when: manual }
+env:sleep:dev:       { stage: deploy-dev, script: [./ci/env-sleep.sh dev], rules: [{ if: $CI_PIPELINE_SOURCE == "schedule" }] }   # scale dev to zero nightly
+release:             { stage: release, script: [./ci/release.sh], rules: [{ if: $CI_COMMIT_TAG }] }  # GitLab Release + notes from CHANGELOG
 ```
 
-Merge-request pipeline: `.pre → lint → test → contract → build → scan` (no sign/deploy). Main: full pipeline through `verify`. Tags: re-deploy the already-built digests for that commit and publish a GitLab Release.
+Merge-request pipeline: `.pre → lint → test → contract → build → scan` (no sign/deploy). `main`: sign → **auto-deploy to dev** → dev verification (smoke, active ZAP, NetworkPolicy) → **manual `deploy:prod`** (gated on dev verification, GitLab protected environment `prod`) → prod smoke. Tags `vX.Y.Z`: promote the already-verified digests of that commit to prod and publish a GitLab Release. Prod never receives a digest that hasn't passed dev verification (`ci/deploy.sh prod` checks `deploy/releases/dev/{sha}.json` exists and is marked verified).
 
 **Deploy script (`ci/deploy.sh`) sequence:**
-1. Configure kubectl with `AEGIS_DEPLOY_SA_TOKEN` (namespace-scoped; cluster standard §3.5).
+1. Resolve the target (`dev` → namespace `aegispulse-dev`, overlay `dev`, token `AEGIS_DEPLOY_SA_TOKEN_DEV`; `prod` → `aegispulse`, overlay `prod`, `AEGIS_DEPLOY_SA_TOKEN_PROD`) and configure kubectl (namespace-scoped; cluster standard §3.5).
 2. `cosign verify --key $COSIGN_PUBLIC_KEY` every image digest; abort on failure.
-3. `kustomize edit set image` with `@sha256:` digests in `deploy/k8s/overlays/homelab`.
+3. `kustomize edit set image` with `@sha256:` digests in `deploy/k8s/overlays/{dev|prod}`.
 4. Apply `InfisicalSecret` CRs + ConfigMaps; wait for Secrets to exist.
 5. Run `aegispulse-topology` Job (RabbitMQ assert), then migration Jobs (`aegispulse-migrate-{svc}-{sha}`) sequentially; wait `kubectl wait --for=condition=complete --timeout=300s`; abort on failure (no app rollout).
 6. `kubectl apply -k` overlay; `kubectl rollout status` each Deployment (timeout 300 s); on failure run `ci/rollback.sh` automatically for app Deployments (migrations are backward-compatible by NFR-13).
-7. Record deployed digests to `deploy/releases/{sha}.json` artifact (used by rollback).
+7. Record deployed digests to `deploy/releases/{env}/{sha}.json` artifact (used by rollback and by the prod promotion check).
 
-**Migration workflow:** Migrations are authored with the feature (`services/{svc}/db/migrations/V{n}__*.sql`), reviewed under the MR checklist (expand/contract, no edits to existing files — enforced by `ci/check-migrations.sh` comparing against `main`), executed in CI integration tests via Testcontainers, and applied in homelab only by the pre-rollout Jobs. Mongo index migrations follow the same flow with `migrate-mongo`.
+**Migration workflow:** Migrations are authored with the feature (`services/{svc}/db/migrations/V{n}__*.sql`), reviewed under the MR checklist (expand/contract, no edits to existing files — enforced by `ci/check-migrations.sh` comparing against `main`), executed in CI integration tests via Testcontainers, and applied in dev first, then in prod, only by the pre-rollout Jobs (a migration reaches prod only after passing in dev). Mongo index migrations follow the same flow with `migrate-mongo`.
 
-**Pipeline secrets (GitLab CI/CD variables, Protected + Masked):** `AEGIS_DEPLOY_SA_TOKEN`, `K8S_API_SERVER`, `COSIGN_PRIVATE_KEY` (file), `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `ZAP_AUTH_CLIENT_ID`/`ZAP_AUTH_CLIENT_SECRET` (homelab DAST service account), `NTFY_TOKEN` (pipeline failure notifications). Registry auth uses the built-in `$CI_REGISTRY_*` variables.
+**Pipeline secrets (GitLab CI/CD variables, Protected + Masked):** `AEGIS_DEPLOY_SA_TOKEN_DEV`, `AEGIS_DEPLOY_SA_TOKEN_PROD` (scoped to environment `prod`), `K8S_API_SERVER`, `COSIGN_PRIVATE_KEY` (file), `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `ZAP_AUTH_CLIENT_ID`/`ZAP_AUTH_CLIENT_SECRET` (dev DAST service account; active scans never target prod), `NTFY_TOKEN` (pipeline failure notifications). Registry auth uses the built-in `$CI_REGISTRY_*` variables.
 
 ### 9.3 Cluster Bootstrap (one-time, replaces Terraform remote-state bootstrap)
 
-Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read before running (cluster lesson §3.1).
-1. `kubectl create namespace aegispulse`; apply `ResourceQuota`, `LimitRange`, default-deny NetworkPolicy.
-2. Create `aegispulse-ci-deployer` ServiceAccount + Role + RoleBinding; mint a token; store as GitLab variable.
-3. Verify storage node labels/taints (`kubectl get node optiplex -o jsonpath='{.spec.taints}'`).
-4. Infisical: create project `aegispulse` with environments `local`, `homelab`; create machine identity for the Kubernetes Operator scoped read-only to `homelab`; confirm the Infisical Operator is installed (install via its Helm chart if absent — third-party ⇒ Helm per cluster convention).
-5. RabbitMQ: create vhost `aegispulse`, users per service (§5.7.3), `aegis_topology` user, policies (DLQ max-length), enable `rabbitmq_prometheus` if not enabled.
-6. Cloudflare: add public hostnames `aegispulse`, `aegispulse-api`, `aegispulse-objects` to the tunnel → `ingress-nginx`; WAF rules (§5.9).
-7. OpenObserve: create org/streams, ingestion token (stored in Infisical), import dashboards/alerts from `deploy/observability/`.
-8. GitLab: protect `main` and `v*` tags, require MR approvals + passing pipeline, set CI variables (§9.2).
-9. Generate cosign key pair (`cosign generate-key-pair`), store private key + password in GitLab variables, commit public key to `deploy/cosign.pub`.
+Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read before running (cluster lesson §3.1). Every step needs credentials the repo and the AI agent never hold, so each is a **🛑 MANUAL** step in the [manual bootstrap register](docs/runbooks/manual-bootstrap.md): the agent prepares scripts/manifests, stops, and directs the operator; the operator reports back names and "done", never secret values.
+1. 🛑 MANUAL (MB-07) `kubectl create namespace aegispulse` and `kubectl create namespace aegispulse-dev`; apply each namespace's `ResourceQuota`, `LimitRange`, and default-deny NetworkPolicy.
+2. 🛑 MANUAL (MB-07) Create `aegispulse-ci-deployer` ServiceAccount + Role + RoleBinding **in each namespace**; mint one token per namespace; store as `AEGIS_DEPLOY_SA_TOKEN_DEV` / `AEGIS_DEPLOY_SA_TOKEN_PROD` (prod scoped to the protected `prod` GitLab environment).
+3. 🛑 MANUAL (MB-01, **done**) Node roles (ADR-0015): run `deploy/bootstrap/10-storage-node-disk.sh` **on** `optiplex-tower` (formats/mounts the 1 TB data SSD at `/mnt/data`, bind-mounts it over the local-path directory, makes `k3s-agent` require the mount; the wipe step needs typed confirmation), then `deploy/bootstrap/20-node-roles.sh` from the workstation (storage labels + taint → `optiplex-tower`; `optiplex` → `node-role.kubernetes.io/worker=true`). Verify with `CHECK_ONLY=1 deploy/bootstrap/20-node-roles.sh`.
+4. 🛑 MANUAL (MB-03…MB-06, MB-08; [runbook](docs/runbooks/infisical.md)) Infisical: project **AegisPulse** exists with environments Development/Production (confirm slugs); install the Infisical Kubernetes Operator (Helm, cluster-wide — not installed as of 2026-11-23); seed folders + generated secrets from `deploy/infisical/secrets-catalog.yaml` with `scripts/infisical/seed.py` (operator-run, `svc_admin`); create `aegispulse-operator-dev`/`-prod` identities, read-only per environment, Kubernetes Auth bound to each namespace's operator ServiceAccount.
+5. 🛑 MANUAL (MB-09) RabbitMQ: create vhosts `aegispulse-dev` and `aegispulse-prod`, users per service per vhost (§5.7.3, suffix `-dev` for dev users), `aegis_topology` user, policies (DLQ max-length), enable `rabbitmq_prometheus` if not enabled.
+6. 🛑 MANUAL (MB-11) Cloudflare: add public hostnames `aegispulse`, `aegispulse-api`, `aegispulse-objects` under **both** `rmwhs.com` (prod) and `rmwhs-dev.space` (dev) to the existing tunnel → `ingress-nginx`; WAF rules (§5.9) on both zones.
+7. 🛑 MANUAL (MB-10) OpenObserve: create org/streams, ingestion token (stored in Infisical), import dashboards/alerts from `deploy/observability/`.
+8. 🛑 MANUAL (MB-12) GitLab: protect `main` and `v*` tags, require MR approvals + passing pipeline; create environments `dev` and `prod` (`prod` **protected**, deploy requires maintainer approval); set CI variables (§9.2) with environment scopes; add a nightly pipeline schedule for `env:sleep:dev`.
+9. 🛑 MANUAL (MB-13) Generate cosign key pair (`cosign generate-key-pair`), store private key + password in GitLab variables, commit public key to `deploy/cosign.pub`.
 
 ### 9.4 Tooling & Module Assessment
 
@@ -2588,13 +2641,13 @@ Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read befor
 | Command | Effect |
 |---|---|
 | `make bootstrap` | install toolchains (pnpm, uv, Gradle wrapper), git hooks (gitleaks pre-commit) |
-| `make env` | write `.env` from Infisical `env=local` (`infisical export`); falls back to `.env.example` + `scripts/dev/gen-local-secrets.sh` |
+| `make env` | generate a local-only `.env` with random secrets (`scripts/dev/gen-local-secrets.sh`, incl. the derived OTLP header); never pulls from Infisical |
 | `make up` / `make down` / `make reset` | start / stop / wipe local compose stack |
 | `make migrate` | run Flyway for all schemas + Mongo migrations + topology assert (local) |
-| `make seed` | seed tenants, users, entities, watchlists, sources, connectors |
+| `make seed` | seed tenants, users, entities, watchlists, sources, connectors (via the gateway API as the bootstrap PLATFORM_ADMIN; Phase 3 seeds tenants/entities/watchlists, later phases add the rest) |
 | `make dev SERVICE=<name>` | run one service natively with hot reload against compose deps |
 | `make build` | build all workspaces (tsc/vite, Gradle, uv build) |
-| `make test` / `make test-unit` / `make test-integration` / `make test-e2e` | test suites |
+| `make test` / `make test-unit` / `make test-integration` / `make test-e2e` | test suites (`test-e2e`: `tests/e2e` + `tests/security` against the running compose stack through the gateway, from Phase 2) |
 | `make lint` / `make typecheck` / `make format` | quality |
 | `make contracts` | validate + regenerate contract types (`packages/contracts/generated`) |
 | `make eval` | golden-dataset evaluation |
@@ -2602,15 +2655,18 @@ Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read befor
 | `make demo` / `make chaos SCENARIO=<name>` | demo + chaos scripts |
 | `make k3d-up` / `make k3d-down` | optional parity cluster |
 | `make trigger JOB=<job>` | run a scheduler-trigger job locally |
+| `make env-sleep ENV=dev` / `make env-wake ENV=dev` | scale the dev namespace to zero / back (prod is refused) |
+| `make env-reset ENV=dev` | wipe and reseed dev data (prod is refused) |
 
 ### 9.6 Release, Versioning & Rollback
 - SemVer tags `vMAJOR.MINOR.PATCH` for the platform; every MR adds a line under `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog). Release job moves Unreleased to the tag section.
-- Rollback: `ci/rollback.sh <previous-sha>` re-applies the digest set from `deploy/releases/{sha}.json`; database migrations are never rolled back (forward-fix only).
+- Promotion: dev → prod promotes identical digests (no rebuild); prod deploys are manual or tag-driven only.
+- Rollback: `ci/rollback.sh <env> <previous-sha>` re-applies the digest set from `deploy/releases/{env}/{sha}.json`; database migrations are never rolled back (forward-fix only).
 - Rollback drill once per phase from Phase 10 onward (evidence in `docs/evidence/`).
 
 ### 9.7 Monitoring & Alerting Configuration
-- **OpenObserve alerts** (as code in `deploy/observability/alerts/*.json`): DLQ spike (FR-MSG-04), outbox lag > 60 s/5 min, consumer error rate > 5%/5 min, webhook rejection rate > 20%/10 min, p95 API latency > 500 ms/10 min, archive write failures > 0/5 min, audit chain failure (log match), pod restarts > 3/15 min → ntfy webhook.
-- **Uptime Kuma monitors**: `https://aegispulse-api.rmwhs.com/livez` (60 s), `/readyz` via internal URL, console root, objects host TLS expiry (via Cloudflare), webhook health `POST /webhooks/_health-probe` (signed probe source, expects 202 duplicate), keyword monitor on `/healthz` JSON (`"status":"ok"`). All notify ntfy topic `aegispulse-alerts`.
+- **OpenObserve alerts** (as code in `deploy/observability/alerts/*.json`): DLQ spike (FR-MSG-04), outbox lag > 60 s/5 min, consumer error rate > 5%/5 min, webhook rejection rate > 20%/10 min, p95 API latency > 500 ms/10 min, archive write failures > 0/5 min, audit chain failure (log match), pod restarts > 3/15 min → ntfy webhook (prod alerts → `aegispulse-alerts`; dev alerts → `aegispulse-alerts-dev`, low priority).
+- **Uptime Kuma monitors**: prod `https://aegispulse-api.rmwhs.com/livez` (60 s) and dev `https://aegispulse-api.rmwhs-dev.space/livez` (5 min, paused while dev sleeps), `/readyz` via internal URL, console root, objects host TLS expiry (via Cloudflare), webhook health `POST /webhooks/_health-probe` (signed probe source, expects 202 duplicate), keyword monitor on `/healthz` JSON (`"status":"ok"`). Prod monitors notify `aegispulse-alerts`; dev monitors notify `aegispulse-alerts-dev`.
 - **Dashboards**: Pipeline Overview (ingress rate, latency, rejections), Messaging (queue depth, consumer lag, retries, DLQ), Classification (stage mix, disagreement, overrides), Cases (opened/escalated/resolved, policy outcomes), Platform (CPU/mem per pod vs limits, OOMs, restarts).
 
 ---
@@ -2619,7 +2675,7 @@ Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read befor
 
 ### 10.1 Prerequisites
 - Docker Engine / Docker Desktop with Compose v2 (≥ 12 GiB RAM allocated recommended)
-- Node.js 24 LTS + pnpm 10 (via Corepack), Java 25 (Temurin), Python 3.13 + uv
+- Node.js 24 LTS + pnpm 12 (via Corepack, installed by `make bootstrap`), Java 25 (Temurin or Homebrew `openjdk@25`), Python 3.13 + uv, `gitleaks`, `shellcheck` (exact pins: `docs/steering/tech.md`)
 - `make`, `jq`, `curl`, `openssl`
 - Infisical CLI (to export local secrets), optional `k3d`, `kubectl`, `kustomize`, `cosign`, `k6`
 - Optional: `gitleaks` (installed by `make bootstrap` as a pre-commit hook)
@@ -2627,7 +2683,7 @@ Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read befor
 ### 10.2 Starting the Stack
 ```bash
 make bootstrap                       # toolchains + hooks (once)
-infisical login && make env          # writes .env from Infisical env=local (or: cp .env.example .env)
+make env                             # generates a local-only .env (random values; never real secrets)
 make up                              # docker compose up -d (infra + services)
 make migrate                         # flyway (5 schemas) + migrate-mongo + rabbitmq topology
 make seed                            # demo tenants, users, entities, watchlists, sources
@@ -2645,40 +2701,21 @@ x-svc-env: &svc-env
     OTEL_EXPORTER_OTLP_ENDPOINT: http://openobserve:5080/api/default
     AEGIS_ENV: local
 services:
-  postgres:
-    image: postgres:18-alpine
-    environment: { POSTGRES_DB: aegispulse, POSTGRES_USER: aegis_admin, POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD} }
-    volumes: [pgdata:/var/lib/postgresql/data, ./init/postgres:/docker-entrypoint-initdb.d:ro]   # roles + schemas
-    ports: ["5432:5432"]
-    healthcheck: { test: ["CMD-SHELL", "pg_isready -U aegis_admin"], interval: 5s }
-  mongo:
-    image: mongo:8.0
-    command: ["--replSet", "rs0", "--bind_ip_all", "--keyFile", "/etc/mongo/keyfile"]
-    volumes: [mongodata:/data/db, ./init/mongo:/docker-entrypoint-initdb.d:ro]
-    ports: ["27017:27017"]
-  mongo-init:   { image: mongo:8.0, depends_on: [mongo], entrypoint: ["/init/rs-init.sh"], volumes: ["./init/mongo:/init:ro"] }
-  redis:
-    image: redis:8-alpine
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]      # ACL users per service
-    volumes: ["./init/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro"]
-    ports: ["6379:6379"]
-  rabbitmq:
-    image: rabbitmq:4-management
-    environment: { RABBITMQ_DEFAULT_VHOST: aegispulse-local }
-    volumes: ["./init/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro"]   # users + vhost
-    ports: ["5672:5672", "15672:15672"]
-  objectstore:
-    image: ${OBJECTSTORE_IMAGE}            # S3-compatible store selected in ADR-0011
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [objdata:/data]
-  objectstore-init: { image: ${OBJECTSTORE_CLI_IMAGE}, depends_on: [objectstore], entrypoint: ["/init/buckets.sh"], volumes: ["./init/objectstore:/init:ro"] }
-  clamav:       { image: clamav/clamav:stable, ports: ["3310:3310"] }
-  openobserve:
-    image: public.ecr.aws/zinclabs/openobserve:latest-pinned-in-phase-0
-    environment: { ZO_ROOT_USER_EMAIL: dev@aegispulse.local, ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_LOCAL_PASSWORD} }
-    ports: ["5080:5080"]
+  # Infra (implemented in Phase 0; see the actual file for healthchecks and mem_limits)
+  config-render:     { image: alpine:3.24.4 }                         # renders redis.conf + SeaweedFS s3.json from .env secrets
+  postgres:          { image: postgres:18.7-alpine, ports: ["5432:5432"] }   # init: schemas + mig_*/svc_* roles + backup_reader
+  mongo:             { image: mongo:8.0.38, ports: ["27017:27017"] }  # keyFile + replSet rs0 (healthcheck initiates); svc_events, backup users
+  redis:             { image: redis:8.10.3-alpine, ports: ["6379:6379"] }   # ACL users per owning service; default user off
+  rabbitmq:          { image: rabbitmq:4.4.1-management-alpine, ports: ["5672:5672", "15672:15672"] }
+  rabbitmq-init:     { image: curlimages/curl:8.23.0 }                # vhost aegispulse-local, aegis_topology, svc_* users + permissions
+  objectstore:       { image: chrislusf/seaweedfs:4.54, ports: ["9000:8333"] }   # ADR-0011
+  objectstore-init:  { image: python:3.13-alpine }                    # buckets aegispulse-local-*, versioning on raw/backups
+  clamav:            { image: clamav/clamav:1.5.5-debian13-slim, ports: ["3310:3310"] }
+  openobserve:       { image: openobserve/openobserve:v1.1.2, ports: ["5080:5080"] }   # distroless; health probed from host
+  # Readiness: `make up` = `compose up -d` + scripts/dev/compose-wait.sh (services healthy, one-shot init jobs exit 0)
+  # Application runtimes (added in Phase 1):
   migrate:      { build: { context: ../.., dockerfile: deploy/docker/migrate.Dockerfile }, profiles: [tools], <<: *svc-env }
-  gateway:            { build: { context: ../.., dockerfile: gateway/fastify-http/Dockerfile }, ports: ["8080:8080"], <<: *svc-env }
+  gateway:            { build: { context: ../.., dockerfile: gateway/nest-http/Dockerfile }, ports: ["8080:8080"], <<: *svc-env }
   ingestion:          { build: ../../services/ingestion,           ports: ["8081:8081"], <<: *svc-env }
   files:              { build: ../../services/files,               ports: ["8082:8082"], <<: *svc-env }
   events:             { build: ../../services/events,              ports: ["8083:8083"], <<: *svc-env }
@@ -2697,7 +2734,7 @@ Every service declares `depends_on` with `condition: service_healthy` for its ow
 ### 10.4 Environment Variables (`.env.example`)
 ```dotenv
 # ── global ────────────────────────────────────────────────────────────
-AEGIS_ENV=local                                   # local | homelab
+AEGIS_ENV=local                                   # local | dev | prod
 LOG_LEVEL=info
 OTEL_SERVICE_NAMESPACE=aegispulse
 OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic <local-openobserve-token>   # [secret]
@@ -2708,18 +2745,21 @@ PUBLIC_OBJECTS_URL=http://localhost:9000          # host used in presigned URLs
 # ── auth (registry) ───────────────────────────────────────────────────
 REGISTRY_URL=http://registry:8084
 JWT_ISSUER=aegispulse-registry
-JWT_AUDIENCE=aegispulse
-JWT_SIGNING_KEY_CURRENT_PEM=<pem>                  # [secret] Infisical in homelab
+JWT_AUDIENCE=aegispulse                            # aegispulse-dev in dev, aegispulse in prod
+JWT_SIGNING_KEY_CURRENT_PEM=<pem>                  # [secret] Infisical (dev/prod envs)
 JWT_SIGNING_KEY_CURRENT_KID=local-2026-11
-JWT_SIGNING_KEY_PREVIOUS_PEM=                      # [secret] optional during rotation
+JWT_SIGNING_KEY_PREVIOUS_PEM=                      # [secret] operator's rollback copy during a rotation window; not read by registry (JWKS comes from registry.signing_keys)
 SERVICE_CLIENT_ID=svc-<runtime>                    # per runtime
 SERVICE_CLIENT_SECRET=<secret>                     # [secret] per runtime
+PLATFORM_ADMIN_BOOTSTRAP_EMAIL=admin@aegispulse.local  # registry bootstrap command only (FR-TEN-09)
+PLATFORM_ADMIN_BOOTSTRAP_PASSWORD=<secret>         # [secret] registry bootstrap command only; must satisfy FR-TEN-04 policy
+SERVICE_CLIENT_SECRET_{RUNTIME}=<secret>           # [secret] registry only, one per §5.7.4 runtime (GATEWAY, INGESTION, FILES, EVENTS, ORCHESTRATOR, DOC_EXTRACTION, RISK_SCORING, DATA_INTEL, SCHEDULER_TRIGGER); Infisical references (ADR-0017)
 
 # ── postgres (per owning service) ─────────────────────────────────────
 PG_HOST=postgres
 PG_PORT=5432
 PG_DATABASE=aegispulse
-PG_USER=svc_<schema>                               # svc_ingestion | svc_files | svc_registry | svc_cases | svc_data_intel
+PG_USER=svc_<schema>                               # svc_ingestion | svc_files | svc_registry | svc_cases | svc_analytics
 PG_PASSWORD=<secret>                               # [secret]
 FLYWAY_USER=mig_<schema>                           # migration Jobs only
 FLYWAY_PASSWORD=<secret>                           # [secret]
@@ -2767,13 +2807,13 @@ EXTRACTION_CONFIDENCE_THRESHOLD=0.70
 
 # ── notifications ─────────────────────────────────────────────────────
 NTFY_URL=https://ntfy.example.invalid               # set per env
-NTFY_TOPIC=aegispulse-alerts-local
+NTFY_TOPIC=aegispulse-alerts-local                # aegispulse-alerts-dev (dev), aegispulse-alerts (prod)
 NTFY_TOKEN=<secret>                                 # [secret]
 
 # ── demo ──────────────────────────────────────────────────────────────
 DEMO_MODE_ALLOWED=true
 ```
-Local values come from `infisical export --env=local` (or the example file with generated dev secrets via `scripts/dev/gen-local-secrets.sh`). In homelab every `[secret]` value is synced from Infisical by the Operator into `aegispulse-{component}-secrets`; non-secret values live in ConfigMaps.
+Local values are generated by `make env` (`scripts/dev/gen-local-secrets.sh`) and never come from Infisical, so a laptop never holds dev or prod secrets (NFR-06). In dev and prod every `[secret]` value is synced from the matching Infisical environment by the Operator into `aegispulse-{component}-secrets`; non-secret values live in ConfigMaps.
 
 ### 10.5 Testing the Async Flow Locally
 ```bash
@@ -2813,32 +2853,33 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 
 ### 11.0 Completion Gate, Evidence & Status Ledger
 
-**Status vocabulary** (per FR and per phase): `PENDING` → `SCAFFOLDED` (route/file shells) → `SOURCE-IMPLEMENTED` → `MIGRATION-ADDED` → `UNIT-VERIFIED` → `INTEGRATION-VERIFIED` (real Postgres/Mongo/Redis/RabbitMQ/object store via Testcontainers or compose) → `RUNTIME-VERIFIED` (running entrypoints in compose **and** homelab, exercised over HTTP/broker, evidence attached). Never mark a spec `[x]` because files or route shells exist.
+**Status vocabulary** (per FR and per phase): `PENDING` → `SCAFFOLDED` (route/file shells) → `SOURCE-IMPLEMENTED` → `MIGRATION-ADDED` → `UNIT-VERIFIED` → `INTEGRATION-VERIFIED` (real Postgres/Mongo/Redis/RabbitMQ/object store via Testcontainers or compose) → `RUNTIME-VERIFIED` (running entrypoints in compose **and** dev, promoted to prod with smoke passing, exercised over HTTP/broker, evidence attached). Never mark a spec `[x]` because files or route shells exist.
 
 **Runtime Completion Gate** — a phase is complete only when all apply:
 1. Source + migrations merged to `main`; contracts regenerated with no diff.
-2. Runnable entrypoints start from clean state (`make reset && make up && make migrate`), pass `/readyz`.
+2. Runnable entrypoints start from clean state (`make reset && make up && make migrate`), pass `/readyz`; from Phase 9 on, also deployed to dev and passing `/readyz` there.
 3. Real dependencies used (no mocks) in integration and E2E suites for every FR in the phase.
 4. Async behavior verified: outbox publication, consumer idempotency under 3× redelivery, retry → DLQ path.
 5. Security checks for the phase pass (authz matrix, cross-tenant, input limits, secret handling).
 6. Operations: logs/traces/metrics visible in OpenObserve for the phase's flows; alerts defined where §9.7 requires.
 7. UI/client items (if any) exercised by Playwright.
-8. Phase exit evidence committed to `docs/evidence/phase-{NN}.md` using the template (commands, outputs, endpoints exercised, environment, commit SHA, date, artifact links).
+8. From Phase 9 on: dev verification green and the same digests promoted to prod with prod smoke passing.
+9. Phase exit evidence committed to `docs/evidence/phase-{NN}.md` using the template (commands, outputs, endpoints exercised, environment, commit SHA, date, artifact links).
 
 **Status ledger** (update in the same MR that changes status; mirrored in `CHANGELOG.md`):
 
 | Phase | Name | Status | Evidence |
 |---|---|---|---|
-| 0 | Project Scaffold & Toolchain | PENDING | — |
-| 1 | Contracts, Platform Kits & Data Foundations | PENDING | — |
-| 2 | Registry: Tenancy, Identity & RBAC | PENDING | — |
-| 3 | Entities & Watchlists | PENDING | — |
-| 4 | Webhook Ingestion | PENDING | — |
-| 5 | Files Subsystem | PENDING | — |
-| 6 | Events Archive & Stage-1 Classification | PENDING | — |
+| 0 | Project Scaffold & Toolchain | SOURCE-IMPLEMENTED (local runtime verified; pipelines green (owner-reported 2026-11-24); clean-state run passed ([clean-state-2026-11-24](docs/evidence/clean-state-2026-11-24.md)); open gate item: merge to `main` (gate 1); Linux `make up` → Phase 9) | [phase-00](docs/evidence/phase-00.md) |
+| 1 | Contracts, Platform Kits & Data Foundations | RUNTIME-VERIFIED locally (slices 1a–1e INTEGRATION-VERIFIED; all 12 runtimes `/readyz` 200; traces and metrics in OpenObserve); pipelines green (owner-reported 2026-11-24); clean-state run passed ([clean-state-2026-11-24](docs/evidence/clean-state-2026-11-24.md)); open gate item: merge to `main` (gate 1) | [phase-01a](docs/evidence/phase-01a.md), [phase-01b](docs/evidence/phase-01b.md), [phase-01c](docs/evidence/phase-01c.md), [phase-01d](docs/evidence/phase-01d.md), [phase-01e](docs/evidence/phase-01e.md) |
+| 2 | Registry: Tenancy, Identity & RBAC | RUNTIME-VERIFIED locally (2a, 2b INTEGRATION-VERIFIED; 2c E2E; local JWKS drill passed 2026-11-24); pipelines green (owner-reported 2026-11-24); clean-state run passed ([clean-state-2026-11-24](docs/evidence/clean-state-2026-11-24.md)); open gate item: merge to `main` (gate 1); dev drill → Phase 9 | [phase-02a](docs/evidence/phase-02a.md), [phase-02b](docs/evidence/phase-02b.md), [phase-02c](docs/evidence/phase-02c.md) |
+| 3 | Entities & Watchlists | RUNTIME-VERIFIED locally; pipelines green (owner-reported 2026-11-24); clean-state run passed ([clean-state-2026-11-24](docs/evidence/clean-state-2026-11-24.md)); open gate item: merge to `main` (gate 1) | [phase-03](docs/evidence/phase-03.md) |
+| 4 | Webhook Ingestion | RUNTIME-VERIFIED locally (exit items captured); pipelines green (owner-reported 2026-11-24); clean-state run passed ([clean-state-2026-11-24](docs/evidence/clean-state-2026-11-24.md)); open gate item: merge to `main` (gate 1) | [phase-04](docs/evidence/phase-04.md) ([4a](docs/evidence/phase-04a.md), [4b](docs/evidence/phase-04b.md), [4c](docs/evidence/phase-04c.md)) |
+| 5 | Files Subsystem | RUNTIME-VERIFIED locally (exit items captured; OpenObserve traces + metrics); pipelines green (owner-reported 2026-11-24); clean-state run passed ([clean-state-2026-11-24](docs/evidence/clean-state-2026-11-24.md)); open gate item: merge to `main` (gate 1) | [phase-05](docs/evidence/phase-05.md) ([5a](docs/evidence/phase-05a.md), [5b](docs/evidence/phase-05b.md), [5c](docs/evidence/phase-05c.md), [5d](docs/evidence/phase-05d.md), [5e](docs/evidence/phase-05e.md)) |
+| 6 | Events Archive & Stage-1 Classification | RUNTIME-VERIFIED locally (exit items captured; OpenObserve traces + metrics); pipelines green (owner-reported 2026-11-24); clean-state run passed ([clean-state-2026-11-24](docs/evidence/clean-state-2026-11-24.md)); open gate item: merge to `main` (gate 1) | [phase-06](docs/evidence/phase-06.md) ([6a](docs/evidence/phase-06a.md), [6b](docs/evidence/phase-06b.md), [6c+6d](docs/evidence/phase-06c.md)) |
 | 7 | Messaging Resilience & Dead Letters | PENDING | — |
 | 8 | Transactions, Scoring & Risk Cases (MVP slice) | PENDING | — |
-| 9 | Kubernetes, IaC & Secrets (homelab) | PENDING | — |
+| 9 | Kubernetes, IaC & Secrets (homelab dev + prod) | PENDING | — |
 | 10 | CI/CD & DevSecOps Gates | PENDING | — |
 | 11 | Document ETL & Extraction | PENDING | — |
 | 12 | AI Scanner, Stage-2 Classification & ML Scoring | PENDING | — |
@@ -2860,27 +2901,31 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 **Goal:** a repository that builds, lints, tests (empty suites), starts local infrastructure, and enforces guardrails from the first commit.
 
 #### Workstream: Repository & guardrails
-- [ ] Monorepo layout per §6.1 with `pnpm-workspace.yaml` (gateway, services/{ingestion,files,events,orchestrator}, workers/scheduler-trigger, packages/ts-platform, packages/contracts, apps/console, scripts), Gradle multi-project (`packages/java-platform`, `services/{registry,cases}`), uv workspace (`packages/py-platform`, `services/{risk-scoring,sensitivity-scanner,doc-extraction,data-intel}`, `eval/runner`)
-- [ ] `Makefile` targets from §9.5 (no-op where the feature does not yet exist, but present)
-- [ ] `.editorconfig`, `.gitignore` (incl. `.env`, `*.pem`, `generated/` exceptions), `.nvmrc` (24), `.python-version` (3.13), Gradle toolchain (25)
-- [ ] ESLint/Prettier, Spotless/Error Prone, Ruff/mypy configs with strict settings (NFR-14)
-- [ ] `ci/check-boundaries.sh` (NFR-09), `ci/check-migrations.sh`, `ci/check-layer-sizes.sh`, `ci/check-resource-budget.sh` stubs with tests
-- [ ] Gitleaks pre-commit hook via `make bootstrap`; `.gitleaks.toml` with project allowlist for test fixtures only
-- [ ] `CLAUDE.md`, `AGENTS.md`, `.claude/` (skills, agents, hooks), `docs/steering/`, `docs/adr/0001–0012`, `docs/specs/_template.md`, `docs/evidence/_template.md`, `CHANGELOG.md` (present at v1.0 of this document)
-- [ ] Pin exact versions after verifying current stable releases (Node, TS, Fastify, Spring Boot, Java, Python libs, datastore images, object-store image + license per ADR-0011) in `docs/steering/tech.md`
+- [x] Monorepo workspace definitions per §6.1: `pnpm-workspace.yaml`, Gradle multi-project `settings.gradle.kts` (includes Java projects once their directories exist), uv workspace root `pyproject.toml`. Member packages are created with the service skeletons in Phase 1.
+- [x] `Makefile` targets from §9.5. Targets for later phases exit 2 with "delivered in Phase N", so they never fake success. `env-sleep`/`env-wake`/`env-reset` refuse `ENV=prod`.
+- [x] `.editorconfig`, `.gitignore` (`.env*` except `.env.example`, keys, `.tools/`, build outputs), `.nvmrc` (24.22.3), `.python-version` (3.13), Gradle Java 25 toolchain convention
+- [x] ESLint 10 (flat, typescript-eslint strict, `no-explicit-any: error`) / Prettier, Ruff / mypy `--strict` configs (NFR-14)
+- [x] Spotless / Error Prone / ArchUnit. Delivered in Phase 1 with the first Java project: Error Prone + NullAway and Spotless in `build.gradle.kts` (`ci/lint-java.sh` runs `spotlessCheck`), ArchUnit rules in `java-platform` (`AegisArchitectureRulesTest`)
+- [x] `ci/check-boundaries.sh` (NFR-09, ADR-0013), `ci/check-migrations.sh`, `ci/check-resource-budget.sh` (+ `ci/lib/resource_budget.py`) with self-tests (`ci/tests/run.sh`, 10 cases)
+- [x] `ci/check-layer-sizes.sh`: self-tested in `ci/tests/run.sh` (FROM-scratch images: a small layer passes, a 96 MB incompressible layer fails; skipped without a Docker daemon) — 2026-11-24
+- [x] Gitleaks pre-commit hook (`.githooks/pre-commit`, enabled by `make bootstrap`); `.gitleaks.toml` allowlists `tests/fixtures/secrets-synthetic/` only
+- [x] `CLAUDE.md`, `AGENTS.md`, `.claude/` (skills, agents with model routing, hooks), `docs/steering/`, `docs/adr/0001–0014`, `docs/specs/_template.md`, `docs/evidence/_template.md`, `CHANGELOG.md`
+- [x] Exact versions pinned after verifying current releases (`docs/steering/tech.md`); TS 7 deferred with rationale; ADR-0011 decided (SeaweedFS 4.54, 10/10 compatibility checks)
 
 #### Workstream: Local infrastructure
-- [ ] `deploy/compose/docker-compose.yml` infra services (postgres, mongo+init, redis, rabbitmq, objectstore+init, clamav, openobserve) with healthchecks
-- [ ] `deploy/compose/init/postgres/*.sql` creating schemas + `mig_*`/`svc_*` roles; `init/redis/redis.conf` ACL users; `init/rabbitmq/definitions.json` vhost + users; `init/objectstore/buckets.sh`
-- [ ] `.env.example` (§10.4) + `scripts/dev/gen-local-secrets.sh`
-- [ ] `make up && make down && make reset` verified on macOS and Linux
+- [x] `deploy/compose/docker-compose.yml` infra services (postgres, mongo rs0 + keyFile, redis, rabbitmq + init, objectstore + init, clamav, openobserve, config-render) with healthchecks. OpenObserve is probed from the host because its image is distroless.
+- [x] Init: `init/postgres/01-roles-schemas.sh` (5 schemas, `mig_*`/`svc_*`, default privileges, `backup_reader`), `init/mongo/01-users.js`, `init/redis/redis.conf.tmpl` (ACL per owner), `init/rabbitmq/init.sh` (vhost, topology user, least-privilege `svc_*`), `init/objectstore/{s3.json.tmpl,buckets.py}`. The Phase 0 plan named `definitions.json`/`buckets.sh`; replaced by API-driven init so passwords are never hashed into committed files.
+- [x] `.env.example` (Section A generated secrets, Section B per-runtime variables) + `scripts/dev/gen-local-secrets.sh` + `make env`
+- [x] `make up` / `make down` / `make reset` verified on macOS (Docker 29.4.3, arm64). Isolation probes pass: cross-schema denial, DDL denial for `svc_*`, Mongo DB scoping, Redis key-prefix ACLs, RabbitMQ permissions, prefix-scoped S3.
+- [ ] `make up` verified on Linux. Pending: the CI pipeline runs lint/test/contract only (no compose), so this moves to the Phase 9 homelab runs.
 
 #### Workstream: CI skeleton
-- [ ] `.gitlab-ci.yml` with `.pre`, `lint`, `test` stages calling `ci/*.sh`; runs on MR + main
-- [ ] Merge request template with checklist: FR ids, spec link, migrations expand/contract, contract diff, CHANGELOG entry, evidence
+- [x] `.gitlab-ci.yml` with `.pre` (gitleaks), `lint` (shell, node, python, java, guardrails), `test` stages calling `ci/*.sh`; every job image tag verified to exist
+- [x] First green GitLab pipeline (owner-reported 2026-11-24: pipelines green for the pushed `feature/project` commits through `7e2c8d8`)
+- [x] Merge request template with checklist: FR ids, spec link, migrations expand/contract, contract diff, CHANGELOG entry, evidence
 
-**Phase 0 exit evidence:** `make bootstrap && make up && make lint && make test` output; `docker compose ps` all healthy; first green GitLab pipeline URL + SHA.
-**Phase note:** status `PENDING`.
+**Phase 0 exit evidence:** [docs/evidence/phase-00.md](docs/evidence/phase-00.md), with `make bootstrap`, `make lint`, `make test`, `make up`, isolation probes, and ADR-0011 compatibility output. The first green GitLab pipeline URL + SHA is still pending.
+**Phase note:** status **`SOURCE-IMPLEMENTED`**, locally runtime-verified on macOS. It becomes complete when the first GitLab pipeline is green and the Linux `make up` run is recorded. Phase 1 may start, because the remaining items are verification of existing work, not new scope.
 
 ---
 
@@ -2889,212 +2934,224 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 **Goal:** wire contracts and shared kits exist and are verified before any feature code.
 
 #### Workstream: Contracts (`packages/contracts`)
-- [ ] `envelope/canonical-envelope.v1.schema.json` (§6.4) + valid/invalid examples; JSON Schema tests in all three languages
-- [ ] `topology/aegispulse.topology.json` (§5.5, §6.5) + `topology-assert` CLI (Node) used by compose and the K8s Job
-- [ ] `asyncapi/aegispulse.asyncapi.yaml` covering every routing key in §6.7 with payload schemas in `events/`
-- [ ] `openapi/gateway.public.yaml` skeleton (§8) and `{service}.internal.yaml` skeletons with every §6.2 `operationId`
-- [ ] Code generation (`make contracts`) → TS types, Java records, Pydantic models; CI fails on uncommitted diff
-- [ ] `service-actions.ts` union (§6.2) generated/validated against internal OpenAPI operationIds
+- [x] `envelope/canonical-envelope.v1.schema.json` (§6.4) + valid/invalid examples; JSON Schema tests in all three languages. **TS (Vitest/Ajv), Python (pytest/jsonschema) and Java (JUnit/networknt, 1c) suites pass; `make contracts` also checks that valid envelope examples' payloads conform to their eventType schema (1c).**
+- [x] `topology/aegispulse.topology.json` (§5.5, §6.5) + `topology-assert` CLI (Node) used by `make migrate` (the K8s Job wrapper is a Phase 9 item). 6 exchanges / 58 queues / 71 bindings; integration-tested on RabbitMQ 4 (idempotent re-assert, routing, DLX fan-in, drift rejection)
+- [x] `asyncapi/aegispulse.asyncapi.yaml` covering every routing key in §6.7 with payload schemas in `events/` (38 keys, 38 schemas + examples; parser-valid)
+- [x] `openapi/gateway.public.yaml` (79 operations, §8) and 8 `{service}.internal.yaml` files with every HTTP-invoked §6.2 `operationId` (103) + `x-aegis-consumer-actions`; Redocly lint clean
+- [x] Code generation (`make contracts`) → TS types, Java records, Pydantic models; CI fails on uncommitted diff. **TS (envelope, 38 events, 8 OpenAPI, topology unions), Pydantic v2 (42 modules) and Java records (55 types: envelope, 38 payloads, EventTypes, Topology; 1c) generated deterministically; `ci/contract.sh` drift gate in place.**
+- [x] `service-actions.ts` union (§6.2) generated from internal OpenAPI operationIds and validated against PROJECT.md §6.2 by `make contracts` (115 ↔ 115)
 
 #### Workstream: Platform kits (no business logic)
-- [ ] `ts-platform`: typed config loader (fail-fast, redacted errors), pino logger with mandatory fields + redaction, OTel bootstrap (HTTP + AMQP propagation), error/result types, undici HTTP client with timeouts/retries/breaker (opossum), JWT verifier (JWKS cache), health endpoints, graceful shutdown, idempotency helper, outbox repository + relay, AMQP consumer/publisher kit wrapping `rxjs-rabbitmq` with typed topology generics, confirms, retry/DLQ policy
-- [ ] `java-platform`: Spring Boot starter — JSON logging, OTel, resource-server config (JWKS), `act[]` authorization helper, outbox (JdbcClient) + relay, Spring AMQP consumer kit with retry/DLQ policy, `/livez` `/readyz` `/healthz`, Flyway version readiness check, ArchUnit rules
-- [ ] `py-platform`: Pydantic Settings, structlog JSON, OTel, JWT verifier, aio-pika consumer kit (retry/DLQ, dedup hook), FastAPI health router, graceful shutdown, import-linter contracts
-- [ ] Each kit: unit tests + Testcontainers integration tests (RabbitMQ retry → DLQ path, outbox relay publish-with-confirm, consumer redelivery dedup)
+- [x] `ts-platform`: typed config loader (fail-fast, redacted errors), pino logger with mandatory fields + redaction, OTel bootstrap (HTTP + AMQP propagation), error/result types, undici HTTP client with timeouts/retries/breaker (opossum), JWT verifier (JWKS cache), health endpoints, graceful shutdown, idempotency helper, outbox repository + relay, AMQP consumer/publisher kit wrapping `rxjs-rabbitmq` with typed topology generics, confirms, retry/DLQ policy — `INTEGRATION-VERIFIED` 2026-11-23 ([phase-01b](docs/evidence/phase-01b.md))
+- [x] `java-platform`: Spring Boot starter — JSON logging, OTel, resource-server config (JWKS), `act[]` authorization helper, outbox (JdbcClient) + relay, Spring AMQP consumer kit with retry/DLQ policy, `/livez` `/readyz` `/healthz`, Flyway version readiness check, ArchUnit rules — `INTEGRATION-VERIFIED` 2026-11-23 ([phase-01c](docs/evidence/phase-01c.md)); OTel via the Java agent is verified with the service skeletons (1e)
+- [x] `py-platform`: Pydantic Settings, structlog JSON, OTel, JWT verifier, aio-pika consumer kit (retry/DLQ, dedup hook), FastAPI health router, graceful shutdown, import-linter contracts — `INTEGRATION-VERIFIED` 2026-11-23 ([phase-01d](docs/evidence/phase-01d.md)); also outbox (psycopg 3) for data-intel; the outbound HTTP client (httpx + pybreaker) lands with the first Python service that calls another (doc-extraction)
+- [x] Each kit: unit tests + Testcontainers integration tests (RabbitMQ retry → DLQ path, outbox relay publish-with-confirm, consumer redelivery dedup) — ts-platform 48 unit + 20 integration ([phase-01b](docs/evidence/phase-01b.md)); java-platform 31 unit + 11 integration ([phase-01c](docs/evidence/phase-01c.md)); py-platform 33 unit + 11 integration ([phase-01d](docs/evidence/phase-01d.md))
 
 #### Workstream: Data foundations
-- [ ] `V1__baseline.sql` per schema: `outbox_events`, `processed_messages` (where consumers exist), `idempotency_records`, `set_updated_at()` trigger function, RLS helper
-- [ ] Flyway runner image (`deploy/docker/migrate.Dockerfile`) + `make migrate` running all schemas with their `mig_*` users
-- [ ] `migrate-mongo` project in `services/events` with `schema_meta`, collection validators, and §7.6 indexes
-- [ ] Migration integration test: apply all migrations to empty PG18/Mongo8 containers; assert role grants (svc roles cannot touch other schemas; `svc_cases` cannot UPDATE `audit_log`)
+- [x] `V1__baseline.sql` per schema: `outbox_events`, `processed_messages` (files, cases, analytics), `idempotency_records` (ingestion, files, registry, cases; RLS), `set_updated_at()`, `current_tenant()`/`rls_bypassed()` RLS helpers (`rls_bypassed()` removed by V2, ADR-0016), `afterMigrate.sql` history-protection callback
+- [x] Flyway runner image (`deploy/docker/migrate.Dockerfile`) + `make migrate` running all schemas with their `mig_*` users (idempotent re-run verified)
+- [x] `migrate-mongo` project in `services/events` with `schema_meta`, collection validators, and §7.6 indexes (runs as `mig_events`; `svc_events` lacks `dbAdmin`)
+- [x] Migration integration test: apply all migrations to empty PG18/Mongo8 containers; assert role grants (svc roles cannot touch other schemas, no DDL, history read-only, RLS fail-closed, backup read-only): 25/25. The `svc_cases`/`audit_log` assertion is added with the `audit_log` migration in Phase 8 (FR-AUD-01).
+- [x] Enforced RLS bypass (ADR-0016): `V2__enforced_rls_bypass.sql` per schema drops `rls_bypassed()` and the policy bypass clause and adds `{schema}.purge_expired_idempotency_records()` (SECURITY DEFINER, owned by NOLOGIN BYPASSRLS `{schema}_platform` from the init script); migration test asserts the old setting is ignored, function ownership/grants, and no `SET ROLE` for `svc_*` (30/30)
 
 #### Workstream: Service skeletons
-- [ ] Every runtime in §5.4 boots with config validation, `/livez`, `/readyz` (checking only its own deps), structured logs, and traces; Dockerfiles (multi-stage, non-root, read-only FS)
-- [ ] `gateway/fastify-http` skeleton: request id, correlation id, body limits, error envelope (§8.2), JWKS auth middleware, OpenAPI served at `/v1/openapi.json`
+- [x] Every runtime in §5.4 boots with config validation, `/livez`, `/readyz` (checking only its own deps), structured logs, and traces; Dockerfiles (multi-stage, non-root, read-only FS) — 12 runtimes (`make up` + `make migrate`: all `/readyz` = 200, [phase-01e](docs/evidence/phase-01e.md)); shared `deploy/docker/{node-service,java-service,python-service,console}.Dockerfile`; health-request traces verified in OpenObserve
+- [x] `gateway/nest-http` skeleton: request id, correlation id, body limits, error envelope (§8.2), JWKS auth middleware, OpenAPI served at `/v1/openapi.json` — NestJS 12 on the platform Fastify instance; global JWKS guard with `@Public()` opt-out; [phase-01e](docs/evidence/phase-01e.md)
 
 **Phase 1 exit evidence:** `make contracts` clean; kit integration tests output; `make up` with all 12 runtimes `/readyz` = 200; trace of a health request in OpenObserve.
-**Phase note:** status `PENDING`.
+**Phase note:** status **`SOURCE-IMPLEMENTED` (slice 1a: contracts + data foundations, integration-verified, see [phase-01a](docs/evidence/phase-01a.md))**. All five slices (1a contracts + data, 1b ts-platform, 1c java-platform, 1d py-platform, 1e skeletons + gateway) are done and `INTEGRATION-VERIFIED`; all 12 runtimes reach `/readyz` 200 locally ([phase-01e](docs/evidence/phase-01e.md)). Health-request traces are verified in OpenObserve. Phase 1 stays `SOURCE-IMPLEMENTED` until the last exit item exists: the work committed and a green first GitLab pipeline (the `workflow:rules` blocker is fixed). Open NFR-07 item: outbox → RabbitMQ trace continuity needs a `traceparent` outbox column (amendment proposal in [phase-01e](docs/evidence/phase-01e.md)). **Slice 1d (`py-platform`) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-01d](docs/evidence/phase-01d.md)).** **Slice 1c (`java-platform`) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-01c](docs/evidence/phase-01c.md)).** **Slice 1b (`ts-platform`) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-01b](docs/evidence/phase-01b.md)).** It was briefly paused because `rxjs-rabbitmq` 2.2.3 could not meet §6.5. The owner published 3.0.0, which was reviewed and accepted ([review](docs/evidence/rxjs-rabbitmq-3.0.0-review.md)), and adopted it inside the pnpm release-age window by explicit decision (a single-version `minimumReleaseAgeExclude` entry, to be removed once the window passes). Amendments applied 2026-11-23: token `typ` rules for user/integration/service (FR-TEN-07, FR-AUTH-04, §8 note, ADR-0010) and enforced RLS bypass via SECURITY DEFINER functions (§7.0, §5.7.2, ADR-0016); 1a migrations (V2), ts-platform and java-platform updated and re-verified.
 
 ---
 
 ### Phase 2 — Registry: Tenancy, Identity & RBAC
 
 #### FR-TEN-01 / FR-TEN-02 / FR-TEN-03 — Tenant lifecycle
-- [ ] Migration `V2__tenants.sql` (`registry.tenants`, RLS exempt for platform table, indexes §7.1)
-- [ ] `TenantService.create/updateStatus/deactivate` with state rules (`DEACTIVATED` terminal), idempotency via `idempotency_records`
-- [ ] Internal API `createTenant`, `updateTenantStatus`; gateway handlers `POST /v1/tenants`, `PATCH /v1/tenants/{id}`
-- [ ] Outbox `registry.tenant.created|suspended|restored`; PA-only authorization; audit consumed later by cases (Phase 8)
-- [ ] Tests: unit (state machine), integration (duplicate slug 409, idempotent retry), E2E (suspended tenant login → 403)
+- [x] Migration `V3__tenants.sql` (`registry.tenants`, RLS exempt for platform table, indexes §7.1)
+- [x] `TenantService.create/updateStatus/deactivate` with state rules (`DEACTIVATED` terminal), idempotency via `idempotency_records`
+- [x] Internal API `createTenant`, `updateTenantStatus`; gateway handlers `POST /v1/tenants`, `PATCH /v1/tenants/{id}`
+- [x] Outbox `registry.tenant.created|suspended|restored|deactivated`; PA-only authorization; audit consumed later by cases (Phase 8)
+- [x] Tests: unit (state machine), integration (duplicate slug 409, idempotent retry), suspended tenant login → 403 (`AuthIT`, registry integration)
 
 #### FR-TEN-04 / FR-TEN-05 — Users and roles
-- [ ] Migration `V3__users_roles.sql` (`users`, `user_roles`, RLS)
-- [ ] `UserService` create/list/update/disable with Argon2id hashing, password policy (length + zxcvbn-equivalent `nbvcxz`), last-admin invariant
-- [ ] Internal + gateway routes `GET/POST /v1/users`, `PATCH /v1/users/{id}`; pagination
-- [ ] Role change → refresh-token revocation + `registry.user.changed`
-- [ ] Tests: last-admin 409, email uniqueness per tenant (citext), cross-tenant 404
+- [x] Migration `V4__users_roles.sql` (`users`, `user_roles`, RLS)
+- [x] `UserService` create/list/update/disable with Argon2id hashing, password policy (length + zxcvbn-equivalent `nbvcxz`), last-admin invariant
+- [x] Internal + gateway routes `GET/POST /v1/users`, `PATCH /v1/users/{id}`; pagination
+- [x] Role change → refresh-token revocation + `registry.user.changed`
+- [x] Tests: last-admin 409, email uniqueness per tenant (citext), cross-tenant 404
 
 #### FR-TEN-06 / FR-TEN-07 — Service accounts
-- [ ] Migration `V4__service_accounts.sql` (`service_accounts`, `service_account_secrets`)
-- [ ] `ServiceAccountService` create/rotate (24 h grace)/revoke; internal SERVICE accounts seeded by `R__seed_service_accounts.sql` with `allowed_actions` (§5.7.4); secrets from Infisical
-- [ ] Routes `/v1/service-accounts*`; secret displayed once
-- [ ] Tests: rotated secret valid for 24 h then rejected (clock-controlled test)
+- [x] Migration `V5__service_accounts.sql` (`service_accounts`, `service_account_secrets`)
+- [x] `ServiceAccountService` create/rotate (24 h grace)/revoke; internal SERVICE accounts seeded by `R__seed_service_accounts.sql` with `allowed_actions` (§5.7.4); secret verifiers reconciled at startup from `SERVICE_CLIENT_SECRET_{RUNTIME}` (ADR-0017)
+- [x] Routes `/v1/service-accounts*`; secret displayed once
+- [x] Tests: rotated secret valid for 24 h then rejected (clock-controlled test)
+
+#### FR-TEN-09 — Platform bootstrap
+- [x] `R__platform_tenant.sql` (reserved `platform` tenant, fixed id); API rejects creating/suspending slug `platform`
+- [x] `bootstrap-platform-admin` command (Spring `ApplicationRunner` profile, run as Job / compose `tools` service): first `PLATFORM_ADMIN` from `PLATFORM_ADMIN_BOOTSTRAP_*`, idempotent, audited (compose `registry-bootstrap`; the k8s Job is Phase 9)
+- [ ] 🛑 MANUAL (MB-15) dev/prod: set `PLATFORM_ADMIN_BOOTSTRAP_EMAIL` in Infisical `/registry`, re-run the seeder (generates the password), run the Job at first deploy, log in once and change the password
+- [x] Tests: second run is a no-op; generated password passes FR-TEN-04 policy; PA can create a tenant and its first TENANT_ADMIN
 
 #### FR-TEN-08 — Tenant settings
-- [ ] `getTenantSettings`/`updateTenantSettings` + `registry.tenant.settings_changed`; caller-side 60 s cache in kits
-- [ ] Tests: settings change propagates to scoring threshold within 60 s (integration)
+- [x] `getTenantSettings`/`updateTenantSettings` + `registry.tenant.settings_changed`; caller-side 60 s cache in kits (TS `TenantSettingsCache`, Python `aegis_platform.tenant_settings`)
+- [x] Tests: settings change propagates to scoring threshold within 60 s (integration). Cache TTL/invalidation unit-tested in both kits; the end-to-end scoring propagation test needs risk-scoring, which is Phase 8, and is tracked there (FR-TXN-04 checklist)
 
 #### FR-AUTH-01 / FR-AUTH-02 / FR-AUTH-03 / FR-AUTH-07 — User authentication
-- [ ] Migration `V5__auth.sql` (`refresh_tokens`, `signing_keys`)
-- [ ] `AuthService.login/refresh/logout/changePassword` with RS256 signing (Nimbus), refresh rotation families, reuse detection → family revoke + security audit event, Redis login rate limit
-- [ ] Gateway routes `/v1/auth/*`; uniform error messages; no user enumeration
-- [ ] Tests: refresh reuse revokes family; 6th failed login → 429; token claims match §2.2
+- [x] Migration `V6__auth.sql` (`refresh_tokens`, `signing_keys`)
+- [x] `AuthService.login/refresh/logout/changePassword` with RS256 signing (Nimbus), refresh rotation families, reuse detection → family revoke + security audit event, Redis login rate limit
+- [x] Gateway routes `/v1/auth/*`; uniform error messages; no user enumeration
+- [x] Tests: refresh reuse revokes family; 6th failed login → 429; token claims match §2.2
 
 #### FR-AUTH-04 / FR-AUTH-05 — Client credentials & JWKS
-- [ ] `/v1/auth/token` (INTEGRATION) and `/internal/v1/oauth/token` (SERVICE, `aud=aegispulse-internal`, `act[]`)
-- [ ] `/.well-known/jwks.json` with current + previous keys; key rotation runbook `docs/runbooks/key-rotation.md`
-- [ ] Kits: JWKS cache refresh on unknown `kid`
-- [ ] Tests: rotation drill — tokens signed by previous key accepted ≤ 24 h
+- [x] `/v1/auth/token` (INTEGRATION) and `issueClientCredentialsToken` (`POST /internal/v1/issueClientCredentialsToken`, unauthenticated; SERVICE, `aud=aegispulse-internal`, `act[]`)
+- [x] `/.well-known/jwks.json` with current + previous keys; key rotation runbook `docs/runbooks/key-rotation.md`
+- [x] Kits: JWKS cache refresh on unknown `kid`
+- [ ] Tests: rotation drill — tokens signed by previous key accepted ≤ 24 h (integration ✅ `JwksIT`; local drill ✅ 2026-11-24 after the 5 s cooldown fix, [phase-02c](docs/evidence/phase-02c.md); environment drill on dev for the phase exit, Phase 9)
 
 #### FR-AUTH-06 — Authorization enforcement
-- [ ] Authorization policy module in every service (role matrix §1.4.6 as data), tenant-ownership checks in service layer, `X-Aegis-Tenant` for PA with `actingAs` audit
-- [ ] Cross-tenant test harness (`tests/security/cross-tenant.spec.ts`) seeded with two tenants; grows with each phase
-- [ ] Tests: every Phase-2 route × every role matrix (generated table test)
+- [x] Authorization policy module in every service (role matrix §1.4.6 as data), tenant-ownership checks in service layer, `X-Aegis-Tenant` for PA with `actingAs` audit (registry `AccessPolicy`; gateway edge check from the generated contract route table; later services add theirs with their FRs)
+- [x] Cross-tenant test harness (`tests/security/cross-tenant.spec.ts`) seeded with two tenants; grows with each phase
+- [x] Tests: every Phase-2 route × every role matrix (generated table test): `AccessPolicyTest` (registry) + `tests/e2e/role-matrix.e2e.test.ts` (gateway, 13 routes × 6 roles)
 
 **Phase 2 exit evidence:** E2E auth flows over the gateway (login, refresh, rotate, logout); cross-tenant suite green; JWKS rotation drill log.
-**Phase note:** status `PENDING`.
+**Phase note:** migrations are V3–V6 (V2 is ADR-0016's `enforced_rls_bypass`). Auth lookups that precede tenant context (refresh token by hash, service account by client id) are `SECURITY DEFINER` functions per ADR-0016. Delivered in slices: 2a tenants + users + platform bootstrap; 2b signing keys/JWKS, auth flows, service accounts, client credentials; 2c settings, gateway routes, role matrix, cross-tenant suite, E2E + rotation drill.
+**Phase note:** status **`IN PROGRESS`**. Slice 2c (settings, gateway routes, role matrix, cross-tenant suite, E2E) is `RUNTIME-VERIFIED` locally (2026-11-23, [phase-02c](docs/evidence/phase-02c.md)): `make test-e2e` 85/85 over the gateway. JWKS rotation drill run 2026-11-24: mechanics verified, and its finding (a 30 s post-rotation 401 window) was fixed with a 5 s refetch cooldown; the confirming rerun passed the same day (`/me` 200 with the new kid right after rotation, and with a pre-rotation token). Exit items still open: the green pipeline and the dev-environment drill (Phase 9). The FR-TEN-08 scoring propagation test moved to Phase 8 (risk-scoring). Slice 2b (auth flows, JWKS, client credentials, service accounts; ADR-0017) is `INTEGRATION-VERIFIED` and runtime-verified locally (2026-11-23, [phase-02b](docs/evidence/phase-02b.md)): 29 unit + 29 Testcontainers tests; JVM heap rule amended to 50%. Slice 2a (tenants, users, platform bootstrap) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-02a](docs/evidence/phase-02a.md)): 24 unit + 13 Testcontainers tests, migrations applied locally, registry `/readyz` 200 at schema 4. Local bootstrap runtime-verified (create, then no-op; event relayed `SENT`). `registry.tenant.deactivated` added by amendment (2026-11-23).
 
 ---
 
 ### Phase 3 — Entities & Watchlists
 
 #### FR-ENT-01 / FR-ENT-02 — Entity management
-- [ ] Migration `V6__entities.sql` (`entities`, `entity_aliases`, `pg_trgm`, RLS)
-- [ ] `EntityService` create/get/list/update/archive with normalization function (shared, unit-tested with fixtures), alias management
-- [ ] Gateway routes `/v1/entities*`; search `q` via trigram
-- [ ] `registry.entity.changed` outbox event
-- [ ] Tests: normalization table test (suffix stripping), duplicate 409, archived entity excluded from matching
+- [x] Migration `V7__entities.sql` (`entities`, `entity_aliases`, `pg_trgm`, RLS)
+- [x] `EntityService` create/get/list/update/archive with normalization function (shared, unit-tested with fixtures), alias management
+- [x] Gateway routes `/v1/entities*`; search `q` via trigram
+- [x] `registry.entity.changed` outbox event
+- [x] Tests: normalization table test (suffix stripping), duplicate 409, archived entity excluded from matching
 
 #### FR-ENT-03 — Entity resolution
-- [ ] `EntityResolutionService.resolve` (ticker exact → alias exact → normalized → trigram ≥ 0.85), deterministic ordering
-- [ ] Internal route `resolveEntities` (SERVICE `act[]` allowlist)
-- [ ] Tests: golden mention→entity fixtures; p95 ≤ 50 ms for 50 mentions (integration timing)
+- [x] `EntityResolutionService.resolve` (ticker exact → alias exact → normalized → trigram ≥ 0.85), deterministic ordering (in `EntityService.resolve`, batched per stage)
+- [x] Internal route `resolveEntities` (SERVICE `act[]` allowlist)
+- [x] Tests: golden mention→entity fixtures; p95 ≤ 50 ms for 50 mentions (integration timing: p95 11 ms)
 
 #### FR-ENT-04 / FR-ENT-05 — Watchlists
-- [ ] Migration `V7__watchlists.sql`
-- [ ] `WatchlistService` CRUD + entries + pause; `checkWatchlists` (entityIds or counterparty refs via resolution)
-- [ ] Gateway routes `/v1/watchlists*`; `registry.watchlist.changed`
-- [ ] Tests: paused watchlist yields no hits; deleted entry stops matching
+- [x] Migration `V8__watchlists.sql`
+- [x] `WatchlistService` CRUD + entries + pause; `checkWatchlists` (entityIds or counterparty refs via resolution)
+- [x] Gateway routes `/v1/watchlists*`; `registry.watchlist.changed`
+- [x] Tests: paused watchlist yields no hits; deleted entry stops matching
 
 **Phase 3 exit evidence:** seeded demo entities/watchlists via API; resolution fixtures output; cross-tenant suite extended.
-**Phase note:** status `PENDING`.
+**Phase note:** migrations are V7/V8 (Phase 2 took V3–V6).
+**Phase note:** status **`IN PROGRESS`**: `INTEGRATION-VERIFIED` and runtime-verified through the gateway (2026-11-24, [phase-03](docs/evidence/phase-03.md)). Registry 46 unit + 36 Testcontainers tests; `make test-e2e` 152/152 (role matrix 24 routes × 6 roles; cross-tenant suite extended). Demo seed via the API runtime-verified (idempotent, two runs). Open exit item: commit + green pipeline.
 
 ---
 
 ### Phase 4 — Webhook Ingestion
 
 #### FR-WHK-01 / FR-WHK-07 — Webhook source management
-- [ ] Migration `V2__webhook_sources.sql` (`webhook_sources`, `webhook_secrets`, RLS)
-- [ ] `WebhookSourceService` register/list/update/rotate/delete; envelope encryption (AES-256-GCM, KEK from env) in `src/domain/crypto`; trust-level change emits `ops.audit.source_trust_changed`
-- [ ] Gateway routes `/v1/webhook-sources*`; secret returned once
-- [ ] Tests: encrypt/decrypt round-trip; rotation keeps previous for 72 h; KEK missing → startup fails
+- [x] Migration `V3__webhook_sources.sql` (`webhook_sources`, `webhook_secrets`, RLS)
+- [x] `WebhookSourceService` register/list/update/rotate/delete; envelope encryption (AES-256-GCM, KEK from env) in `src/domain/crypto`; trust-level change emits `ops.audit.source_trust_changed`
+- [x] Gateway routes `/v1/webhook-sources*`; secret returned once (deliveries listing with 4b)
+- [x] Tests: encrypt/decrypt round-trip; rotation keeps previous for 72 h; KEK missing → startup fails
 
 #### FR-WHK-02 / FR-WHK-03 — Signature verification & replay protection
-- [ ] `src/domain/signature.ts`: canonical signed string, constant-time compare (`crypto.timingSafeEqual` on equal-length buffers), multi-signature header parsing
-- [ ] `IngestWebhookUseCase`: source lookup → status/tenant checks → verify (current, previous) → skew → Redis nonce `SET NX` → schema validation
-- [ ] Gateway `POST /webhooks/:sourceKey` handler: raw-body capture (no JSON parse before forwarding), 1 MiB limit, passes headers + base64 body to `ingestWebhookDelivery`
-- [ ] Metrics `aegispulse_webhook_rejected_total{source,reason}`; logs without body
-- [ ] Tests: adversarial suite (FR-EVAL-04 subset): wrong secret, truncated signature, skew ±301 s, replayed delivery id, oversize, malformed JSON, missing headers → expected codes; timing test asserts constant-time path used
+- [x] `src/domain/signature.ts`: canonical signed string, constant-time compare (`crypto.timingSafeEqual` on equal-length buffers), multi-signature header parsing
+- [x] `IngestWebhookUseCase`: source lookup → status/tenant checks → verify (current, previous) → skew → Redis nonce `SET NX` → schema validation
+- [x] Gateway `WebhooksController` (`POST /webhooks/:sourceKey`): `req.rawBody` via `NestFactory.create(..., { rawBody: true })` (no JSON re-serialization before forwarding), 1 MiB route limit, passes headers + base64 body to `ingestWebhookDelivery` (clarification: a buffer content-type parser instead of `rawBody: true`; see spec)
+- [x] Metrics `aegispulse_webhook_rejected_total{source,reason}`; logs without body
+- [x] Tests: adversarial suite (FR-EVAL-04 subset): wrong secret, truncated signature, skew ±301 s, replayed delivery id, oversize, malformed JSON, missing headers → expected codes; timing test asserts constant-time path used
 
 #### FR-WHK-04 / FR-WHK-05 — Canonical event creation & persistence
-- [ ] Migration `V3__webhook_deliveries.sql`
-- [ ] `EnvelopeBuilder` (domain): UUIDv7 eventId, correlation id, category → eventType map, classification seed (`publisher_stated_severity`, `UNCLASSIFIED`, `INGESTED`)
-- [ ] Raw body put to object store before TX; TX inserts delivery + outbox; duplicate idempotency key → `DUPLICATE` delivery row, no outbox
-- [ ] Outbox relay publishes to `aegispulse.ingress`
-- [ ] Tests: integration (compose) — accepted webhook appears on a test queue bound to `external.#` exactly once after 3 relay restarts; duplicate externalId → `duplicate:true`
+- [x] Migration `V4__webhook_deliveries.sql`
+- [x] `EnvelopeBuilder` (domain): UUIDv7 eventId, correlation id, category → eventType map, classification seed (`publisher_stated_severity`, `UNCLASSIFIED`, `INGESTED`)
+- [x] Raw body put to object store before TX; TX inserts delivery + outbox; duplicate idempotency key → `DUPLICATE` delivery row, no outbox
+- [x] Outbox relay publishes to `aegispulse.ingress`
+- [x] Tests: integration (compose) — accepted webhook appears on a test queue bound to `external.#` exactly once after 3 relay restarts; duplicate externalId → `duplicate:true`
 
 #### FR-WHK-08 — Secret expiry & raw-object sweep
-- [ ] `expirePreviousSecrets` + orphan raw-object sweep; scheduler-trigger job `ingestion-secret-expiry` (hourly)
-- [ ] Tests: clock-controlled expiry; orphan object deleted, referenced object retained
+- [x] `expirePreviousSecrets` + orphan raw-object sweep (`V5__webhook_maintenance.sql` definer functions); scheduler-trigger job `ingestion-secret-expiry` (hourly; CronJob `aegispulse-cron-secret-expiry`, §5.1) in `workers/scheduler-trigger`, run locally with `make trigger JOB=ingestion-secret-expiry` (the k8s CronJob ships with the Phase 9 CronJob item)
+- [x] Tests: clock-controlled expiry; orphan object deleted, referenced object retained
 
 **Phase 4 exit evidence:** signed webhook via `scripts/demo/webhook-sign.ts` → 202 → message observed on broker; adversarial suite report; OpenObserve rejection metric screenshot.
-**Phase note:** status `PENDING`.
+**Phase note:** migrations are V3/V4 (V2 is ADR-0016's `enforced_rls_bypass`), plus `V5__webhook_maintenance` (FR-WHK-08 definer functions; no table changes). Delivered in slices: 4a sources + secret crypto; 4b verification, persistence, outbox, gateway webhook route, adversarial suite; 4c expiry + sweep. Spec `FR-WHK-01-08-webhook-ingestion`.
+**Phase note:** status **`IN PROGRESS`**: slice 4a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04a](docs/evidence/phase-04a.md); E2E 183/183); slice 4b `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04b](docs/evidence/phase-04b.md); E2E 192/192 incl. the adversarial suite). Slice 4c `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04c](docs/evidence/phase-04c.md); `make trigger` exit 0). Phase exit ([phase-04](docs/evidence/phase-04.md)): demo → 202 → broker captured, adversarial suite 192/192; rejection metric visible in OpenObserve after two exit fixes (counter binding, local OTLP auth); still needs green pipelines.
 
 ---
 
 ### Phase 5 — Files Subsystem
 
 #### FR-FILE-01 / FR-FILE-02 / FR-FILE-03 — Upload initiation, dedup & quotas
-- [ ] Migration `V2__files.sql` (`files`, `file_status_history`, RLS, indexes §7.3)
-- [ ] `FileService.initUpload`: filename sanitizer, type allowlist, size bounds, dedup (Redis then DB), token-bucket quota, storage quota sum, session in Redis, presigned PUT (signed content-type/length) pointing at `PUBLIC_OBJECTS_URL`
-- [ ] Gateway `POST /v1/files/uploads/init`
-- [ ] Tests: dedup hit returns existing id; quota 429/413; filename `../../etc/passwd` sanitized and never used in key
+- [x] Migration `V3__files.sql` (`files`, `file_status_history`, RLS, indexes §7.3; numbered V3 because V2 is ADR-0016's RLS migration)
+- [x] `FileService.initUpload` (`FileUploadService`): filename sanitizer, type allowlist, size bounds, dedup (Redis then DB), token-bucket quota, storage quota sum, session in Redis, presigned PUT (signed content-type/length) pointing at `PUBLIC_OBJECTS_URL`
+- [x] Gateway `POST /v1/files/uploads/init`
+- [x] Tests: dedup hit returns existing id; quota 429/413; filename `../../etc/passwd` rejected by the contract pattern (422), sanitized in depth, and never used in the key
 
 #### FR-FILE-04 — Upload completion
-- [ ] `CompleteUploadUseCase`: session check, HEAD object, size check, transition `INITIATED→UPLOADED` (optimistic `version`), outbox `file.uploaded` + `file.status.changed`, session delete
-- [ ] Gateway `POST /v1/files/uploads/{fileId}/complete` and `/abort`
-- [ ] Tests: complete without PUT → 409; double complete idempotent; concurrent completes → single transition
+- [x] `CompleteUploadUseCase` (`FileUploadService.completeUpload`): session check, HEAD object, size check, transition `INITIATED→UPLOADED` (optimistic `version`), outbox `file.uploaded` + `file.status.changed`, session delete
+- [x] Gateway `POST /v1/files/uploads/{fileId}/complete` and `/abort`
+- [x] Tests: complete without PUT → 409; double complete idempotent; concurrent completes → single transition
 
 #### FR-FILE-05 — Validation consumer
-- [ ] Consumer adapter `files.validation.q` → `validateFile` service action; streaming SHA-256; magic-byte sniffing; ClamAV INSTREAM client behind `FILES_AV_ENABLED`; quarantine move
-- [ ] Outbox `doc.file.ready` / `notification.requested` (N-03)
-- [ ] Tests: EICAR test file → QUARANTINED; checksum mismatch → FAILED; PDF declared as CSV → QUARANTINED; redelivery no-op
+- [x] Consumer adapter `files.validation.q` → `validateFile` service action; streaming SHA-256; magic-byte sniffing; ClamAV INSTREAM client behind `FILES_AV_ENABLED`; quarantine move
+- [x] Outbox `doc.file.ready` / `notification.requested` (N-03)
+- [x] Tests: EICAR test file → QUARANTINED; checksum mismatch → FAILED; PDF declared as CSV → QUARANTINED; redelivery no-op
 
 #### FR-FILE-06 — Processing lifecycle API
-- [ ] Migration `V3__file_artifacts.sql`
-- [ ] `markProcessing`, `recordExtractionResult` (persists artifact row, emits `doc.extraction.completed|review_required`), `recordProcessingFailure`, `getInternalDownloadUrl`
-- [ ] Internal routes restricted to doc-extraction `act[]`
-- [ ] Tests: illegal transitions rejected; result recording idempotent by `(file_id, extractor_version)`
+- [x] Migration `V4__file_artifacts.sql` (V4 for the same V2 reason; adds the definer `files.file_tenant` for SERVICE callers)
+- [x] `markProcessing`, `recordExtractionResult` (persists artifact row, emits `doc.extraction.completed|review_required`), `recordProcessingFailure`, `getInternalDownloadUrl`
+- [x] Internal routes restricted to doc-extraction `act[]`
+- [x] Tests: illegal transitions rejected; result recording idempotent by `(file_id, extractor_version)`
 
 #### FR-FILE-07 / FR-FILE-08 / FR-FILE-09 — Reads & downloads
-- [ ] `getFile` with Redis status cache + invalidation; `listFiles`; `getDownloadUrl` with status rules, quarantine acknowledgement (TA only, `ops.audit.quarantine_download`), cached URL < TTL
-- [ ] Gateway routes `GET /v1/files*`
-- [ ] Tests: cached status invalidated on transition; quarantined download without ack → 403
+- [x] `getFile` with Redis status cache + invalidation; `listFiles`; `getDownloadUrl` with status rules, quarantine acknowledgement (TA only, `ops.audit.quarantine_download`), cached URL < TTL
+- [x] Gateway routes `GET /v1/files*`
+- [x] Tests: cached status invalidated on transition; quarantined download without ack → 403
 
 #### FR-FILE-10 / FR-FILE-12 — Sweeps & retention
-- [ ] `sweepOrphans` (INITIATED > 1 h → EXPIRED, delete object, abort multipart), `purgeRetention`, `deleteFile` (soft)
-- [ ] scheduler-trigger jobs `files-orphan-sweep` (*/15), `files-retention` (daily)
-- [ ] Tests: orphan flood scenario (100 inits, no PUT) → all EXPIRED, no leaked objects
+- [x] `sweepOrphans` (INITIATED > 1 h → EXPIRED, delete object, abort multipart), `purgeRetention`, `deleteFile` (soft)
+- [x] scheduler-trigger jobs `files-orphan-sweep` (*/15), `files-retention` (daily) (CronJobs `aegispulse-cron-file-sweep` / `aegispulse-cron-retention` ship with Phase 9)
+- [x] Tests: orphan flood scenario (100 inits, no PUT) → all EXPIRED, no leaked objects
 
 #### FR-FILE-13 — Multipart uploads (Phase 5b, behind `MULTIPART_UPLOADS_ENABLED`)
-- [ ] Init returns `uploadId` + part URLs (16 MiB); complete with ETags; abort path
-- [ ] Tests: 200 MiB synthetic file upload through compose; each request < 100 MB
+- [x] Init returns `uploadId` + part URLs (16 MiB); complete with ETags; abort path
+- [x] Tests: 200 MiB synthetic file upload through compose; each request < 100 MB
 
 **Phase 5 exit evidence:** `scripts/demo/upload.ts` init→PUT→complete→VALIDATED with `doc.file.ready` on broker; EICAR quarantine evidence; orphan sweep logs.
-**Phase note:** status `PENDING`.
+**Phase note:** migrations V3/V4 (V2 is ADR-0016's). Slices: 5a init/dedup/quotas/complete/abort; 5c validation consumer; 5d lifecycle + reads; 5e sweeps/retention; 5b multipart (§2.7's "Phase 5b") last. Spec `FR-FILE-01-13-files`.
+**Phase note:** status **`IN PROGRESS`**: slice 5a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05a](docs/evidence/phase-05a.md); E2E 213/213); slice 5c `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05c](docs/evidence/phase-05c.md); real clamd EICAR → QUARANTINED); slice 5d `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05d](docs/evidence/phase-05d.md); E2E 232/232); slice 5e `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05e](docs/evidence/phase-05e.md); E2E 239/239, both files jobs via `make trigger`); slice 5b `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05b](docs/evidence/phase-05b.md); 200 MiB multipart E2E). Phase exit captured in [phase-05](docs/evidence/phase-05.md) (`make demo-upload`, EICAR quarantine, orphan-sweep run); the pipeline is pending.
 
 ---
 
 ### Phase 6 — Events Archive & Stage-1 Classification
 
 #### FR-EVT-01 / FR-EVT-02 / FR-EVT-03 — Archive consumer
-- [ ] Mongo migrations for `events_archive`, `events_restricted_audit`, `outbox`, `processed_messages` with validators + indexes (§7.6)
-- [ ] Consumer adapter `events.archive.q` → `archiveEvent`: envelope schema validation (poison → DLQ), restricted routing, duplicate-key = success, replay header handling
-- [ ] Mongo outbox relay (change in same transaction)
-- [ ] Tests: 3× redelivery → 1 document; invalid envelope → DLQ with `ENVELOPE_INVALID`; replay-tagged message updates `replay` only
+- [x] Mongo migrations for `events_archive`, `events_restricted_audit`, `outbox`, `processed_messages` with validators + indexes (§7.6) (Phase 1 baseline `20261122000001-baseline.cjs`)
+- [x] Consumer adapter `events.archive.q` → `archiveEvent`: envelope schema validation (poison → DLQ), restricted routing, duplicate-key = success, replay header handling
+- [x] Mongo outbox relay (change in same transaction)
+- [x] Tests: 3× redelivery → 1 document; invalid envelope → DLQ with `ENVELOPE_INVALID`; replay-tagged message updates `replay` only
 
 #### FR-CLS-01 / FR-CLS-02 — Stage 1 rules & finalization
-- [ ] `src/domain/classification/rules-v1.ts`: baseline table, elevation rules, detectors (secret patterns, Luhn PAN, SSN, PII keys, MNPI lexicon), masking with `redactions[]`
-- [ ] `src/domain/classification/severity-resolver.ts` (§1.4.3) — pure function, property-tested (elevate-only invariant)
-- [ ] Finalize path for non-Stage-2 events → `classification.finalized`; Stage-2 path emits `classification.scan.requested` (scanner wiring in Phase 12; until then the request is recorded and `pendingAiScan=true`)
-- [ ] Loop prevention for `classification.*`, `intel.*`, `ops.*`, `registry.*`, `correlation.*`, `notification.*`
-- [ ] Tests: rule fixtures per event type; PAN/SSN/secret masking golden tests; Stage 1 p95 ≤ 5 ms benchmark
+- [x] `src/domain/classification/rules-v1.ts`: baseline table, elevation rules, detectors (secret patterns, Luhn PAN, SSN, PII keys, MNPI lexicon), masking with `redactions[]`
+- [x] `src/domain/classification/severity-resolver.ts` (§1.4.3) — pure function, property-tested (elevate-only invariant; exhaustive over all 1,440 automated combinations)
+- [x] Finalize path for non-Stage-2 events → `classification.finalized`; Stage-2 path emits `classification.scan.requested` (scanner wiring in Phase 12; until then the request is recorded and `pendingAiScan=true`)
+- [x] Loop prevention for `classification.*`, `intel.*`, `ops.*`, `registry.*`, `correlation.*`, `notification.*`
+- [x] Tests: rule fixtures per event type; PAN/SSN/secret masking golden tests; Stage 1 p95 ≤ 5 ms benchmark
 
 #### FR-EVT-04 / FR-EVT-05 / FR-EVT-06 — Query APIs
-- [ ] `searchEvents`, `getEvent`, `getCorrelationChain`, `searchEventsForEntities` with mandatory tenant filter (repository wrapper rejects tenantless queries), cursor pagination on `(occurredAt, eventId)`
-- [ ] Gateway routes `/v1/events*`; restricted tier only for CA
-- [ ] Tests: VIEWER cannot see restricted; correlation chain ordering by causation
+- [x] `searchEvents`, `getEvent`, `getCorrelationChain`, `searchEventsForEntities` with mandatory tenant filter (repository wrapper rejects tenantless queries), cursor pagination on `(occurredAt, eventId)`
+- [x] Gateway routes `/v1/events*`; restricted tier only for CA
+- [x] Tests: VIEWER cannot see restricted; correlation chain ordering by causation
 
 #### FR-CLS-07 — Analyst override
-- [ ] `overrideClassification` with justification rule, `OVERRIDDEN`, history append, `classification.overridden`
-- [ ] Gateway `PATCH /v1/events/{id}/classification`
-- [ ] Tests: lowering severity without ANALYST role → 403; justification < 20 chars → 422
+- [x] `overrideClassification` with justification rule, `OVERRIDDEN`, history append, `classification.overridden`
+- [x] Gateway `PATCH /v1/events/{id}/classification`
+- [x] Tests: lowering severity without ANALYST role → 403; justification < 20 chars → 422
 
 #### FR-EVT-07 (part 1) — Retention TTL
-- [ ] `expireAt` computation from tenant settings; TTL indexes; `purgeRetention` for restricted moves
-- [ ] Tests: TTL index present and `expireAt` correct per tenant
+- [x] `expireAt` computation from tenant settings; TTL indexes; `purgeRetention` for restricted moves (part 1 = `expireAt` recomputed on a move to the restricted tier; the `events.purgeRetention` action is the cold-tier export, part 2)
+- [x] Tests: TTL index present and `expireAt` correct per tenant
 
 **Phase 6 exit evidence:** webhook from Phase 4 visible via `GET /v1/events?correlationId=` with lineage; masking demo with synthetic PAN; Mongo index listing.
-**Phase note:** status `PENDING`.
+**Phase note:** slices 6a archive + Stage 1 + finalization + Mongo outbox + source-trust amendment; 6b queries; 6c override; 6d retention TTL. Spec `FR-EVT-CLS-events-archive-classification`.
+**Phase note:** status **`IN PROGRESS`**: slice 6a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06a](docs/evidence/phase-06a.md)); slice 6b `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06b](docs/evidence/phase-06b.md); E2E 260/260 incl. the webhook-lineage and synthetic-PAN masking exit items); slices 6c + 6d `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06c](docs/evidence/phase-06c.md)). Phase exit captured in [phase-06](docs/evidence/phase-06.md); the pipeline is pending.
 
 ---
 
@@ -3114,7 +3171,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 #### FR-MSG-04 — DLQ alerting
 - [ ] OpenObserve alert definitions (`deploy/observability/alerts/dlq-spike.json`) + local equivalent check script
-- [ ] Tests: synthetic 11 dead letters in 5 min → alert fires (homelab, Phase 18 evidence)
+- [ ] Tests: synthetic 11 dead letters in 5 min → alert fires (dev, Phase 18 evidence)
 
 **Phase 7 exit evidence:** forced failure demo (scanner stub returning 500) showing retry timings and DLQ registry entry; replay of the dead letter.
 **Phase note:** status `PENDING`.
@@ -3133,6 +3190,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [ ] `services/risk-scoring`: `domain/heuristic_v1.py` (§1.4.4), static FX table `fx-static-v1`, Redis features with `feat:seen` idempotency, `POST /v1/score`
 - [ ] Pydantic request/response models generated from contracts
 - [ ] Tests: factor table tests; redelivery does not inflate velocity; demo override only with demo tenant flag
+- [ ] Tests (moved from Phase 2, FR-TEN-08): a tenant settings change (`highValueThresholdUsd` / `highRiskCountries`) reaches scoring within 60 s (kit cache ≤ 60 s)
 
 #### FR-TXN-03 — Score transaction saga
 - [ ] `services/orchestrator`: consumer adapter `orchestrator.txn.q` → `ScoreTransactionSaga` (checkWatchlists → score → recordRiskEvaluation) with typed clients, SERVICE token, timeouts, breakers
@@ -3166,7 +3224,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 ---
 
-### Phase 9 — Kubernetes, IaC & Secrets (homelab)
+### Phase 9 — Kubernetes, IaC & Secrets (homelab dev + prod)
 
 #### Workstream: Manifests (`deploy/k8s/base`, overlays)
 - [ ] Namespace, ResourceQuota, LimitRange, default-deny NetworkPolicy + per-component allows (§5.7.5)
@@ -3175,23 +3233,27 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [ ] CronJobs (§5.1) running `scheduler-trigger` with SERVICE credentials; backup CronJobs (`pg_dump`, `mongodump`) to backups bucket
 - [ ] Ingresses (`nginx-external`, `ssl-redirect: "false"`, SSE and body-size annotations §5.9)
 - [ ] Topology Job, migration Jobs, seed Job (demo tenant only)
-- [ ] `overlays/homelab` (images by digest, replicas, URLs) and `overlays/k3d-local`
+- [ ] `overlays/dev` (namespace `aegispulse-dev`, `*.rmwhs-dev.space` hosts, reduced requests, dev quota, `JWT_AUDIENCE=aegispulse-dev`), `overlays/prod` (namespace `aegispulse`, `*.rmwhs.com` hosts, full requests, gateway ×2), and `overlays/k3d-local`; a CI check fails if an overlay references the other environment's hostnames, namespace, vhost, or buckets
+- [ ] `ci/env-sleep.sh` / `env-wake` (dev only; refuses `prod`) + nightly schedule; `make env-reset ENV=dev`
+- [ ] Cross-environment isolation test: from a dev pod, connections to prod services and datastores fail; a dev-issued JWT is rejected by prod (`aud` and keys differ)
 - [ ] `ci/lint-k8s.sh`: `kustomize build | kubeconform -strict` + `trivy config` + `ci/check-resource-budget.sh`
 
 #### Workstream: Secrets (Infisical)
-- [ ] Infisical project structure: folders per component; secrets per §10.4 `[secret]` markers
-- [ ] `InfisicalSecret` CR per component → `aegispulse-{component}-secrets`; Deployments use `secretKeyRef` only
+- [ ] 🛑 MANUAL (MB-03…MB-06) Infisical project structure: folders per component; secrets per §10.4 `[secret]` markers — catalog `deploy/infisical/secrets-catalog.yaml` (done), seeder `scripts/infisical/seed.py` (after MB-03/MB-04), operator install (MB-05)
+- [ ] 🛑 MANUAL (MB-08) `InfisicalSecret` CR per component → `aegispulse-{component}-secrets`; Deployments use `secretKeyRef` only (operator identities with Kubernetes Auth)
 - [ ] Startup fail-fast verified by deleting a secret key in a test namespace (pod CrashLoop with clear message)
 - [ ] Runbook `docs/runbooks/key-rotation.md`: JWT keys, webhook KEK version bump, DB passwords, RabbitMQ users, object-store keys
 
 #### Workstream: Bootstrap & edge
 - [ ] `deploy/bootstrap/*.sh` (§9.3) idempotent scripts; executed and logged
-- [ ] Cloudflare hostnames + WAF rules; verify via `curl -H "Host: …"` inside cluster first (cluster playbook)
+- [x] Node roles (ADR-0015): `10-storage-node-disk.sh` run on `optiplex-tower` and `20-node-roles.sh` applied; mounts, roles and a PVC smoke test on the SSD recorded in [platform-node-roles](docs/evidence/platform-node-roles.md)
+- [ ] Stateless workloads carry the preferred `node-role.kubernetes.io/worker` affinity; ClamAV the required one; placement asserted in evidence
+- [ ] Cloudflare hostnames for both domains + WAF rules; verify via `curl -H "Host: …"` inside cluster first (cluster playbook)
 
 #### Workstream: Backup & restore
-- [ ] Restore drill into `aegispulse-restore-test`; audit chain verify after restore (NFR-12)
+- [ ] Restore drill (from prod backups) into `aegispulse-restore-test`; audit chain verify after restore (NFR-12)
 
-**Phase 9 exit evidence:** `kubectl get pods -n aegispulse -o wide` (storage pods on optiplex), all `/readyz` 200 via ingress, MVP E2E suite passing against homelab URLs, `kubectl describe node` allocations within budget, restore drill log.
+**Phase 9 exit evidence:** `kubectl get pods -n aegispulse-dev -o wide` and `-n aegispulse -o wide` (storage pods on `optiplex-tower` with PVs on its data SSD; stateless pods on `optiplex`, spilling to `elitedesk-800` only under pressure), all `/readyz` 200 via both domains, MVP E2E suite passing against `rmwhs-dev.space` and smoke against `rmwhs.com`, cross-environment isolation test output, `kubectl describe node` allocations within budget, restore drill log.
 **Phase note:** status `PENDING`.
 
 ---
@@ -3367,14 +3429,14 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 ### Phase 17 — Gateway Completion & SSE
 
 #### FR-SSE-01 / FR-SSE-02 — Streaming
-- [ ] `gateway/src/sse/`: per-pod exclusive queue, tenant/role filter, projection mappers (no payloads), heartbeats, limits, idle timeout, graceful drain on shutdown
+- [ ] `gateway/nest-http/src/stream/` (`@Sse` controller returning an RxJS `Observable`): per-pod exclusive queue, tenant/role filter, projection mappers (no payloads), heartbeats, limits, idle timeout, graceful drain on shutdown
 - [ ] Ingress annotations verified for SSE through Cloudflare (buffering off)
 - [ ] Tests: two tenants streaming concurrently see only their events; 6th stream → 429
 
 #### Workstream: Gateway hardening (cross-cutting, traces to FR-AUTH-06 and NFR-08)
 - [ ] Complete public OpenAPI (every route in §8.3) with examples; Schemathesis fuzz run green
 - [ ] Security headers, CORS (console origin), per-pod rate limit, body limits per route, error mapping table tests for every §8.4 code
-- [ ] Typed service clients for every action used by handlers; handler lint rule: one service call per handler (except documented compositions: `GET /v1/transactions/{id}`)
+- [ ] Typed service clients for every action used by controllers; controller lint rule: one service-client call per controller method, no `*.service.ts` files in the gateway, no datastore imports (except documented compositions: `GET /v1/transactions/{id}`)
 - [ ] ZAP API scan clean (no High)
 
 **Phase 17 exit evidence:** Schemathesis + ZAP reports; SSE demo recording.
@@ -3394,9 +3456,9 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [ ] Signed health-probe webhook source with dedicated secret
 
 #### Workstream: Chaos & resilience (NFR-02, NFR-10)
-- [ ] `scripts/demo/chaos/`: duplicate webhook flood (1,000 identical deliveries), consumer pod restarts mid-batch, scanner latency injection (toxiproxy in compose; scanner `CHAOS_LATENCY_MS` flag in homelab), Mongo restart, orphan upload flood
+- [ ] `scripts/demo/chaos/`: duplicate webhook flood (1,000 identical deliveries), consumer pod restarts mid-batch, scanner latency injection (toxiproxy in compose; scanner `CHAOS_LATENCY_MS` flag in dev; chaos never runs in prod), Mongo restart, orphan upload flood
 - [ ] `tests/chaos/` assertions: zero lost events (archive count = accepted count), zero duplicate transitions/audit entries, DLQ only for injected poison
-- [ ] 24 h soak at 2 req/s mixed traffic: 0 OOMKilled, outbox lag < 60 s
+- [ ] 24 h soak at 2 req/s mixed traffic **in dev** (prod unaffected; record node allocation for both namespaces): 0 OOMKilled, outbox lag < 60 s
 
 **Phase 18 exit evidence:** chaos report with counts; alert firing screenshots; soak metrics.
 **Phase note:** status `PENDING`.
@@ -3435,9 +3497,9 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 #### FR-FE-08 — Accessibility & responsiveness
 - [ ] axe-core zero serious/critical; keyboard-only run-through; 360 px layouts; theme toggle
-- [ ] Console image (`nginx-unprivileged`, CSP headers) deployed to `aegispulse.rmwhs.com`
+- [ ] Console image (`nginx-unprivileged`, CSP headers) deployed to `aegispulse.rmwhs-dev.space` (dev) and promoted to `aegispulse.rmwhs.com` (prod)
 
-**Phase 19 exit evidence:** Playwright report (local + homelab), axe report, screenshots.
+**Phase 19 exit evidence:** Playwright report (local + dev; smoke on prod), axe report, screenshots.
 **Phase note:** status `PENDING`.
 
 ---
@@ -3445,7 +3507,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 ### Phase 20 — Portfolio Demo & Evidence Pack
 
 #### FR-DEMO-01 / FR-DEMO-02 — Demo tooling
-- [ ] `scripts/demo/scenario.ts` (FR-DEMO-01) targeting local or homelab with printed correlation ids + links
+- [ ] `scripts/demo/scenario.ts` (FR-DEMO-01) targeting local, dev, or prod with printed correlation ids + links
 - [ ] Chaos scripts finalized (Phase 18) and documented
 - [ ] Tests: scenario runs green in CI against compose (`demo:compose` job, nightly)
 
@@ -3467,7 +3529,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 These rules bind every contributor and every AI coding assistant. `CLAUDE.md`, `AGENTS.md`, `.claude/skills/*`, and `docs/steering/*` restate them; if any of those disagree with this section, this section wins.
 
-1. **Gateway/Service Separation.** External HTTP, SSE, and webhook traffic enters only through `gateway/fastify-http`. Gateway code parses transport input, validates shape, authenticates/derives auth context, invokes typed service clients, and maps output. Domain logic, repositories, DB/cache/object-store clients, transactions, and outbox publication belong in named `services/<bounded-context>/` runtimes.
+1. **Gateway/Service Separation.** External HTTP, SSE, and webhook traffic enters only through `gateway/nest-http`. Gateway code parses transport input, validates shape, authenticates/derives auth context, invokes typed service clients, and maps output. Domain logic, repositories, DB/cache/object-store clients, transactions, and outbox publication belong in named `services/<bounded-context>/` runtimes.
 2. **Service Layer Supremacy.** All business logic lives in `src/service/` + `src/domain/` (TS), `..service` + `..domain` packages (Java), `service/` + `domain/` modules (Python). Handlers and consumers do three things only: parse input, call one service action, return/ack the result.
 3. **Dispatch Layer = gateways/adapters only.** API gateways, HTTP route adapters, AMQP consumers, CronJob triggers, and webhook receivers are transport adapters and are never treated as service-layer components.
 4. **Orchestration belongs to service modules.** Multi-step workflows (sagas, use cases) live in `src/service/orchestrators/` of the owning service (cross-service sagas in `services/orchestrator`). Never in handlers, consumers, controllers, or CronJobs.
@@ -3479,12 +3541,12 @@ These rules bind every contributor and every AI coding assistant. `CLAUDE.md`, `
 9. **Idempotency.** Every write that accepts an idempotency key enforces uniqueness in the database; every consumer is safe under redelivery and replay (NFR-02).
 10. **Test coverage.** Every service-layer function has unit tests; every repository has integration tests against a real database container; every FR has at least one integration or E2E acceptance test named with its FR id (`it('FR-CASE-03 …')`).
 11. **Migration discipline.** Never edit an existing migration (enforced by hook + CI); add a new `V{n}__` file. Expand/contract only.
-12. **Environment parity.** Local and homelab run the same images, migrations, topology, and code paths; differences are configuration only.
+12. **Environment parity.** Local, dev, and prod run the same images, migrations, topology, and code paths; differences are configuration only (overlays, Infisical environment). Prod only ever receives digests verified in dev; chaos, load, active DAST, and data resets target dev only.
 13. **Contracts first.** Change `packages/contracts` (OpenAPI/AsyncAPI/JSON Schema) before implementation; regenerate types; never hand-edit `generated/`. Breaking changes need an ADR and a version bump.
 14. **Envelope & messaging rules.** Every message uses the canonical envelope; binaries never go on the broker; publish only via outbox (or deterministic-id + confirms for storeless services); never declare topology at runtime.
 15. **Spec change protocol.** If implementation needs something this document does not define, stop and propose an amendment: update `PROJECT.md` (and an ADR when it is an architectural decision) in the same MR, bump the document's "Last updated", and add a `CHANGELOG.md` entry under `Docs`.
 16. **Evidence honesty.** Never mark a checklist item or FR status beyond what evidence proves (§11.0). Say "not verified" when it is not.
-17. **Cluster rules (from K3S_CONTEXT).** Subdomain-only ingress with `nginx-external`; GitLab CI only; images by SHA/digest from `$CI_REGISTRY_IMAGE`; namespace `aegispulse`; requests/limits on every container; no privileged containers/DinD; storage pods pinned to `optiplex` before first deploy; plain HTTP behind Cloudflare (no cert-manager annotations).
+17. **Cluster rules (from K3S_CONTEXT).** Subdomain-only ingress with `nginx-external`; GitLab CI only; images by SHA/digest from `$CI_REGISTRY_IMAGE`; namespaces `aegispulse` (prod) and `aegispulse-dev` (dev), with subdomains under `rmwhs.com` (prod) and `rmwhs-dev.space` (dev); requests/limits on every container; no privileged containers/DinD; storage pods pinned to `optiplex` before first deploy; plain HTTP behind Cloudflare (no cert-manager annotations).
 18. **AI guardrails — Claude/Cursor/Copilot/Codex must NOT:**
     - create new architectural patterns, services, queues, exchanges, tables, or env vars that are not defined here (propose an amendment instead);
     - put business logic, DB/cache/storage clients, or transactions in gateway handlers, consumer adapters, or CronJob triggers;
@@ -3499,6 +3561,8 @@ These rules bind every contributor and every AI coding assistant. `CLAUDE.md`, `
 
 ---
 
+19. **Manual bootstrap steps.** Steps marked **🛑 MANUAL (MB-xx)** need credentials or access the repo and the AI agent never hold (cluster-admin, Infisical admin, Cloudflare, GitLab owner, node sudo). When work depends on an MB step that is not DONE in [docs/runbooks/manual-bootstrap.md](docs/runbooks/manual-bootstrap.md), stop; do not stub or work around it; give the operator the runbook's exact steps and what to report back (names, IDs, "done" — never secret values); verify read-only afterwards and record the status.
+
 ## 13. Infrastructure Cost Estimates
 
 > Figures are order-of-magnitude planning estimates (USD/month, November 2026), not quotes. Re-price before any real spend.
@@ -3507,10 +3571,10 @@ These rules bind every contributor and every AI coding assistant. `CLAUDE.md`, `
 
 | Item | Monthly cost | Notes |
 |---|---|---|
-| Compute (elitedesk-800 + optiplex, owned) | ~$8–12 | electricity only (~70–100 W combined average) |
+| Compute (elitedesk-800 + optiplex + optiplex-tower, owned) | ~$11–16 | electricity only (~100–140 W combined average, estimate) |
 | Kubernetes, GitLab CE, registry, Infisical, OpenObserve, RabbitMQ | $0 | self-hosted, open-source |
 | Cloudflare (DNS, tunnel, WAF free tier) | $0 | free plan limits: 100 MB request bodies |
-| Domain (`rmwhs.com`, shared) | ~$1 | amortized annual renewal |
+| Domains (`rmwhs.com` prod, `rmwhs-dev.space` dev, shared) | ~$1–3 | amortized annual renewals |
 | ntfy | $0 | self-hosted or free public server with access token |
 | LLM adjudicator (optional) | ≤ $5 | hard budget cap; default off |
 | Off-node backup disk | ~$0–2 | amortized |
@@ -3552,7 +3616,7 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 - **Contract tests:** generated clients vs. provider stubs (schema conformance of every request/response/event against `packages/contracts`); AsyncAPI payload validation of every published message in integration runs.
 
 ### 14.3 End-to-End Tests
-- **Scope:** HTTP + broker-level journeys against the running compose stack (CI `e2e-compose`) and homelab (`verify:smoke` subset): webhook → archive → classification → correlation; transaction → case → disposition → audit verify; upload → validation → extraction → case; replay; DLQ replay; cross-tenant denial matrix; SSE delivery.
+- **Scope:** HTTP + broker-level journeys against the running compose stack (CI `e2e-compose`), dev (`verify:dev:smoke`, full) and prod (`verify:prod:smoke`, read-mostly subset): webhook → archive → classification → correlation; transaction → case → disposition → audit verify; upload → validation → extraction → case; replay; DLQ replay; cross-tenant denial matrix; SSE delivery.
 - **Tools:** Vitest + undici in `tests/e2e/`, Playwright for console (Phase 19), k6 for load (`tests/load/`), Schemathesis + ZAP for API robustness/security.
 
 ### 14.4 Specialized Suites
@@ -3561,9 +3625,9 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 | Adversarial webhooks | `tests/security/webhooks.spec.ts` | every MR touching ingestion/gateway |
 | Cross-tenant matrix | `tests/security/cross-tenant.spec.ts` | every MR |
 | SSRF | `tests/security/ssrf.spec.ts` | ingestion/files changes |
-| NetworkPolicy | `tests/security/netpol.sh` | post-deploy (homelab) |
+| NetworkPolicy + cross-env isolation | `tests/security/netpol.sh` | post-deploy (dev; prod after promotion) |
 | Idempotency/replay | `tests/e2e/idempotency.spec.ts` | nightly + release |
-| Chaos | `tests/chaos/` | release candidates (homelab) |
+| Chaos | `tests/chaos/` | release candidates (**dev only**) |
 | Golden-dataset eval | `eval/runner` | Python model changes + nightly |
 | Load | `tests/load/*.js` | release candidates |
 
@@ -3580,7 +3644,8 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 | `test` | unit + integration (Testcontainers in runner pods), console component tests, `eval:models` (conditional) |
 | `contract` | schema/OpenAPI/AsyncAPI validation + breaking-change diff, SonarQube gate |
 | `scan` | Trivy, SBOM, layer-size check |
-| `verify` (main) | homelab smoke E2E, ZAP baseline + API scan, NetworkPolicy test |
+| `verify-dev` (main) | dev smoke E2E, ZAP baseline + active API scan, NetworkPolicy + isolation test |
+| `verify-prod` (after promotion) | prod smoke subset, passive ZAP baseline |
 | nightly schedule | full E2E on compose, idempotency/replay suite, demo scenario, drift job sanity |
 | release candidate | chaos suite, load test, restore drill, rollback drill |
 
@@ -3600,13 +3665,16 @@ What drives cost: at rest the managed datastores and broker dominate (~75%); und
 | A8 | Source status list includes `ARCHIVED` without definition | `ARCHIVED` = exported to cold tier | Disambiguation |
 | A9 | Source mentions "quarantine workflows" generally | File quarantine (AV/MIME) + restricted-event isolation | Concrete, testable scope |
 | A10 | Template mandates `gen_random_uuid()` PKs | Kept; event ids are producer-generated UUIDv7 | Template compliance + time-ordered event ids |
-| A11 | Source names "MinIO" | S3-API-only usage; concrete object-store image chosen in Phase 0 (ADR-0011) after verifying current MinIO community distribution/licensing | Avoid lock-in to an uncertain distribution |
+| A11 | Source names "MinIO" | **SeaweedFS 4.54** (ADR-0011 accepted after 10/10 S3 compatibility checks; the MinIO community image is no longer published) | Avoid lock-in to an uncertain distribution |
 | A12 | Source "SonarQube" vs. cluster capacity | SonarQube Community Build in-cluster if capacity allows; **open decision** for SonarCloud fallback | Elitedesk capacity is shared with GitLab |
 | A13 | Cluster guide prefers plain manifests | Kustomize base + overlays (still plain manifests) | Two environments, minimal templating |
 | A14 | Template §9.3 Terraform remote state bootstrap | Replaced by cluster bootstrap scripts (§9.3) | No Terraform-managed cluster resources |
 | A15 | Template email notifications | ntfy push templates (FR-NOTIF) | Source specifies ntfy; no email in scope |
+| A17 | Single homelab environment in v1.0 | `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) on the same cluster and tunnel (ADR-0014) | Owner-provided second domain on the same Cloudflare tunnel |
+| A18 | Two-node cluster with `optiplex` as storage node (v1.0 baseline) | `optiplex-tower` is the storage node (1 TB data SSD); `optiplex` is the app-compute worker; budgets by tier (ADR-0015) | Owner added a third node with a dedicated data disk |
+| A16 | v1.0 baseline gateway was plain Fastify (`gateway/fastify-http`) | NestJS on the Fastify adapter at `gateway/nest-http` (ADR-0013); internal service adapters stay plain Fastify | Owner decision; evaluated with no architectural risk |
 
-Open decisions (record outcome via ADR before the phase that needs it): SonarQube hosting (Phase 10), object-store implementation (Phase 0), kaniko vs. buildah (Phase 10), Uptime Kuma/ntfy hosting location (Phase 18).
+Open decisions (record outcome via ADR before the phase that needs it): SonarQube hosting (Phase 10), kaniko vs. buildah (Phase 10), Uptime Kuma/ntfy hosting location (Phase 18). Decided: object store → SeaweedFS (ADR-0011, Phase 0).
 
 ## Appendix B — Glossary
 

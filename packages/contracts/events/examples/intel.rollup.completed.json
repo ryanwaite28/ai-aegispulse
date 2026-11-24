@@ -1,0 +1,6 @@
+{
+  "metric": "rollup_entity_risk_daily",
+  "scope": "tenant",
+  "value": 128,
+  "window": "2026-11-21"
+}

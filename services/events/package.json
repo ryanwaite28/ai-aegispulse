@@ -1,0 +1,31 @@
+{
+  "name": "@aegispulse/events",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Events Service — archive, classification, replay, dead letters (§2.9–§2.11, §2.15). Phase 1e: skeleton (config, logs, traces, probes).",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "migrate:mongo": "migrate-mongo up -f src/db/migrate-mongo-config.cjs",
+    "migrate:mongo:status": "migrate-mongo status -f src/db/migrate-mongo-config.cjs",
+    "start": "node --import @aegispulse/ts-platform/telemetry/register dist/main.js",
+    "test": "vitest run --dir src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:integration": "vitest run --dir tests/integration --testTimeout=120000"
+  },
+  "dependencies": {
+    "@aegispulse/contracts": "workspace:*",
+    "@aegispulse/ts-platform": "workspace:*",
+    "@aws-sdk/client-s3": "3.1175.0",
+    "migrate-mongo": "14.0.7",
+    "mongodb": "7.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/amqplib": "0.10.8",
+    "@types/node": "26.6.6",
+    "amqplib": "2.4.0",
+    "typescript": "6.0.3",
+    "vitest": "5.1.1"
+  }
+}

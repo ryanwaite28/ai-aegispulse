@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Gitleaks on staged changes (PROJECT.md §9.2, ADR-0007). Bypass only with an explanation in the MR.
+set -euo pipefail
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks not installed (run make bootstrap)" >&2; exit 1
+fi
+gitleaks git --staged --redact --no-banner --config .gitleaks.toml

@@ -32,7 +32,7 @@ Source of truth: `PROJECT.md` §5.6, §5.7.2–§5.7.3, §7 (DDL, Mongo, Redis, 
 ## Backup & restore (NFR-12)
 - Nightly `pg_dump -Fc` (role `backup_reader`) and `mongodump --archive --gzip` go to the backups bucket (versioned), with a weekly off-node copy.
 - Restore drill per release candidate into `aegispulse-restore-test`: row counts, `verifyAuditChain`, Mongo document counts, and the index list. Record it in `docs/evidence/`.
-- Targets: RPO 24 h, RTO 2 h (homelab).
+- Targets: RPO 24 h, RTO 2 h (prod). Dev keeps weekly dumps (2 retained) and is resettable (`make env-reset ENV=dev`). Each environment has its own datastores, and nothing is shared across namespaces (ADR-0014).
 
 ## Homelab placement
 The data StatefulSets carry the `dedicated: storage` nodeSelector **and** the toleration **before their first deploy**. A `local-path` PVC binds to a node permanently, and moving it means backup → delete → restore.

@@ -18,7 +18,7 @@ Source of truth: `PROJECT.md` §3 NFR-01, NFR-07, NFR-10, NFR-11, NFR-15, §9.7,
 - Startup retries dependencies with backoff for up to 60 s. Startup probes give JVMs 120 s.
 - On SIGTERM: stop the HTTP listener → cancel consumers → drain in-flight (≤ 20 s) → flush the outbox batch and telemetry → close pools. `terminationGracePeriodSeconds: 30`.
 
-## SLO-style targets (homelab, idle)
+## SLO-style targets (prod; measured in dev first, idle)
 Webhook p95 ≤ 150 ms · transaction intake p95 ≤ 100 ms · webhook → `classification.finalized` p95 ≤ 15 s · txn → evaluation p95 ≤ 3 s · file complete → PROCESSED p95 ≤ 60 s (5 MiB) · outbox lag < 60 s.
 
 ## Alerts (as code in `deploy/observability/alerts/`)
@@ -26,11 +26,11 @@ DLQ spike, outbox lag, consumer error rate, webhook rejection rate, API p95, arc
 
 ## Capacity (NFR-03, NFR-15)
 - Requests and limits on every container (§5.4). Keep `ci/check-resource-budget.sh` green.
-- JVM `-XX:MaxRAMPercentage=70`. Node `--max-old-space-size` ≤ 75% of limit. Prefetch bounds memory.
+- JVM `-XX:MaxRAMPercentage=50` (non-heap ≈ 290 MiB; 70% crash-looped the 768Mi registry). Node `--max-old-space-size` ≤ 75% of limit. Prefetch bounds memory.
 - Watch for OOMKilled and CPU throttling. Raise limits only for the specific workload, and only with evidence.
 
 ## Chaos & soak (Phase 18)
-Duplicate webhook flood, consumer restarts mid-batch, scanner latency (toxiproxy or `CHAOS_LATENCY_MS`), Mongo restart, orphan upload flood, then a 24 h soak. Assert zero loss (archive count = accepted), zero duplicate transitions, 0 OOMKilled, and outbox lag < 60 s.
+**Dev only, never prod.** Duplicate webhook flood, consumer restarts mid-batch, scanner latency (toxiproxy or `CHAOS_LATENCY_MS`), Mongo restart, orphan upload flood, then a 24 h soak. Assert zero loss (archive count = accepted), zero duplicate transitions, 0 OOMKilled, and outbox lag < 60 s.
 
 ## Debugging playbook (cluster-specific)
 Pending → `kubectl describe pod` (Events, Node-Selectors, Tolerations). CrashLoop → `kubectl logs --previous`. "Fixed but not fixed" → exec in and read the rendered config. Proxy errors → find which hop generated them. Always set `KUBECONFIG=~/.kube/config` explicitly.

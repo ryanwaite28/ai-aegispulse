@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/case.evidence.attached.v1.schema.json",
+  "title": "case.evidence.attached payload (v1)",
+  "description": "Evidence attached to a case. Emitted by cases via the transactional outbox with the case state change. Producer: cases. Exchange: aegispulse.domain. FRs: FR-CASE-08. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/caseEvent"
+    }
+  ],
+  "required": ["evidenceType", "evidenceRef"],
+  "properties": {
+    "evidenceType": {
+      "type": "string",
+      "enum": ["EVENT", "FILE", "EXTRACTION", "RISK_EVALUATION", "WATCHLIST_HIT"]
+    },
+    "evidenceRef": {
+      "type": "string",
+      "minLength": 1,
+      "description": "eventId / fileId / evaluationId / watchlistId (pointer only)."
+    },
+    "evidenceFinalSeverity": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/severity"
+    }
+  },
+  "additionalProperties": true
+}

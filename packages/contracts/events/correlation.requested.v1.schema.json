@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/correlation.requested.v1.schema.json",
+  "title": "correlation.requested payload (v1)",
+  "description": "Case escalated to severity ≥ HIGH; asks the CaseCorrelationSaga to attach related evidence. Producer: cases. Exchange: aegispulse.domain. FRs: FR-CASE-04, FR-COR-01. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "required": ["caseId", "entityIds", "lookbackDays"],
+  "properties": {
+    "caseId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "entityIds": {
+      "type": "array",
+      "items": {
+        "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+      },
+      "maxItems": 50,
+      "description": "Fan-out bounded to ≤ 50 entities (FR-COR-03)."
+    },
+    "lookbackDays": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "FR-COR-01 uses 30."
+    }
+  },
+  "additionalProperties": true
+}

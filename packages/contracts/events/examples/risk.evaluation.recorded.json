@@ -1,0 +1,14 @@
+{
+  "evaluationId": "1c9e0f4a-7a33-4b44-9c6d-7e8f9a0b1c2d",
+  "transactionEventId": "019352b8-7110-7b22-8c33-1a2b3c4d5e6f",
+  "score": 82,
+  "band": "HIGH",
+  "factors": [
+    {
+      "name": "amount_factor",
+      "value": 75000,
+      "contribution": 40
+    }
+  ],
+  "modelVersion": "risk-heuristic-v1.0.0"
+}

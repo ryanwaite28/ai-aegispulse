@@ -9,7 +9,7 @@
 The source concept (`docs/AEGIS_PULSE.md` §2) calls for Node.js, Java, and Python, each where it fits best. If the boundaries are drawn badly, three languages triple the toolchain cost without any benefit.
 
 ## Decision
-- **Node.js/TypeScript:** I/O-bound edge and pipeline services, namely `gateway/fastify-http`, `ingestion`, `files`, `events`, `orchestrator`, and `workers/scheduler-trigger`.
+- **Node.js/TypeScript:** I/O-bound edge and pipeline services, namely `gateway/nest-http`, `ingestion`, `files`, `events`, `orchestrator`, and `workers/scheduler-trigger`.
 - **Java/Spring Boot:** strongly typed domain state with transactional consistency, namely `registry` (tenancy, identity, RBAC, entities, watchlists) and `cases` (evaluations, case state machine, policy, immutable audit).
 - **Python:** documents, NLP, ML, and analytics, namely `risk-scoring`, `sensitivity-scanner`, `doc-extraction`, and `data-intel`.
 - Each language has one shared technical kit (`packages/{ts,java,py}-platform`), and every runtime implements the same layering.

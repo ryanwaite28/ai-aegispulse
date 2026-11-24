@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/risk.evaluation.recorded.v1.schema.json",
+  "title": "risk.evaluation.recorded payload (v1)",
+  "description": "Risk evaluation persisted by cases (cases.risk_evaluations). Producer: cases. Exchange: aegispulse.domain. FRs: FR-TXN-04, FR-TXN-05. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "required": ["evaluationId", "transactionEventId", "score", "band", "factors", "modelVersion"],
+  "properties": {
+    "evaluationId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "transactionEventId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "transactionId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "band": {
+      "$ref": "_shared.v1.schema.json#/$defs/riskBand"
+    },
+    "factors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "value", "contribution"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {},
+          "contribution": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "modelVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "featureVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "caseId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid",
+      "description": "Present when a case was opened (score ≥ 70)."
+    },
+    "suppressedReason": {
+      "type": "string",
+      "description": "e.g. TENANT_SUSPENDED (FR-TXN-05)."
+    }
+  },
+  "additionalProperties": true
+}

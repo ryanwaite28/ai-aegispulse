@@ -1,0 +1,30 @@
+{
+  "name": "@aegispulse/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Single external entrypoint (ADR-0002, ADR-0013): NestJS on @nestjs/platform-fastify. Transport only. Phase 1e: skeleton.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node --import @aegispulse/ts-platform/telemetry/register dist/main.js",
+    "test": "vitest run --dir src",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aegispulse/contracts": "workspace:*",
+    "@aegispulse/ts-platform": "workspace:*",
+    "@nestjs/common": "12.6.0",
+    "@nestjs/core": "12.6.0",
+    "@nestjs/platform-fastify": "12.6.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "jose": "6.2.18",
+    "typescript": "6.0.3",
+    "vitest": "5.1.1"
+  }
+}

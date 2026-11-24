@@ -4,7 +4,7 @@
 |---|---|
 | Commit SHA | `<sha>` |
 | Date (UTC) | YYYY-MM-DD HH:MM |
-| Environment(s) | local · homelab |
+| Environment(s) | local · dev · prod |
 | Pipeline | <GitLab pipeline URL> |
 | Verified by | <name / agent + human reviewer> |
 | Resulting status | INTEGRATION-VERIFIED / RUNTIME-VERIFIED |

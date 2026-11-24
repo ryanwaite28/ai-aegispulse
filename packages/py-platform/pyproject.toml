@@ -1,0 +1,34 @@
+# aegis-platform (PROJECT.md §6.1, Phase 1d): shared Python kit for risk-scoring, sensitivity-scanner, doc-extraction
+# and data-intel. No business logic.
+[project]
+name = "aegis-platform"
+version = "0.1.0"
+description = "AegisPulse Python platform kit: settings, logging, telemetry, auth, AMQP consumer kit, outbox, health."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "aegis-contracts",
+  "pydantic==2.14.4",
+  "pydantic-settings==2.16.3",
+  "fastapi==0.165.0",
+  "structlog==26.1.0",
+  "aio-pika==10.2.3",
+  "pyjwt[crypto]==2.15.1",
+  "httpx==0.28.1",
+  "psycopg[binary]==3.3.9",
+  "psycopg-pool==3.3.3",
+  "jsonschema[format]==4.26.0",
+  "opentelemetry-api==1.45.2",
+  "opentelemetry-sdk==1.45.2",
+  "opentelemetry-exporter-otlp-proto-http==1.45.2",
+  "opentelemetry-instrumentation-fastapi==0.66b2",
+]
+
+[tool.uv.sources]
+aegis-contracts = { workspace = true }
+
+[build-system]
+requires = ["hatchling==1.33.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aegis_platform"]

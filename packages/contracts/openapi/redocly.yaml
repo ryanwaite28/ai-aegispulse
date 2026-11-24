@@ -1,0 +1,46 @@
+# Redocly lint configuration for AegisPulse OpenAPI contracts (PROJECT.md §6.2, §8).
+# One entry per contract; components/common.yaml is the shared component library
+# that every other contract $refs. Baseline is the `recommended` ruleset.
+apis:
+  # common.yaml carries only reusable components, so it intentionally has no
+  # servers and nothing in it is "used" within its own document.
+  common:
+    root: components/common.yaml
+    rules:
+      no-empty-servers: off
+      no-unused-components: off
+  gateway-public:
+    root: gateway.public.yaml
+    rules:
+      # PROJECT.md §8.1 mandates a localhost base URL for the local environment.
+      no-server-example.com: off
+      # PROJECT.md §8.3 fixes `/v1/events/correlation/{correlationId}`,
+      # `/v1/events/replay/{jobId}` and `/v1/events/{eventId}/classification`;
+      # OpenAPI path matching resolves the literal segment first, so the overlap is intentional.
+      no-ambiguous-paths: off
+      # /livez and /readyz (PROJECT.md §8.3) are unauthenticated probes with no client-error responses.
+      operation-4xx-response: off
+  registry-internal:
+    root: registry.internal.yaml
+  ingestion-internal:
+    root: ingestion.internal.yaml
+  files-internal:
+    root: files.internal.yaml
+  events-internal:
+    root: events.internal.yaml
+  cases-internal:
+    root: cases.internal.yaml
+  risk-scoring-internal:
+    root: risk-scoring.internal.yaml
+  sensitivity-scanner-internal:
+    root: sensitivity-scanner.internal.yaml
+  data-intel-internal:
+    root: data-intel.internal.yaml
+
+extends:
+  - recommended
+
+rules:
+  # PROJECT.md does not define a licence for the contracts; inventing one would be
+  # fabricating policy. Revisit if a licence is chosen.
+  info-license: off

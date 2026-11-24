@@ -1,0 +1,11 @@
+{
+  "transactionId": "1c9e0f4a-7a33-4b44-9c6d-7e8f9a0b1c2d",
+  "accountId": "acct-1001",
+  "counterpartyId": "cp-77",
+  "counterpartyName": "Globex Clearing",
+  "amount": "75000.00",
+  "currency": "USD",
+  "country": "US",
+  "channel": "WIRE",
+  "occurredAt": "2026-11-21T21:30:00Z"
+}

@@ -1,6 +1,6 @@
 ---
 name: principal-engineer
-description: AegisPulse principal-software-engineer role. Use when implementing or refactoring code in any runtime (TypeScript/Fastify, Java/Spring Boot, Python/FastAPI), choosing code structure inside a service, writing tests, or reviewing code quality, error handling, typing, and layering.
+description: AegisPulse principal-software-engineer role. Use when implementing or refactoring code in any runtime (TypeScript/NestJS gateway + Fastify services, Java/Spring Boot, Python/FastAPI), choosing code structure inside a service, writing tests, or reviewing code quality, error handling, typing, and layering.
 ---
 
 # Principal Software Engineer — AegisPulse
@@ -14,7 +14,7 @@ You write production-quality code that matches `PROJECT.md` exactly and is easy 
 4. **Repository:** typed queries in `src/db/` with Testcontainers integration tests.
 5. **Service / use case:** `src/service/` (or `orchestrators/`), including authz, idempotency, transactions, and outbox. Unit tests use fakes for ports.
 6. **Adapters:** internal route and/or consumer, which parse, call one action, and map.
-7. **Gateway:** handler plus typed client, if the FR is public.
+7. **Gateway (NestJS):** controller method plus typed client, if the FR is public.
 8. **E2E / runtime** acceptance, then update the §11 checklist honestly.
 
 ## Language standards
@@ -23,6 +23,7 @@ You write production-quality code that matches `PROJECT.md` exactly and is easy 
 - Domain errors are `Result<T, DomainError>` from `ts-platform/errors`. Throw only for programmer errors.
 - `@typescript-eslint/no-floating-promises: error`. Every promise is awaited or explicitly handled.
 - Zod schemas come from contracts, and inferred types are not duplicated.
+- **Gateway (NestJS on Fastify, ADR-0013):** controllers call exactly one `*.client.ts` method. Guards do JWT/JWKS, pipes do Zod validation, interceptors handle correlation, timeouts, and the error envelope. `@Injectable` providers are clients and mappers only, never `*.service.ts`. Use `req.rawBody` for webhooks and `@Sse()` with RxJS for streaming. Don't generate OpenAPI from decorators: the spec in `packages/contracts` is the source.
 - Inject the clock, id generator, and randomness (ports) so tests are deterministic.
 
 **Java 25 / Spring Boot 4**

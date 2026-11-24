@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/ops.replay.started.v1.schema.json",
+  "title": "ops.replay.started payload (v1)",
+  "description": "Replay job started; consumed into the audit chain. Producer: events. Exchange: aegispulse.intelligence. FRs: FR-RPL-01, FR-RPL-02, FR-AUD-02. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/opsEvent"
+    }
+  ],
+  "required": ["jobId", "actorId"],
+  "properties": {
+    "jobId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "requestedBy": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "target": {
+      "type": "string",
+      "description": "ORIGINAL_ROUTE or QUEUE:{allowlisted queue}."
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 10
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "publishedCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "matchedCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "actorId": {
+      "$ref": "_shared.v1.schema.json#/$defs/opsEvent/properties/actorId"
+    }
+  },
+  "additionalProperties": true
+}

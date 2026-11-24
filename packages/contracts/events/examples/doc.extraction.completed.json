@@ -1,0 +1,8 @@
+{
+  "fileId": "1c9e0f4a-7a33-4b44-9c6d-7e8f9a0b1c2d",
+  "extractorVersion": "extractor-v1.0.0",
+  "eventTypeGuess": "REGULATION_PUBLISHED",
+  "mentionedEntities": ["ACME Holdings"],
+  "redFlags": [],
+  "confidence": 0.91
+}

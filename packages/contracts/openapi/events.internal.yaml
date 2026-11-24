@@ -1,0 +1,1454 @@
+openapi: 3.1.0
+info:
+  title: AegisPulse Events internal API
+  version: 1.0.0
+  description: |-
+    Internal RPC contract for services/events (Node 24 / Fastify): event archive queries, classification override, replay jobs, dead-letter registry and sweeps. Operations are POST /internal/v1/{action}; operationId equals the ServiceAction name (PROJECT.md §6.2).
+
+    All operations are `POST /internal/v1/{actionName}` (uniform RPC style) and return the success envelope `{ data, meta }` (PROJECT.md §8.2). Caller allowlists follow PROJECT.md §5.7.4; the service re-verifies the JWT, role and tenant ownership itself (FR-AUTH-06).
+servers:
+  - url: http://{host}:8083
+    description: In-cluster Service (PROJECT.md §5.4 port).
+    variables:
+      host:
+        default: aegispulse-events
+tags:
+  - name: events
+    description: AegisPulse Events internal API
+security:
+  - bearerJwt: []
+x-aegis-consumer-actions:
+  - archiveEvent
+  - runAiScan
+  - recordDeadLetter
+paths:
+  /internal/v1/searchEvents:
+    post:
+      operationId: searchEvents
+      summary: Search the event archive
+      description: |-
+        Restricted events are returned only for COMPLIANCE_AUDITOR with tier = restricted.
+
+        Internal action `events.searchEvents`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `searchEvents`.
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchEventsQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EventSummary"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-EVT-04
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getEvent:
+    post:
+      operationId: getEvent
+      summary: Get an archived event with lineage
+      description: "Internal action `events.getEvent`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getEvent`."
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetEventInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ArchivedEvent"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-EVT-05
+      x-aegis-error-codes:
+        - EVENT_NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getCorrelationChain:
+    post:
+      operationId: getCorrelationChain
+      summary: Get the causal chain for a correlation id
+      description: |-
+        Ordered by causationId.
+
+        Internal action `events.getCorrelationChain`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getCorrelationChain`.
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetCorrelationChainInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EventSummary"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-EVT-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/searchEventsForEntities:
+    post:
+      operationId: searchEventsForEntities
+      summary: Search events mentioning entities
+      description: |-
+        Used by correlation sagas (timeout 3 s).
+
+        Internal action `events.searchEventsForEntities`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `searchEventsForEntities`.
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchEventsForEntitiesInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EventSummary"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - orchestrator
+      x-aegis-fr:
+        - FR-EVT-06
+        - FR-COR-01
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/overrideClassification:
+    post:
+      operationId: overrideClassification
+      summary: Override event classification
+      description: "Internal action `events.overrideClassification`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `overrideClassification`."
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OverrideClassificationInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ArchivedEvent"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CLS-07
+      x-aegis-error-codes:
+        - EVENT_NOT_FOUND
+        - CLASSIFICATION_JUSTIFICATION_REQUIRED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/createReplayJob:
+    post:
+      operationId: createReplayJob
+      summary: Create a replay job
+      description: |-
+        TENANT_ADMIN for the own tenant; PLATFORM_ADMIN for any. Creates replay_jobs (PENDING).
+
+        Internal action `events.createReplayJob`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `createReplayJob`.
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReplayJobInput"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReplayJobAccepted"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-RPL-01
+      x-aegis-error-codes:
+        - REPLAY_FILTER_INVALID
+        - REPLAY_TARGET_NOT_ALLOWED
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getReplayJob:
+    post:
+      operationId: getReplayJob
+      summary: Get a replay job
+      description: "Internal action `events.getReplayJob`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getReplayJob`."
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetReplayJobInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReplayJob"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-RPL-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/cancelReplayJob:
+    post:
+      operationId: cancelReplayJob
+      summary: Cancel a replay job
+      description: "Internal action `events.cancelReplayJob`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `cancelReplayJob`."
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelReplayJobInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReplayJob"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-RPL-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - REPLAY_JOB_NOT_CANCELLABLE
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listDeadLetters:
+    post:
+      operationId: listDeadLetters
+      summary: List dead letters
+      description: |-
+        PLATFORM_ADMIN sees all tenants; TENANT_ADMIN sees the own tenant.
+
+        Internal action `events.listDeadLetters`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listDeadLetters`.
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListDeadLettersQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DeadLetterSummary"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-MSG-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getDeadLetter:
+    post:
+      operationId: getDeadLetter
+      summary: Get a dead letter
+      description: "Internal action `events.getDeadLetter`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getDeadLetter`."
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetDeadLetterInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeadLetter"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-MSG-03
+      x-aegis-error-codes:
+        - DEAD_LETTER_NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/replayDeadLetter:
+    post:
+      operationId: replayDeadLetter
+      summary: Replay a dead letter to its original queue
+      description: |-
+        Audited.
+
+        Internal action `events.replayDeadLetter`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `replayDeadLetter`.
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplayDeadLetterInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeadLetter"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-MSG-03
+      x-aegis-error-codes:
+        - DEAD_LETTER_NOT_FOUND
+        - DEAD_LETTER_ALREADY_RESOLVED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/discardDeadLetter:
+    post:
+      operationId: discardDeadLetter
+      summary: Discard a dead letter
+      description: |-
+        Marks DISCARDED with reason. Audited.
+
+        Internal action `events.discardDeadLetter`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `discardDeadLetter`.
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiscardDeadLetterInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DeadLetter"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-MSG-03
+      x-aegis-error-codes:
+        - DEAD_LETTER_NOT_FOUND
+        - DEAD_LETTER_ALREADY_RESOLVED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/sweepPendingScans:
+    post:
+      operationId: sweepPendingScans
+      summary: Re-request pending Stage-2 scans
+      description: |-
+        Every 15 min: re-requests scans for pendingAiScan events <= 24 h old.
+
+        Internal action `events.sweepPendingScans`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `sweepPendingScans`.
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SweepPendingScansInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-CLS-06
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/purgeRetention:
+    post:
+      operationId: purgeRetention
+      summary: Run event retention maintenance
+      description: |-
+        Cold-tier export before expiry (Phase 15); sets status ARCHIVED.
+
+        Internal action `events.purgeRetention`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `purgeRetention`.
+      tags:
+        - events
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurgeRetentionInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-EVT-07
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+components:
+  securitySchemes:
+    bearerJwt:
+      $ref: ./components/common.yaml#/components/securitySchemes/bearerJwt
+  schemas:
+    ClassificationStatus:
+      type: string
+      enum:
+        - INGESTED
+        - RULE_SCANNED
+        - AI_SCANNED
+        - CLASSIFIED
+        - OVERRIDDEN
+        - ARCHIVED
+        - REPLAYED
+    EventClassification:
+      type: object
+      properties:
+        sensitivity:
+          $ref: ./components/common.yaml#/components/schemas/Sensitivity
+        categories:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/SensitivityCategory
+          uniqueItems: true
+        publisher_stated_severity:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Severity
+            - type: "null"
+        source_trust_level:
+          type: string
+          enum:
+            - TRUSTED
+            - UNTRUSTED
+          description: Source trust stamped by the producer at ingest; publisher_stated_severity counts toward final_severity only when TRUSTED (§1.4.3).
+        algorithm_severity:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+        algorithm_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        final_severity:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+        classification_source:
+          type: string
+          enum:
+            - PRODUCER
+            - RULES
+            - AI_SCANNER
+            - ANALYST
+        rule_version:
+          type: string
+        classifier_version:
+          type: string
+        status:
+          $ref: "#/components/schemas/ClassificationStatus"
+        revision:
+          type: integer
+          minimum: 0
+          description: classificationRevision used for optimistic concurrency (FR-CLS-05).
+      required:
+        - sensitivity
+        - status
+      description: Severity lineage publisher_stated_severity -> algorithm_severity -> final_severity. Field names are snake_case as in the canonical envelope (PROJECT.md §6.4).
+    EventSummary:
+      type: object
+      properties:
+        eventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        correlationId:
+          type: string
+        causationId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        eventType:
+          type: string
+        source:
+          type: string
+        occurredAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        ingestedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        archivedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        classification:
+          $ref: "#/components/schemas/EventClassification"
+        status:
+          $ref: "#/components/schemas/ClassificationStatus"
+        mentionedEntityIds:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        tier:
+          type: string
+          enum:
+            - standard
+            - restricted
+      required:
+        - eventId
+        - correlationId
+        - eventType
+        - source
+        - occurredAt
+        - archivedAt
+        - classification
+        - status
+    ArchivedEvent:
+      allOf:
+        - $ref: "#/components/schemas/EventSummary"
+        - type: object
+          properties:
+            tenantId:
+              $ref: ./components/common.yaml#/components/schemas/Uuid
+            causationId:
+              oneOf:
+                - $ref: ./components/common.yaml#/components/schemas/Uuid
+                - type: "null"
+            schemaVersion:
+              type: string
+            exchange:
+              type: string
+            routingKey:
+              type: string
+            idempotencyKey:
+              type: string
+            payload:
+              type: object
+              additionalProperties: true
+              description: Redacted payload; secrets/PII masked per Stage 1 rules.
+            redactions:
+              type: array
+              items:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  rule:
+                    type: string
+                  kind:
+                    type: string
+                required:
+                  - path
+                  - rule
+                  - kind
+            payloadSha256:
+              type: string
+              pattern: ^[0-9a-f]{64}$
+              description: SHA-256 of the pre-redaction payload.
+            statusHistory:
+              type: array
+              items:
+                type: object
+                properties:
+                  status:
+                    $ref: "#/components/schemas/ClassificationStatus"
+                  at:
+                    $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+                  by:
+                    type: string
+                required:
+                  - status
+                  - at
+                  - by
+            classificationHistory:
+              type: array
+              items:
+                type: object
+                properties:
+                  stage:
+                    type: string
+                  source:
+                    type: string
+                  sensitivity:
+                    $ref: ./components/common.yaml#/components/schemas/Sensitivity
+                  severity:
+                    $ref: ./components/common.yaml#/components/schemas/Severity
+                  confidence:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+                  version:
+                    type: string
+                  at:
+                    $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+                  actor:
+                    type: string
+                  justification:
+                    type: string
+                required:
+                  - stage
+                  - source
+                  - at
+            replay:
+              type: object
+              properties:
+                count:
+                  type: integer
+                  minimum: 0
+                lastReplayedAt:
+                  oneOf:
+                    - $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+                    - type: "null"
+                lastJobId:
+                  oneOf:
+                    - $ref: ./components/common.yaml#/components/schemas/Uuid
+                    - type: "null"
+            pendingAiScan:
+              type: boolean
+            expireAt:
+              $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+          required:
+            - tenantId
+            - payload
+            - payloadSha256
+            - statusHistory
+            - classificationHistory
+      description: Full archived record including lineage histories (FR-EVT-03, FR-EVT-05).
+    SearchEventsQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+        correlationId:
+          type: string
+        eventType:
+          type: string
+          description: Prefix match.
+        finalSeverity:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+          description: Matches final_severity >= this value.
+        status:
+          $ref: "#/components/schemas/ClassificationStatus"
+        source:
+          type: string
+        entity:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+          description: Mentioned entity id.
+        from:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+          description: occurredAt >= from.
+        to:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+          description: occurredAt <= to.
+        tier:
+          type: string
+          enum:
+            - standard
+            - restricted
+          default: standard
+          description: restricted is COMPLIANCE_AUDITOR only; VIEWER/ANALYST never see restricted events (FR-EVT-04).
+      description: Sorted occurredAt desc.
+    GetEventInput:
+      type: object
+      additionalProperties: false
+      properties:
+        eventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tier:
+          type: string
+          enum:
+            - standard
+            - restricted
+      required:
+        - eventId
+    GetCorrelationChainInput:
+      type: object
+      additionalProperties: false
+      properties:
+        correlationId:
+          type: string
+          minLength: 1
+      required:
+        - correlationId
+    SearchEventsForEntitiesInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        entityIds:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+          minItems: 1
+          maxItems: 50
+        eventTypes:
+          type: array
+          items:
+            type: string
+            description: Exact type or wildcard pattern, e.g. external.*
+          minItems: 1
+        since:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+        - tenantId
+        - entityIds
+        - eventTypes
+        - since
+        - limit
+    OverrideClassificationInput:
+      type: object
+      additionalProperties: false
+      properties:
+        eventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        finalSeverity:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+        sensitivity:
+          $ref: ./components/common.yaml#/components/schemas/Sensitivity
+        justification:
+          type: string
+          minLength: 20
+          description: Mandatory, >= 20 chars; audited.
+      required:
+        - eventId
+        - justification
+      anyOf:
+        - required:
+            - finalSeverity
+        - required:
+            - sensitivity
+      description: Only an analyst override may lower severity (elevate-only rule, PROJECT.md §1.4.3). Sets status OVERRIDDEN; emits classification.overridden.
+    ReplayFilter:
+      type: object
+      additionalProperties: false
+      properties:
+        correlationId:
+          type: string
+        eventType:
+          type: string
+        from:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        to:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      description: "Exactly one mode: correlationId; eventType + from/to; or from/to (window <= 31 days). Violations return 422 REPLAY_FILTER_INVALID."
+    CreateReplayJobInput:
+      type: object
+      additionalProperties: false
+      properties:
+        filter:
+          $ref: "#/components/schemas/ReplayFilter"
+        target:
+          type: string
+          pattern: ^(ORIGINAL_ROUTE|QUEUE:[A-Za-z0-9._-]+)$
+          description: ORIGINAL_ROUTE or QUEUE:{allowlisted queue}; otherwise 422 REPLAY_TARGET_NOT_ALLOWED.
+        reason:
+          type: string
+          minLength: 10
+        dryRun:
+          type: boolean
+          default: false
+        maxEvents:
+          type: integer
+          minimum: 1
+          maximum: 10000
+      required:
+        - filter
+        - target
+        - reason
+        - maxEvents
+    ReplayJobStatus:
+      type: string
+      enum:
+        - PENDING
+        - RUNNING
+        - COMPLETED
+        - CANCELLED
+        - FAILED
+    ReplayJobAccepted:
+      type: object
+      properties:
+        jobId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        matchedCount:
+          type: integer
+          minimum: 0
+          description: Present for dryRun.
+      required:
+        - jobId
+    ReplayJob:
+      type: object
+      properties:
+        jobId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        requestedBy:
+          type: string
+        filter:
+          $ref: "#/components/schemas/ReplayFilter"
+        target:
+          type: string
+        reason:
+          type: string
+        dryRun:
+          type: boolean
+        maxEvents:
+          type: integer
+        status:
+          $ref: "#/components/schemas/ReplayJobStatus"
+        matchedCount:
+          type: integer
+          minimum: 0
+        publishedCount:
+          type: integer
+          minimum: 0
+        lastCheckpoint:
+          oneOf:
+            - type: object
+              properties:
+                occurredAt:
+                  $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+                eventId:
+                  $ref: ./components/common.yaml#/components/schemas/Uuid
+              required:
+                - occurredAt
+                - eventId
+            - type: "null"
+        generation:
+          type: integer
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        startedAt:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+            - type: "null"
+        finishedAt:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+            - type: "null"
+        error:
+          oneOf:
+            - type: string
+            - type: "null"
+      required:
+        - jobId
+        - requestedBy
+        - filter
+        - target
+        - reason
+        - dryRun
+        - maxEvents
+        - status
+        - matchedCount
+        - publishedCount
+        - createdAt
+    GetReplayJobInput:
+      type: object
+      additionalProperties: false
+      properties:
+        jobId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - jobId
+    CancelReplayJobInput:
+      type: object
+      additionalProperties: false
+      properties:
+        jobId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - jobId
+      description: Stops at the next checkpoint.
+    DeadLetterStatus:
+      type: string
+      enum:
+        - OPEN
+        - REPLAYED
+        - DISCARDED
+    DeadLetterSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        tenantId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        eventId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        queue:
+          type: string
+        routingKey:
+          type: string
+        errorCode:
+          type: string
+        errorMessage:
+          type: string
+        retryCount:
+          type: integer
+          minimum: 0
+        firstFailedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        lastFailedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        status:
+          $ref: "#/components/schemas/DeadLetterStatus"
+        resolvedBy:
+          oneOf:
+            - type: string
+            - type: "null"
+        resolvedAt:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+            - type: "null"
+        reason:
+          oneOf:
+            - type: string
+            - type: "null"
+      required:
+        - id
+        - queue
+        - errorCode
+        - errorMessage
+        - retryCount
+        - firstFailedAt
+        - lastFailedAt
+        - status
+    DeadLetter:
+      allOf:
+        - $ref: "#/components/schemas/DeadLetterSummary"
+        - type: object
+          properties:
+            envelope:
+              type: object
+              additionalProperties: true
+              description: Original canonical envelope.
+            headers:
+              type: object
+              additionalProperties: true
+              description: Original AMQP headers.
+            stackHash:
+              type: string
+          required:
+            - envelope
+            - headers
+    ListDeadLettersQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+        queue:
+          type: string
+        errorCode:
+          type: string
+        from:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        to:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+    GetDeadLetterInput:
+      type: object
+      additionalProperties: false
+      properties:
+        deadLetterId:
+          type: string
+          minLength: 1
+      required:
+        - deadLetterId
+    ReplayDeadLetterInput:
+      type: object
+      additionalProperties: false
+      properties:
+        deadLetterId:
+          type: string
+          minLength: 1
+      required:
+        - deadLetterId
+      description: Republishes to the original queue with x-retry-count = 0 and marks REPLAYED.
+    DiscardDeadLetterInput:
+      type: object
+      additionalProperties: false
+      properties:
+        deadLetterId:
+          type: string
+          minLength: 1
+        reason:
+          type: string
+          minLength: 1
+      required:
+        - deadLetterId
+        - reason
+    SweepPendingScansInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty payload (Record<string, never>).
+    PurgeRetentionInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty payload (Record<string, never>).

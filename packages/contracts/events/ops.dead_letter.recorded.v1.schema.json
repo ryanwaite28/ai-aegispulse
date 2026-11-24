@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/ops.dead_letter.recorded.v1.schema.json",
+  "title": "ops.dead_letter.recorded payload (v1)",
+  "description": "Dead letter stored in Mongo dead_letters. Operational ids only: the dead-lettered envelope is not copied. Producer: events. Exchange: aegispulse.intelligence. FRs: FR-MSG-02. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/opsEvent"
+    }
+  ],
+  "required": ["queue", "errorCode"],
+  "properties": {
+    "deadLetterId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "queue": {
+      "type": "string",
+      "minLength": 1
+    },
+    "originalEventId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "routingKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "errorCode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "retryCount": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": true
+}

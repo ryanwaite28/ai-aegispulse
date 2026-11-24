@@ -14,7 +14,7 @@ The source requires Gitleaks, SonarQube, Trivy, and OWASP ZAP. The cluster stand
 - Trivy covers images and config. Syft generates CycloneDX SBOMs.
 - **cosign uses a key pair.** The private key lives in a protected GitLab variable and the public key is committed. `ci/deploy.sh` verifies every digest before applying.
 - Images are tagged with the short SHA and deployed by digest. Every layer must be under 95 MB.
-- ZAP runs a baseline scan of the console and an API scan of `/v1/openapi.json` after the homelab deploy, and fails on High findings.
+- ZAP runs a baseline scan of the console and an active API scan of `/v1/openapi.json` after the **dev** deploy and fails on High findings. Prod gets only a passive baseline after promotion (ADR-0014).
 
 ## Consequences
 - DAST runs after deploy, not before, because there is a single environment. A manual rollback job is provided.

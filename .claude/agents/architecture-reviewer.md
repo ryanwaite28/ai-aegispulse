@@ -1,6 +1,7 @@
 ---
 name: architecture-reviewer
 description: Reviews an AegisPulse diff or set of files for architectural conformance with PROJECT.md — layering (Service Layer Supremacy), gateway/service separation, data ownership, outbox/envelope/messaging rules, contracts-first, migration discipline, and undeclared patterns. Use before opening an MR or after implementing an FR.
+model: sonnet
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -10,7 +11,7 @@ Inputs: a diff (`git diff main...HEAD` or the files named by the caller). Author
 
 Check every changed file:
 1. **Placement:** does the file live where `docs/steering/structure.md` says it should?
-2. **Layering:** look for business conditionals, DB/cache/storage clients, or transactions in `gateway/`, `workers/`, `src/adapters/**`, Java `..adapters..`, or Python `adapters/`. Look for HTTP/AMQP framework imports in `service/` or `domain/`. Use grep for `from 'pg'`, `mongodb`, `ioredis`, `@aws-sdk`, `fastify`, `amqplib`, `rxjs-rabbitmq`, `org.springframework.web`, `org.springframework.amqp`, `fastapi`, `aio_pika`, in the wrong layers.
+2. **Layering:** in `gateway/nest-http`, check for `*.service.ts` files, business logic in providers or guards, or decorator-generated OpenAPI replacing the contracts spec (ADR-0013). Look for business conditionals, DB/cache/storage clients, or transactions in `gateway/`, `workers/`, `src/adapters/**`, Java `..adapters..`, or Python `adapters/`. Look for HTTP/AMQP framework imports in `service/` or `domain/`. Use grep for `from 'pg'`, `mongodb`, `ioredis`, `@aws-sdk`, `fastify`, `amqplib`, `rxjs-rabbitmq`, `org.springframework.web`, `org.springframework.amqp`, `fastapi`, `aio_pika`, in the wrong layers.
 3. **Ownership:** does any service touch another's schema, collection, keyspace, or bucket prefix (§5.7)?
 4. **Messaging:** canonical envelope used, outbox (not direct publish) after state changes, no binaries or oversized payloads, topology declared only in contracts, consumers idempotent and replay-aware, failure classification present.
 5. **Contracts:** wire-shape changes have a matching `packages/contracts` change, and `generated/` isn't hand-edited.

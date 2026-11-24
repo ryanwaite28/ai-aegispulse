@@ -1,0 +1,880 @@
+openapi: 3.1.0
+info:
+  title: AegisPulse Data Intelligence internal API
+  version: 1.0.0
+  description: |-
+    Internal RPC contract for services/data-intel (Python 3.13 / FastAPI): rollups, drift, exports, evaluation runs and read APIs. Operations are POST /internal/v1/{action}; operationId equals the ServiceAction name (PROJECT.md §6.2).
+
+    All operations are `POST /internal/v1/{actionName}` (uniform RPC style) and return the success envelope `{ data, meta }` (PROJECT.md §8.2). Caller allowlists follow PROJECT.md §5.7.4; the service re-verifies the JWT, role and tenant ownership itself (FR-AUTH-06).
+servers:
+  - url: http://{host}:8089
+    description: In-cluster Service (PROJECT.md §5.4 port).
+    variables:
+      host:
+        default: aegispulse-data-intel
+tags:
+  - name: data-intel
+    description: AegisPulse Data Intelligence internal API
+security:
+  - bearerJwt: []
+x-aegis-consumer-actions:
+  - recordFact
+paths:
+  /internal/v1/runRollups:
+    post:
+      operationId: runRollups
+      summary: Run analytics rollups
+      description: |-
+        Rebuilds rollup_entity_risk_daily, rollup_source_reliability_daily and rollup_exposure_daily; emits intel.rollup.completed.
+
+        Internal action `dataIntel.runRollups`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `runRollups`.
+      tags:
+        - data-intel
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunRollupsInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-INTEL-02
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/runDriftChecks:
+    post:
+      operationId: runDriftChecks
+      summary: Run drift checks
+      description: |-
+        Persists drift_metrics and emits intel.drift.detected + notification.requested (N-07) on breach.
+
+        Internal action `dataIntel.runDriftChecks`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `runDriftChecks`.
+      tags:
+        - data-intel
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunDriftChecksInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-INTEL-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/exportParquet:
+    post:
+      operationId: exportParquet
+      summary: Export fact tables to Parquet
+      description: |-
+        Writes analytics/{table}/dt={date}/ objects.
+
+        Internal action `dataIntel.exportParquet`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `exportParquet`.
+      tags:
+        - data-intel
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportParquetInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-INTEL-06
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/recordEvalRun:
+    post:
+      operationId: recordEvalRun
+      summary: Record an evaluation run
+      description: |-
+        Idempotent by runKey: 201 when created, 200 when the run already exists.
+
+        Internal action `dataIntel.recordEvalRun`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `recordEvalRun`.
+      tags:
+        - data-intel
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvalRunInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/EvalRun"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/EvalRun"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers: []
+      x-aegis-fr:
+        - FR-EVAL-02
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getIntelSummary:
+    post:
+      operationId: getIntelSummary
+      summary: Get intelligence KPIs
+      description: "Internal action `dataIntel.getIntelSummary`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getIntelSummary`."
+      tags:
+        - data-intel
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntelQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/IntelSummary"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getDrift:
+    post:
+      operationId: getDrift
+      summary: Get drift metrics
+      description: "Internal action `dataIntel.getDrift`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getDrift`."
+      tags:
+        - data-intel
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntelQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DriftMetric"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-INTEL-03
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getDisagreement:
+    post:
+      operationId: getDisagreement
+      summary: Get publisher vs algorithm disagreement
+      description: "Internal action `dataIntel.getDisagreement`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getDisagreement`."
+      tags:
+        - data-intel
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntelQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SourceDisagreement"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getLatency:
+    post:
+      operationId: getLatency
+      summary: Get pipeline latency percentiles
+      description: "Internal action `dataIntel.getLatency`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getLatency`."
+      tags:
+        - data-intel
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntelQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PipelineLatency"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getPrecision:
+    post:
+      operationId: getPrecision
+      summary: Get disposition precision
+      description: "Internal action `dataIntel.getPrecision`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getPrecision`."
+      tags:
+        - data-intel
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntelQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PrecisionRow"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-INTEL-04
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listEvalRuns:
+    post:
+      operationId: listEvalRuns
+      summary: List evaluation runs
+      description: "Internal action `dataIntel.listEvalRuns`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listEvalRuns`."
+      tags:
+        - data-intel
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./components/common.yaml#/components/schemas/PageQuery
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EvalRun"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+components:
+  securitySchemes:
+    bearerJwt:
+      $ref: ./components/common.yaml#/components/securitySchemes/bearerJwt
+  schemas:
+    RunRollupsInput:
+      type: object
+      additionalProperties: false
+      properties:
+        scope:
+          type: string
+          enum:
+            - today
+            - yesterday
+      required:
+        - scope
+      description: today = 15-minute micro-batch of today partitions; yesterday = nightly full run (FR-INTEL-02).
+    RunDriftChecksInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty payload (Record<string, never>).
+    ExportParquetInput:
+      type: object
+      additionalProperties: false
+      properties:
+        date:
+          $ref: ./components/common.yaml#/components/schemas/IsoDate
+      required:
+        - date
+    EvalComponent:
+      type: string
+      enum:
+        - EXTRACTION
+        - SCANNER
+        - SCORING
+        - WEBHOOK_ADVERSARIAL
+        - IDEMPOTENCY
+    EvalRunInput:
+      type: object
+      additionalProperties: false
+      properties:
+        runKey:
+          type: string
+          minLength: 1
+          description: git sha + dataset version; idempotency key.
+        gitSha:
+          type: string
+          minLength: 7
+        datasetVersion:
+          type: string
+          minLength: 1
+        component:
+          $ref: "#/components/schemas/EvalComponent"
+        componentVersion:
+          type: string
+          minLength: 1
+        metrics:
+          type: object
+          additionalProperties: true
+          description: precision/recall/f1/etc.
+        passed:
+          type: boolean
+        reportKey:
+          type: string
+          description: Object-store key of the full report.
+      required:
+        - runKey
+        - gitSha
+        - datasetVersion
+        - component
+        - componentVersion
+        - metrics
+        - passed
+    EvalRun:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        runKey:
+          type: string
+        gitSha:
+          type: string
+        datasetVersion:
+          type: string
+        component:
+          $ref: "#/components/schemas/EvalComponent"
+        componentVersion:
+          type: string
+        metrics:
+          type: object
+          additionalProperties: true
+        passed:
+          type: boolean
+        reportKey:
+          oneOf:
+            - type: string
+            - type: "null"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - runKey
+        - gitSha
+        - datasetVersion
+        - component
+        - componentVersion
+        - metrics
+        - passed
+        - createdAt
+    IntelQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+          description: PLATFORM_ADMIN cross-tenant scope; other roles are scoped to the token tenant.
+        from:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        to:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+    IntelSummary:
+      type: object
+      properties:
+        from:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        to:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        eventCount:
+          type: integer
+          minimum: 0
+        highPlusCount:
+          type: integer
+          minimum: 0
+        criticalCount:
+          type: integer
+          minimum: 0
+        txnCount:
+          type: integer
+          minimum: 0
+        meanRiskScore:
+          oneOf:
+            - type: number
+              minimum: 0
+              maximum: 100
+            - type: "null"
+        caseCount:
+          type: integer
+          minimum: 0
+      required:
+        - from
+        - to
+        - eventCount
+        - highPlusCount
+        - criticalCount
+        - txnCount
+        - caseCount
+      description: KPIs derived from the daily rollups (§7.5). PROJECT.md does not enumerate KPI fields; this set is a minimal choice.
+    DriftMetric:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        metric:
+          type: string
+          enum:
+            - RISK_SCORE_PSI
+            - EXTRACTION_CONFIDENCE_DROP
+            - SEVERITY_DISAGREEMENT_RATE
+        scope:
+          type: string
+        windowStart:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        windowEnd:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        value:
+          type: number
+        threshold:
+          type: number
+        severity:
+          type: string
+          enum:
+            - NONE
+            - MEDIUM
+            - HIGH
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - metric
+        - scope
+        - windowStart
+        - windowEnd
+        - value
+        - threshold
+        - severity
+        - createdAt
+    SourceDisagreement:
+      type: object
+      properties:
+        source:
+          type: string
+        day:
+          $ref: ./components/common.yaml#/components/schemas/IsoDate
+        eventCount:
+          type: integer
+          minimum: 0
+        disagreementCount:
+          type: integer
+          minimum: 0
+        disagreementRate:
+          type: number
+          minimum: 0
+          maximum: 1
+        overrideCount:
+          type: integer
+          minimum: 0
+      required:
+        - source
+        - day
+        - eventCount
+        - disagreementCount
+        - disagreementRate
+        - overrideCount
+      description: Publisher-stated vs algorithm severity per source and day.
+    PipelineLatency:
+      type: object
+      properties:
+        source:
+          type: string
+        day:
+          $ref: ./components/common.yaml#/components/schemas/IsoDate
+        p50LatencyMs:
+          oneOf:
+            - type: integer
+              minimum: 0
+            - type: "null"
+        p95LatencyMs:
+          oneOf:
+            - type: integer
+              minimum: 0
+            - type: "null"
+      required:
+        - source
+        - day
+    PrecisionRow:
+      type: object
+      properties:
+        dimension:
+          type: string
+          enum:
+            - modelVersion
+            - ruleVersion
+            - policyVersion
+            - caseType
+        key:
+          type: string
+        truePositives:
+          type: integer
+          minimum: 0
+        falsePositives:
+          type: integer
+          minimum: 0
+        precision:
+          oneOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: "null"
+          description: TP/(TP+FP); null when no dispositions.
+        windowDays:
+          type: integer
+          const: 30
+      required:
+        - dimension
+        - key
+        - truePositives
+        - falsePositives
+        - precision
+        - windowDays
+      description: Rolling 30-day precision from dispositions (FR-INTEL-04).

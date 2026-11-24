@@ -23,6 +23,8 @@ A single physical machine (`elitedesk-800`, Ubuntu 26.04 LTS, 4 vCPU, ~24GiB
 RAM) — no VM layer, no cloud provider. This matters for everything after:
 **this cluster's entire capacity is one machine's capacity.** There is no
 "add a node" escape hatch without buying another machine.
+*(Update: two agents were added later, `optiplex` and then `optiplex-tower`.
+Current roles are in Part 2 §1.1.)*
 
 ### Step 1 — Install k3s
 k3s is Rancher's lightweight single-binary Kubernetes distribution —
@@ -261,6 +263,22 @@ reaching for first next time something's broken:
 | Config change seems to not take effect | Check whether the workload actually restarted (`kubectl get pods`, compare `AGE`) — some controllers don't restart pods on a ConfigMap/env change without a rollout trigger |
 | Need to test a Host-header-routed service without DNS in place yet | `kubectl exec` into a pod on the same network and `curl -H "Host: real.domain.com" http://localhost:<port>/path` — proves the routing logic works independent of external DNS |
 | `kubectl` permission denied reading kubeconfig | Check what `kubectl` actually resolves to (`type kubectl`) — on k3s it may be a symlink defaulting to a root-only file, not your user's `~/.kube/config` |
+| `x509: certificate is valid for …, not <tailnet address>` from a remote `kubectl` | The API server certificate doesn't list the Tailscale address. Per command: `kubectl --tls-server-name=<an address the cert does list>` (verification stays on). Permanent fix: add the tailnet address/name under `tls-san` in the k3s server config and restart k3s. **Never** use `--insecure-skip-tls-verify` |
+| Storage pod `Pending` with `didn't tolerate` / `didn't match node selector`, or a node `NotReady` after a reboot | Check the node roles (`kubectl get nodes -L node-role.kubernetes.io/storage,dedicated`). On the storage node, `findmnt /mnt/data` — if the data SSD didn't mount, `k3s-agent` won't start, on purpose (§1.1) |
+
+### 4.1 Access for troubleshooting
+- `kubectl` from the operator workstation: `KUBECONFIG=~/.kube/config`
+  points at the control plane over Tailscale.
+- SSH: the operator's SSH config has per-node host aliases, including
+  `--vpn` variants that go over Tailscale (for example `elitedesk--vpn`,
+  `optiplex-tower--vpn`). Use those names. Never write hostnames, IPs,
+  users or keys into project repos or docs.
+- `sudo` on the nodes asks for a password interactively. Automation and AI
+  agents can run read-only diagnostics (`lsblk`, `findmnt`, `journalctl`
+  where permitted, `systemctl status`) but hand privileged commands to the
+  operator to run.
+- Prefer `kubectl` for anything the API can answer. Use SSH for host-level
+  concerns: disks, mounts, the k3s service, the kernel.
 
 ---
 
@@ -449,8 +467,9 @@ before writing your `.gitlab-ci.yml` or Kubernetes manifests.
 
 | | |
 |---|---|
-| Distro | k3s — two nodes: control plane `elitedesk-800` + storage-dedicated agent `optiplex` (see [§1.1](#11-node-roles-and-scheduling)) |
-| Capacity | `elitedesk-800`: 4 vCPU / ~24 GiB RAM (all app/stateless workloads). `optiplex`: 4 vCPU / ~15 GiB RAM (**stateful storage workloads only**). Plan app capacity against `elitedesk-800` alone. |
+| Distro | k3s — three nodes: control plane `elitedesk-800`, app-compute worker `optiplex`, storage-dedicated agent `optiplex-tower` (see [§1.1](#11-node-roles-and-scheduling)) |
+| Capacity | `elitedesk-800`: 4 vCPU / ~24 GiB RAM (control plane, shared platform services, spill-over app pods). `optiplex`: 4 vCPU / ~15 GiB RAM, ~100 GB OS disk (**app/stateless pods first**). `optiplex-tower`: 8 vCPU / ~30 GiB RAM, 1 TB data SSD (**stateful storage workloads only**). Plan app capacity against `optiplex` + `elitedesk-800`, storage against `optiplex-tower`. |
+| Network | every node and the operator workstation are on the homelab Tailscale tailnet; remote `kubectl`/SSH go over it (§4.1) |
 | Ingress controller | standalone `ingress-nginx`, class name **`nginx-external`** (default) |
 | Storage class | `local-path` (Rancher local-path-provisioner, default, `WaitForFirstConsumer`, **ReadWriteOnce only**) |
 | DNS / domain | `rmwhs.com`, proxied through Cloudflare |
@@ -459,24 +478,33 @@ before writing your `.gitlab-ci.yml` or Kubernetes manifests.
 | Runners | GitLab Runner (Helm chart, `kubernetes` executor) in the `gitlab-runner` namespace, deployed via [helm/gitlab-runner-values.helm.yaml](k8s-infrastructure/helm/gitlab-runner-values.helm.yaml) |
 | Cluster admin UI | Headlamp at `https://headlamp.rmwhs.com/`, OIDC via GitLab |
 
-Because each node has **fixed, small capacity** and there is no spare node
-to fail over to, every requirement and best practice below exists to keep
+Because each node has **fixed capacity and a fixed role**, and no node is a
+standby for another, every requirement and best practice below exists to keep
 the cluster stable under that ceiling, not because of arbitrary policy.
 
 ### 1.1 Node roles and scheduling
 
 | Node | Role | Labels | Taints | Runs |
 |---|---|---|---|---|
-| `elitedesk-800` | control plane + general compute | `node-role.kubernetes.io/control-plane=true` | none | GitLab, runner, ingress, monitoring, app Deployments, workers — everything stateless |
-| `optiplex` | **storage-dedicated** agent | `node-role.kubernetes.io/storage=true`, `dedicated=storage` | `dedicated=storage:NoSchedule` | database pods (PostgreSQL, MongoDB), Redis/cache pods, object storage pods (MinIO) — and nothing else |
+| `elitedesk-800` | control plane + shared platform + spill-over compute | `node-role.kubernetes.io/control-plane=true` | none | GitLab, runner, ingress, monitoring, Infisical, RabbitMQ, OpenObserve (all with PVCs already bound here); app pods only when `optiplex` is full |
+| `optiplex` | **app-compute worker** | `node-role.kubernetes.io/worker=true` | none | app Deployments, workers, CronJobs, Jobs — stateless pods prefer this node |
+| `optiplex-tower` | **storage-dedicated** agent | `node-role.kubernetes.io/storage=true`, `dedicated=storage` | `dedicated=storage:NoSchedule` | database pods (PostgreSQL, MongoDB), Redis/cache pods, object storage pods — and nothing else. Data lives on its 1 TB SSD |
 
-The taint keeps ordinary pods off `optiplex`. Cluster-wide DaemonSets that
+Why this split (decision record: AegisPulse ADR-0015): `local-path`
+volumes are node-bound, so data has to sit where the big disk is, and
+databases turn the tower's spare RAM into page cache. Keeping app pods off
+the storage node stops them competing with databases for memory and disk
+I/O. Moving app pods to `optiplex` takes load off the node that also runs
+the control plane, GitLab and CI. `optiplex` held no PVs when its role
+changed, so nothing was stranded.
+
+The taint keeps ordinary pods off `optiplex-tower`. Cluster-wide DaemonSets that
 tolerate all taints (node-exporter, OpenObserve collector) still run there,
 which is intended. The taint is `NoSchedule`, not `NoExecute`, so pods
 already running there were not evicted when the taint was added.
 
 **Storage workloads must opt in with both a toleration and a node
-selector.** The toleration only *permits* scheduling on `optiplex`. The
+selector.** The toleration only *permits* scheduling on `optiplex-tower`. The
 node selector is what *pins* the pod there:
 
 ```yaml
@@ -501,21 +529,52 @@ Rules:
   node where the first pod lands, and the pod stays tied to that node for
   good. If a database starts once on `elitedesk-800`, its PVC is stuck
   there. Moving it means backup, delete the PVC, then restore.
-- `local-path` data for storage pods lives on `optiplex`'s disk
-  (`/var/lib/rancher/k3s/storage`). Backups must reach it there.
+- `local-path` data for storage pods lives on `optiplex-tower`'s 1 TB SSD.
+  The SSD (ext4, label `k3s-data`) is mounted at `/mnt/data`, and
+  `/mnt/data/k3s-storage` is bind-mounted over the default local-path
+  directory `/var/lib/rancher/k3s/storage`. The provisioner config is
+  unchanged; k3s re-applies its `local-path-config` on restart, so editing
+  it would not stick. `k3s-agent` has `RequiresMountsFor=` on both paths,
+  so if the SSD is missing the node goes NotReady rather than writing
+  database files to the OS disk. Backups must be copied **off** this node.
 - Storage pods still declare requests and limits (§2.5). Budget them
-  against `optiplex`'s ~15 GiB, not against the control-plane node.
+  against `optiplex-tower`'s ~30 GiB, not against the compute nodes.
 - Pre-existing stateful infrastructure (GitLab's bundled data, Infisical's
   PostgreSQL/Redis) still runs on `elitedesk-800` with PVCs bound there. It
   stays there until someone migrates it on purpose.
 
-To reproduce or audit the node setup:
+Stateless app pods should *prefer* the worker, so they fill `optiplex`
+before landing next to GitLab on the control plane:
+
+```yaml
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - { key: node-role.kubernetes.io/worker, operator: In, values: ["true"] }
+```
+
+A stateless workload that still owns a PVC (a cache volume, say) should use
+`requiredDuringScheduling…` instead, so the PVC binds to a known node.
+
+To reproduce or audit the node setup (scripted and idempotent in AegisPulse
+`deploy/bootstrap/10-storage-node-disk.sh` and `20-node-roles.sh`):
 
 ```bash
-kubectl label node optiplex node-role.kubernetes.io/storage=true dedicated=storage --overwrite
-kubectl taint node optiplex dedicated=storage:NoSchedule --overwrite
-kubectl get node optiplex -o jsonpath='{.spec.taints}'
+# on optiplex-tower, as root: prepare the data SSD (asks for typed confirmation before wiping)
+sudo bash 10-storage-node-disk.sh /dev/disk/by-id/<whole-disk-id>
+# from the workstation
+kubectl label node optiplex-tower node-role.kubernetes.io/storage=true dedicated=storage --overwrite
+kubectl taint node optiplex-tower dedicated=storage:NoSchedule --overwrite
+kubectl taint node optiplex dedicated=storage:NoSchedule-
+kubectl label node optiplex node-role.kubernetes.io/storage- dedicated- node-role.kubernetes.io/worker=true
+kubectl get nodes -L node-role.kubernetes.io/storage,node-role.kubernetes.io/worker,dedicated
 ```
+
+`optiplex-tower` also has a legacy NTFS disk from a previous OS install. It is
+not used by the cluster; never format or mount it for app data.
 
 ---
 
@@ -565,7 +624,7 @@ treated as broken, not "good enough."
 - No container may run without explicit `resources.requests` and
   `resources.limits` for both `cpu` and `memory`. All app workloads share
   the single 4-core/24GiB `elitedesk-800` node, so one unbounded pod can
-  starve everything else, including GitLab itself. On `optiplex`, one
+  starve everything else, including GitLab itself. On `optiplex-tower`, one
   unbounded database can starve every other data store.
 - Start conservative (e.g. `100m`/`128Mi` requests) and raise only if you
   observe throttling/OOM for that specific workload.
@@ -663,8 +722,10 @@ Deployment manifest never contains a literal secret value — only a
   are no shared/multi-pod volumes, and a PVC binds **permanently** to
   whichever node its first pod lands on. Now that there are two nodes,
   this matters: databases, caches, and object storage must carry the
-  `optiplex` nodeSelector + toleration from §1.1 on their first deploy.
-  Any other PVC-backed workload ends up on `elitedesk-800`.
+  `dedicated: storage` nodeSelector + toleration from §1.1 on their first
+  deploy, so they bind on `optiplex-tower`. Any other PVC-backed workload
+  binds on whichever compute node it lands on first, so pin it with a
+  required affinity.
 - Don't request persistent storage for anything that can be stateless.
   Reach for a PVC only when the app genuinely needs to persist data across
   restarts.
@@ -786,6 +847,8 @@ Relevant files:
 
 ## 8. Known Gaps / Open Items
 
+- **Infisical Kubernetes Operator** installed 2026-11-23: chart `infisical-helm-charts/secrets-operator` 0.11.18, release `infisical-operator` in namespace `infisical-operator` (AegisPulse MB-05).
+
 Be aware of these when onboarding a new app — they're cluster-level
 prerequisites, not something to work around per-project:
 
@@ -806,12 +869,26 @@ prerequisites, not something to work around per-project:
   HTTP directly.
 - **No shared/RWX storage** — anything needing multi-pod shared storage
   isn't currently supported.
-- **No HA** — the two nodes have separate roles; neither is a standby for
-  the other. If `elitedesk-800` reboots or fails, the control plane,
-  GitLab, the registry, ingress, and every app go down. If `optiplex`
-  reboots or fails, every app database, cache, and object store pinned
-  there goes down. Their `local-path` PVs can't be rescheduled elsewhere.
-  There is no failover in either direction.
+- **No HA** — the three nodes have separate roles, and none is a standby
+  for another. If `elitedesk-800` reboots or fails, the control plane,
+  GitLab, the registry, ingress, and every app go down. If
+  `optiplex-tower` reboots or fails, every app database, cache, and object
+  store pinned there goes down. Their `local-path` PVs can't be
+  rescheduled elsewhere. If `optiplex` fails, app pods reschedule onto
+  `elitedesk-800` if capacity allows; pods pinned to it by a PVC or a
+  required affinity do not.
+- **k3s version skew.** The agents (`optiplex`, `optiplex-tower`) run
+  v1.37 against a v1.36 server. Kubernetes doesn't support a kubelet newer
+  than the API server. Upgrade the server (`elitedesk-800`) to the agents'
+  minor version before relying on new features, and always upgrade the
+  server first from now on.
+- **API server certificate lacks the Tailscale address** — remote
+  `kubectl` needs `--tls-server-name` until `tls-san` is added (§4).
+- **Shared stateful services still live on `elitedesk-800`** (GitLab data,
+  Infisical PostgreSQL/Redis, RabbitMQ, OpenObserve, Prometheus). They
+  are candidates to move onto `optiplex-tower`'s SSD later, each one by
+  backup → delete PVC → redeploy with the storage stanza → restore. This
+  is optional and not done yet.
 
 ---
 
@@ -854,7 +931,8 @@ already covers most SDLC security controls.
 - [ ] `readinessProbe`/`livenessProbe` configured
 - [ ] Databases/caches/object storage carry the `dedicated: storage`
       nodeSelector + `dedicated=storage:NoSchedule` toleration (§1.1)
-      **before first deploy**; stateless workloads carry neither
+      **before first deploy**; stateless workloads carry neither and
+      prefer `node-role.kubernetes.io/worker=true`
 - [ ] Ingress uses `ingressClassName: nginx-external`, a unique
       `<app>.rmwhs.com` subdomain, and `ssl-redirect: "false"`
 - [ ] No apex-domain binding, no `privileged: true`, no secrets committed

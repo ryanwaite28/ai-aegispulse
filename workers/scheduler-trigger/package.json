@@ -1,0 +1,23 @@
+{
+  "name": "@aegispulse/scheduler-trigger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node CLI for CronJobs: obtains a SERVICE token, calls ONE internal action, exits (no datastore; §5.1, §6.1).",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node --import @aegispulse/ts-platform/telemetry/register dist/main.js",
+    "test": "vitest run --dir src",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aegispulse/contracts": "workspace:*",
+    "@aegispulse/ts-platform": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "6.0.3",
+    "vitest": "5.1.1"
+  }
+}

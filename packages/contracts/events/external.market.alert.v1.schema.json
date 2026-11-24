@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/external.market.alert.v1.schema.json",
+  "title": "external.market.alert payload (v1)",
+  "description": "Market alert event emitted by ingestion for category MARKET_ALERT (webhook or connector item). Pointers/excerpts only; raw body stays in object storage. Producer: ingestion. Exchange: aegispulse.ingress. FRs: FR-WHK-04, FR-WHK-05, FR-CON-03. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/externalMarketEvent"
+    }
+  ],
+  "properties": {
+    "category": {
+      "const": "MARKET_ALERT"
+    }
+  },
+  "additionalProperties": true
+}

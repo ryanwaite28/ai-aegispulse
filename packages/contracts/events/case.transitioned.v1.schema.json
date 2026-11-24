@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/case.transitioned.v1.schema.json",
+  "title": "case.transitioned payload (v1)",
+  "description": "Case status transition. Emitted by cases via the transactional outbox with the case state change. Producer: cases. Exchange: aegispulse.domain. FRs: FR-CASE-02, FR-CASE-03. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/caseEvent"
+    }
+  ],
+  "required": ["from", "to"],
+  "properties": {
+    "from": {
+      "$ref": "_shared.v1.schema.json#/$defs/caseEvent/properties/from"
+    },
+    "to": {
+      "$ref": "_shared.v1.schema.json#/$defs/caseEvent/properties/to"
+    }
+  },
+  "additionalProperties": true
+}

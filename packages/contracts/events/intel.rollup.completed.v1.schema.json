@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/intel.rollup.completed.v1.schema.json",
+  "title": "intel.rollup.completed payload (v1)",
+  "description": "Rollup batch completed. Platform-level or tenant-scoped (envelope tenantId may be null). Producer: data-intel. Exchange: aegispulse.intelligence. FRs: FR-INTEL-02. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/intelMetric"
+    }
+  ],
+  "additionalProperties": true
+}

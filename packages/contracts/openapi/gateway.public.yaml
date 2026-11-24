@@ -1,0 +1,5619 @@
+openapi: 3.1.0
+info:
+  title: AegisPulse Public API
+  version: 1.0.0
+  summary: Public HTTP contract of gateway/nest-http (PROJECT.md §8).
+  description: |-
+    Public contract served by the gateway (NestJS on Fastify). JSON responses use the envelope `{ data, meta }` / `{ error, meta }` (PROJECT.md §8.2). List endpoints use cursor pagination (`limit` 1-100 default 25, `cursor`; next page in `meta.nextCursor`). Mutations accept an optional `Idempotency-Key` header (<= 128 chars).
+
+    Roles: PLATFORM_ADMIN (PA), TENANT_ADMIN (TA), ANALYST (AN), VIEWER (VI), COMPLIANCE_AUDITOR (CA), INTEGRATION (IN). Notation in `x-aegis-roles` is expanded: "VI+" = VIEWER, ANALYST, TENANT_ADMIN, PLATFORM_ADMIN; "AN+" = ANALYST, TENANT_ADMIN, PLATFORM_ADMIN; "IN/AN+" adds INTEGRATION. COMPLIANCE_AUDITOR is outside that ladder and is listed only where PROJECT.md grants it. PLATFORM_ADMIN may act on a specific tenant via `X-Aegis-Tenant` (audited, FR-AUTH-06). Cross-tenant access returns 404, not 403.
+
+    Extensions: `x-aegis-roles`, `x-aegis-backing-action` (service actions the gateway calls, PROJECT.md §6.2), `x-aegis-fr`, `x-aegis-error-codes`, `x-aegis-gaps`.
+servers:
+  - url: http://localhost:8080
+    description: local
+  - url: https://aegispulse-api.rmwhs-dev.space
+    description: dev (homelab k3s, namespace aegispulse-dev)
+  - url: https://aegispulse-api.rmwhs.com
+    description: prod (homelab k3s, namespace aegispulse)
+tags:
+  - name: Auth
+    description: Authentication and JWKS (registry).
+  - name: Tenants
+    description: Tenant lifecycle and settings (registry).
+  - name: Users
+    description: User management (registry).
+  - name: ServiceAccounts
+    description: INTEGRATION service accounts (registry).
+  - name: Entities
+    description: Tracked entities (registry).
+  - name: Watchlists
+    description: Watchlists (registry).
+  - name: Webhooks
+    description: Webhook ingestion and sources (ingestion).
+  - name: Connectors
+    description: Connector pollers (ingestion).
+  - name: Transactions
+    description: Transaction intake (ingestion + cases composition).
+  - name: Files
+    description: File upload and retrieval (files).
+  - name: Events
+    description: Event archive and classification (events).
+  - name: Replay
+    description: Event replay jobs (events).
+  - name: Cases
+    description: Risk cases (cases).
+  - name: Audit
+    description: Immutable audit log (cases).
+  - name: Intelligence
+    description: Data intelligence (data-intel).
+  - name: Ops
+    description: Dead-letter operations (events).
+  - name: Streaming
+    description: Server-Sent Events (gateway).
+  - name: Health
+    description: Probes.
+security:
+  - bearerJwt: []
+paths:
+  /v1/auth/login:
+    post:
+      operationId: login
+      summary: Log in
+      description: Tenant slug + email + password. Returns an RS256 access JWT (15 min) and a rotating refresh token (7 d). Limited to 5 failed attempts per (tenant, email) per 15 min. Responses never reveal whether the email exists.
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./registry.internal.yaml#/components/schemas/LoginInput
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/TokenPair
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles: []
+      x-aegis-backing-action:
+        - registry.login
+      x-aegis-fr:
+        - FR-AUTH-01
+      x-aegis-error-codes:
+        - AUTH_INVALID_CREDENTIALS
+        - AUTH_RATE_LIMITED
+        - TENANT_SUSPENDED
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/auth/refresh:
+    post:
+      operationId: refreshToken
+      summary: Rotate the refresh token
+      description: The presented token is invalidated; reuse of an invalidated token revokes the whole family.
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./registry.internal.yaml#/components/schemas/RefreshTokenInput
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/TokenPair
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles: []
+      x-aegis-backing-action:
+        - registry.refreshToken
+      x-aegis-fr:
+        - FR-AUTH-02
+      x-aegis-error-codes:
+        - AUTH_REFRESH_INVALID
+        - TENANT_SUSPENDED
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      summary: Log out
+      description: Revokes the current refresh-token family.
+      tags:
+        - Auth
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./registry.internal.yaml#/components/schemas/LogoutInput
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - PLATFORM_ADMIN
+        - TENANT_ADMIN
+        - ANALYST
+        - VIEWER
+        - COMPLIANCE_AUDITOR
+        - INTEGRATION
+      x-aegis-backing-action:
+        - registry.logout
+      x-aegis-fr:
+        - FR-AUTH-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/auth/password:
+    post:
+      operationId: changePassword
+      summary: Change password
+      description: Revokes all other refresh-token families.
+      tags:
+        - Auth
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./registry.internal.yaml#/components/schemas/ChangePasswordInput
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - PLATFORM_ADMIN
+        - TENANT_ADMIN
+        - ANALYST
+        - VIEWER
+        - COMPLIANCE_AUDITOR
+      x-aegis-backing-action:
+        - registry.changePassword
+      x-aegis-fr:
+        - FR-AUTH-07
+      x-aegis-error-codes:
+        - AUTH_PASSWORD_POLICY
+        - AUTH_INVALID_CREDENTIALS
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/auth/me:
+    get:
+      operationId: getCurrentPrincipal
+      summary: Get the current principal
+      tags:
+        - Auth
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/Principal
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - PLATFORM_ADMIN
+        - TENANT_ADMIN
+        - ANALYST
+        - VIEWER
+        - COMPLIANCE_AUDITOR
+        - INTEGRATION
+      x-aegis-backing-action:
+        - registry.getCurrentPrincipal
+      x-aegis-fr:
+        - FR-AUTH-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/auth/token:
+    post:
+      operationId: issueClientCredentialsToken
+      summary: Issue a client-credentials token
+      description: INTEGRATION service accounts authenticate with clientId and clientSecret (no bearer). TTL 15 min, no refresh token. The audience is fixed to aegispulse on this public route.
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueClientCredentialsTokenRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/AccessToken
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - INTEGRATION
+      x-aegis-backing-action:
+        - registry.issueClientCredentialsToken
+      x-aegis-fr:
+        - FR-AUTH-04
+      x-aegis-error-codes:
+        - AUTH_INVALID_CREDENTIALS
+        - TENANT_SUSPENDED
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /.well-known/jwks.json:
+    get:
+      operationId: getJwks
+      summary: Get public signing keys (JWKS)
+      description: Current and previous signing keys (kid rotation every 90 days; previous key retained 24 h). Returned as a bare RFC 7517 JWK Set, not wrapped in the {data, meta} envelope, so standard JWT libraries can consume it. Served by the Registry as a non-action endpoint.
+      tags:
+        - Auth
+      security: []
+      responses:
+        "200":
+          description: JWK Set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Jwks"
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles: []
+      x-aegis-backing-action:
+        - registry (non-action endpoint /.well-known/jwks.json)
+      x-aegis-fr:
+        - FR-AUTH-05
+      x-aegis-error-codes:
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/openapi.json:
+    get:
+      operationId: getOpenApiDocument
+      summary: Get the public OpenAPI document
+      description: Served from packages/contracts — contracts-first, ADR-0013.
+      tags:
+        - Health
+      security: []
+      responses:
+        "200":
+          description: Bundled public OpenAPI document.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles: []
+      x-aegis-backing-action: []
+      x-aegis-fr: []
+      x-aegis-error-codes:
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/tenants:
+    post:
+      operationId: createTenant
+      summary: Create a tenant
+      tags:
+        - Tenants
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./registry.internal.yaml#/components/schemas/CreateTenantInput
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/Tenant
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.createTenant
+      x-aegis-fr:
+        - FR-TEN-01
+      x-aegis-error-codes:
+        - TENANT_SLUG_TAKEN
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/tenants/{tenantId}:
+    get:
+      operationId: getTenant
+      summary: Get tenant detail and settings
+      tags:
+        - Tenants
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          description: Tenant UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/Tenant
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - PLATFORM_ADMIN
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - registry.getTenantSettings
+      x-aegis-fr:
+        - FR-TEN-08
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+    patch:
+      operationId: updateTenant
+      summary: Update tenant settings or status
+      description: Settings changes (highValueThresholdUsd, highRiskCountries, retentionDays, demoMode) are allowed for TENANT_ADMIN of the tenant; status changes (ACTIVE/SUSPENDED/DEACTIVATED with reason) are PLATFORM_ADMIN only (otherwise 403).
+      tags:
+        - Tenants
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          description: Tenant UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/Tenant
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - PLATFORM_ADMIN
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - registry.updateTenantSettings
+        - registry.updateTenantStatus
+      x-aegis-fr:
+        - FR-TEN-02
+        - FR-TEN-03
+        - FR-TEN-08
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/users:
+    get:
+      operationId: listUsers
+      summary: List users
+      tags:
+        - Users
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: role
+          in: query
+          required: false
+          schema:
+            $ref: ./registry.internal.yaml#/components/schemas/ListUsersQuery/properties/role
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: ./registry.internal.yaml#/components/schemas/ListUsersQuery/properties/status
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./registry.internal.yaml#/components/schemas/User
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.listUsers
+      x-aegis-fr:
+        - FR-TEN-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+    post:
+      operationId: createUser
+      summary: Create a user
+      tags:
+        - Users
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./registry.internal.yaml#/components/schemas/CreateUserInput
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/User
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.createUser
+      x-aegis-fr:
+        - FR-TEN-04
+      x-aegis-error-codes:
+        - USER_EMAIL_TAKEN
+        - AUTH_PASSWORD_POLICY
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/users/{userId}:
+    patch:
+      operationId: updateUser
+      summary: Update user roles, status or display name
+      tags:
+        - Users
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - name: userId
+          in: path
+          required: true
+          description: User UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/User
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.updateUser
+      x-aegis-fr:
+        - FR-TEN-05
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - LAST_TENANT_ADMIN
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/service-accounts:
+    get:
+      operationId: listServiceAccounts
+      summary: List service accounts
+      tags:
+        - ServiceAccounts
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: ./registry.internal.yaml#/components/schemas/ListServiceAccountsQuery/properties/status
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./registry.internal.yaml#/components/schemas/ServiceAccount
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - registry.listServiceAccounts
+      x-aegis-fr:
+        - FR-TEN-06
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+    post:
+      operationId: createServiceAccount
+      summary: Create a service account
+      description: The clientSecret is returned once.
+      tags:
+        - ServiceAccounts
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./registry.internal.yaml#/components/schemas/CreateServiceAccountInput
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/ServiceAccountWithSecret
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - registry.createServiceAccount
+      x-aegis-fr:
+        - FR-TEN-06
+      x-aegis-error-codes:
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/service-accounts/{id}/rotate-secret:
+    post:
+      operationId: rotateServiceAccountSecret
+      summary: Rotate a service-account secret
+      description: New secret returned once; the previous secret stays valid for a 24 h grace period.
+      tags:
+        - ServiceAccounts
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Service account UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/ServiceAccountWithSecret
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - registry.rotateServiceAccountSecret
+      x-aegis-fr:
+        - FR-TEN-06
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/service-accounts/{id}:
+    delete:
+      operationId: revokeServiceAccount
+      summary: Revoke a service account
+      tags:
+        - ServiceAccounts
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Service account UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/ServiceAccount
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - registry.revokeServiceAccount
+      x-aegis-fr:
+        - FR-TEN-06
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/entities:
+    get:
+      operationId: listEntities
+      summary: List and search entities
+      tags:
+        - Entities
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: q
+          in: query
+          required: false
+          schema:
+            $ref: ./registry.internal.yaml#/components/schemas/ListEntitiesQuery/properties/q
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: ./registry.internal.yaml#/components/schemas/ListEntitiesQuery/properties/entityType
+        - name: watchlistId
+          in: query
+          required: false
+          schema:
+            $ref: ./registry.internal.yaml#/components/schemas/ListEntitiesQuery/properties/watchlistId
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./registry.internal.yaml#/components/schemas/Entity
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.listEntities
+      x-aegis-fr:
+        - FR-ENT-02
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+    post:
+      operationId: createEntity
+      summary: Create an entity
+      tags:
+        - Entities
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./registry.internal.yaml#/components/schemas/CreateEntityInput
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/Entity
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.createEntity
+      x-aegis-fr:
+        - FR-ENT-01
+      x-aegis-error-codes:
+        - ENTITY_DUPLICATE
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/entities/{id}:
+    get:
+      operationId: getEntity
+      summary: Get an entity with aliases and watchlists
+      tags:
+        - Entities
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Entity UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/EntityDetail
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.getEntity
+      x-aegis-fr:
+        - FR-ENT-02
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+    patch:
+      operationId: updateEntity
+      summary: Update an entity or its aliases
+      tags:
+        - Entities
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Entity UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEntityRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/Entity
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.updateEntity
+      x-aegis-fr:
+        - FR-ENT-02
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - ENTITY_DUPLICATE
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+    delete:
+      operationId: archiveEntity
+      summary: Archive an entity
+      description: Soft delete (archivedAt). Archived entities stop matching but remain referenced by historical cases.
+      tags:
+        - Entities
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Entity UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/Entity
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - registry.archiveEntity
+      x-aegis-fr:
+        - FR-ENT-02
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/watchlists:
+    get:
+      operationId: listWatchlists
+      summary: List watchlists
+      tags:
+        - Watchlists
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./registry.internal.yaml#/components/schemas/Watchlist
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.listWatchlists
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+    post:
+      operationId: createWatchlist
+      summary: Create a watchlist
+      tags:
+        - Watchlists
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./registry.internal.yaml#/components/schemas/CreateWatchlistInput
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/Watchlist
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.createWatchlist
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - WATCHLIST_NAME_TAKEN
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/watchlists/{id}:
+    patch:
+      operationId: updateWatchlist
+      summary: Update or pause a watchlist
+      tags:
+        - Watchlists
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Watchlist UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWatchlistRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/Watchlist
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.updateWatchlist
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - WATCHLIST_NAME_TAKEN
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+    delete:
+      operationId: deleteWatchlist
+      summary: Soft-delete a watchlist
+      tags:
+        - Watchlists
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Watchlist UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - registry.deleteWatchlist
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/watchlists/{id}/entries:
+    post:
+      operationId: addWatchlistEntry
+      summary: Add an entity to a watchlist
+      tags:
+        - Watchlists
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Watchlist UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddWatchlistEntryRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./registry.internal.yaml#/components/schemas/WatchlistEntry
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.addWatchlistEntry
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/watchlists/{id}/entries/{entityId}:
+    delete:
+      operationId: removeWatchlistEntry
+      summary: Remove an entity from a watchlist
+      tags:
+        - Watchlists
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Watchlist UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - name: entityId
+          in: path
+          required: true
+          description: Entity UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - registry.removeWatchlistEntry
+      x-aegis-fr:
+        - FR-ENT-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /webhooks/{sourceKey}:
+    post:
+      operationId: submitWebhook
+      summary: Submit a signed webhook delivery
+      description: "No JWT: authenticity is established by HMAC-SHA256 over `{timestamp}.{deliveryId}.{rawBody}` (raw bytes, before JSON parsing), compared in constant time against the current and previous secret; `application/json` <= 1 MiB; |now - timestamp| <= 300 s; replayed delivery ids return 409. Schema validation (422) happens only after signature verification. A second delivery with the same `{sourceKey}:{externalId}:v{version}` returns 202 with `duplicate: true` and emits nothing. Rejections are logged without the body."
+      tags:
+        - Webhooks
+      security: []
+      parameters:
+        - name: sourceKey
+          in: path
+          required: true
+          description: Webhook source key.
+          schema:
+            type: string
+            pattern: ^[a-z0-9-]{3,60}$
+        - name: X-Aegis-Signature
+          in: header
+          required: true
+          description: "HMAC signature: `v1=<hex>` (HMAC-SHA256 of `{timestamp}.{deliveryId}.{rawBody}` with the source secret). A comma-separated list of `v1=` values is allowed during secret rotation."
+          schema:
+            type: string
+            pattern: ^v1=[0-9a-f]{64}(,v1=[0-9a-f]{64})*$
+        - name: X-Aegis-Timestamp
+          in: header
+          required: true
+          description: Unix seconds; must be within +/-300 s of server time.
+          schema:
+            type: string
+            pattern: ^[0-9]{9,12}$
+        - name: X-Aegis-Delivery-Id
+          in: header
+          required: true
+          description: Unique delivery id (<= 128 chars); replays return 409.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketEventV1"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./ingestion.internal.yaml#/components/schemas/WebhookAccepted
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles: []
+      x-aegis-backing-action:
+        - ingestion.ingestWebhookDelivery
+      x-aegis-fr:
+        - FR-WHK-02
+        - FR-WHK-03
+        - FR-WHK-04
+        - FR-WHK-05
+      x-aegis-error-codes:
+        - WEBHOOK_SOURCE_NOT_FOUND
+        - WEBHOOK_SIGNATURE_INVALID
+        - WEBHOOK_TIMESTAMP_SKEW
+        - WEBHOOK_REPLAY_DETECTED
+        - TENANT_SUSPENDED
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/webhook-sources:
+    get:
+      operationId: listWebhookSources
+      summary: List webhook sources
+      tags:
+        - Webhooks
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./ingestion.internal.yaml#/components/schemas/WebhookSource
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.listWebhookSources
+      x-aegis-fr:
+        - FR-WHK-07
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+    post:
+      operationId: createWebhookSource
+      summary: Register a webhook source
+      description: The signing secret is returned once.
+      tags:
+        - Webhooks
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./ingestion.internal.yaml#/components/schemas/CreateWebhookSourceInput
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./ingestion.internal.yaml#/components/schemas/WebhookSourceWithSecret
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.createWebhookSource
+      x-aegis-fr:
+        - FR-WHK-01
+      x-aegis-error-codes:
+        - WEBHOOK_SOURCE_KEY_TAKEN
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/webhook-sources/{id}:
+    patch:
+      operationId: updateWebhookSource
+      summary: Update webhook source status, trust or hosts
+      tags:
+        - Webhooks
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Webhook source UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWebhookSourceRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./ingestion.internal.yaml#/components/schemas/WebhookSource
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.updateWebhookSource
+      x-aegis-fr:
+        - FR-WHK-07
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+    delete:
+      operationId: deleteWebhookSource
+      summary: Soft-delete a webhook source
+      tags:
+        - Webhooks
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Webhook source UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.deleteWebhookSource
+      x-aegis-fr:
+        - FR-WHK-07
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/webhook-sources/{id}/rotate-secret:
+    post:
+      operationId: rotateWebhookSecret
+      summary: Rotate a webhook signing secret
+      description: Dual-key window of 72 h.
+      tags:
+        - Webhooks
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Webhook source UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./ingestion.internal.yaml#/components/schemas/WebhookSecretRotation
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.rotateWebhookSecret
+      x-aegis-fr:
+        - FR-WHK-07
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/webhook-sources/{id}/deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      summary: List webhook delivery metadata
+      description: Metadata only; the raw body is never returned.
+      tags:
+        - Webhooks
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Webhook source UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: outcome
+          in: query
+          required: false
+          schema:
+            $ref: ./ingestion.internal.yaml#/components/schemas/ListDeliveriesQuery/properties/outcome
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: ./ingestion.internal.yaml#/components/schemas/ListDeliveriesQuery/properties/from
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: ./ingestion.internal.yaml#/components/schemas/ListDeliveriesQuery/properties/to
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./ingestion.internal.yaml#/components/schemas/WebhookDelivery
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.listWebhookDeliveries
+      x-aegis-fr:
+        - FR-WHK-07
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/connectors:
+    get:
+      operationId: listConnectors
+      summary: List connectors
+      tags:
+        - Connectors
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./ingestion.internal.yaml#/components/schemas/Connector
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.listConnectors
+      x-aegis-fr:
+        - FR-CON-01
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+    post:
+      operationId: createConnector
+      summary: Create a connector
+      tags:
+        - Connectors
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./ingestion.internal.yaml#/components/schemas/CreateConnectorInput
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./ingestion.internal.yaml#/components/schemas/Connector
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.createConnector
+      x-aegis-fr:
+        - FR-CON-01
+      x-aegis-error-codes:
+        - CONFLICT
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/connectors/{id}:
+    patch:
+      operationId: updateConnector
+      summary: Update, enable or disable a connector
+      tags:
+        - Connectors
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Connector UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConnectorRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./ingestion.internal.yaml#/components/schemas/Connector
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.updateConnector
+      x-aegis-fr:
+        - FR-CON-01
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+    delete:
+      operationId: deleteConnector
+      summary: Soft-delete a connector
+      tags:
+        - Connectors
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Connector UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.deleteConnector
+      x-aegis-fr:
+        - FR-CON-01
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/connectors/{id}/run:
+    post:
+      operationId: runConnectorNow
+      summary: Run a connector now
+      description: Rate limited to 1 per minute per connector.
+      tags:
+        - Connectors
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Connector UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./ingestion.internal.yaml#/components/schemas/Connector
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - ingestion.runConnectorNow
+      x-aegis-fr:
+        - FR-CON-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONNECTOR_RUN_THROTTLED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/transactions:
+    post:
+      operationId: submitTransaction
+      summary: Submit a transaction
+      description: The `idempotencyKey` body field is required. Same key + same body hash returns the original response; same key + different body returns 409 IDEMPOTENCY_KEY_REUSED.
+      tags:
+        - Transactions
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./ingestion.internal.yaml#/components/schemas/SubmitTransactionInput
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./ingestion.internal.yaml#/components/schemas/TransactionAccepted
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - INTEGRATION
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - ingestion.submitTransaction
+      x-aegis-fr:
+        - FR-TXN-01
+      x-aegis-error-codes:
+        - IDEMPOTENCY_KEY_REUSED
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/transactions/{id}:
+    get:
+      operationId: getTransaction
+      summary: Get a transaction with status, evaluation and case
+      description: Composed by the gateway from Ingestion and Cases typed clients. INTEGRATION principals may read only their own submissions.
+      tags:
+        - Transactions
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Transaction UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TransactionDetail"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - INTEGRATION
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - ingestion.getTransaction
+        - cases.getTransactionEvaluation
+      x-aegis-fr:
+        - FR-TXN-06
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/files/uploads/init:
+    post:
+      operationId: initUpload
+      summary: Initiate a file upload
+      description: "201 with a presigned PUT URL for a new upload; 200 with `deduplicated: true` and no upload URL when the same (tenant, sha256) already exists. `allowDuplicate` is ANALYST+ only."
+      tags:
+        - Files
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./files.internal.yaml#/components/schemas/InitUploadInput
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./files.internal.yaml#/components/schemas/InitUploadResult
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./files.internal.yaml#/components/schemas/InitUploadResult
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - INTEGRATION
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - files.initUpload
+      x-aegis-fr:
+        - FR-FILE-01
+        - FR-FILE-02
+        - FR-FILE-03
+        - FR-FILE-13
+      x-aegis-error-codes:
+        - FILE_TYPE_NOT_ALLOWED
+        - FILE_TOO_LARGE
+        - UPLOAD_RATE_LIMITED
+        - STORAGE_QUOTA_EXCEEDED
+        - IDEMPOTENCY_KEY_REUSED
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/files/uploads/{fileId}/complete:
+    post:
+      operationId: completeUpload
+      summary: Complete a file upload
+      description: "Allowed for the uploader or ANALYST+ of the same tenant. Already completed: idempotent 200 with current status."
+      tags:
+        - Files
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          description: File UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteUploadRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./files.internal.yaml#/components/schemas/File
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - INTEGRATION
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - files.completeUpload
+      x-aegis-fr:
+        - FR-FILE-04
+        - FR-FILE-13
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UPLOAD_SESSION_EXPIRED
+        - UPLOAD_NOT_FOUND_IN_STORAGE
+        - UPLOAD_SIZE_MISMATCH
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/files/uploads/{fileId}/abort:
+    post:
+      operationId: abortUpload
+      summary: Abort a file upload
+      description: INITIATED -> EXPIRED.
+      tags:
+        - Files
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          description: File UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./files.internal.yaml#/components/schemas/File
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - INTEGRATION
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - files.abortUpload
+      x-aegis-fr:
+        - FR-FILE-10
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/files:
+    get:
+      operationId: listFiles
+      summary: List files
+      tags:
+        - Files
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: ./files.internal.yaml#/components/schemas/ListFilesQuery/properties/status
+        - name: purpose
+          in: query
+          required: false
+          schema:
+            $ref: ./files.internal.yaml#/components/schemas/ListFilesQuery/properties/purpose
+        - name: uploadedBy
+          in: query
+          required: false
+          schema:
+            $ref: ./files.internal.yaml#/components/schemas/ListFilesQuery/properties/uploadedBy
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: ./files.internal.yaml#/components/schemas/ListFilesQuery/properties/from
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: ./files.internal.yaml#/components/schemas/ListFilesQuery/properties/to
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./files.internal.yaml#/components/schemas/File
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - files.listFiles
+      x-aegis-fr:
+        - FR-FILE-09
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/files/{fileId}:
+    get:
+      operationId: getFile
+      summary: Get file metadata, status and artifact summary
+      tags:
+        - Files
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          description: File UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./files.internal.yaml#/components/schemas/FileDetail
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - files.getFile
+      x-aegis-fr:
+        - FR-FILE-07
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+    delete:
+      operationId: deleteFile
+      summary: Soft-delete a file
+      tags:
+        - Files
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          description: File UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/Ack
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - files.deleteFile
+      x-aegis-fr:
+        - FR-FILE-12
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/files/{fileId}/download-url:
+    get:
+      operationId: getFileDownloadUrl
+      summary: Get a presigned download URL
+      description: QUARANTINED files are downloadable only by TENANT_ADMIN with `acknowledgeQuarantine=true` (audited); otherwise 403 FILE_QUARANTINED.
+      tags:
+        - Files
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          description: File UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - name: acknowledgeQuarantine
+          in: query
+          required: false
+          schema:
+            $ref: ./files.internal.yaml#/components/schemas/GetDownloadUrlInput/properties/acknowledgeQuarantine
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./files.internal.yaml#/components/schemas/DownloadUrl
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - files.getDownloadUrl
+      x-aegis-fr:
+        - FR-FILE-08
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - FILE_NOT_DOWNLOADABLE
+        - FILE_QUARANTINED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/events:
+    get:
+      operationId: searchEvents
+      summary: Search the event archive
+      description: Sorted by occurredAt descending. VIEWER/ANALYST never see restricted events; COMPLIANCE_AUDITOR queries them with `tier=restricted`.
+      tags:
+        - Events
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: correlationId
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/SearchEventsQuery/properties/correlationId
+        - name: eventType
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/SearchEventsQuery/properties/eventType
+        - name: finalSeverity
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/SearchEventsQuery/properties/finalSeverity
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/SearchEventsQuery/properties/status
+        - name: source
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/SearchEventsQuery/properties/source
+        - name: entity
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/SearchEventsQuery/properties/entity
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/SearchEventsQuery/properties/from
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/SearchEventsQuery/properties/to
+        - name: tier
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/SearchEventsQuery/properties/tier
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./events.internal.yaml#/components/schemas/EventSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+        - COMPLIANCE_AUDITOR
+      x-aegis-backing-action:
+        - events.searchEvents
+      x-aegis-fr:
+        - FR-EVT-04
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/events/correlation/{correlationId}:
+    get:
+      operationId: getEventCorrelationChain
+      summary: Get the causal chain for a correlation id
+      tags:
+        - Events
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: correlationId
+          in: path
+          required: true
+          description: Correlation id (`corr-...`).
+          schema:
+            type: string
+            minLength: 1
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./events.internal.yaml#/components/schemas/EventSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - events.getCorrelationChain
+      x-aegis-fr:
+        - FR-EVT-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/events/{eventId}:
+    get:
+      operationId: getEvent
+      summary: Get an archived event with severity lineage
+      description: Includes statusHistory and classificationHistory. Restricted events resolve only with `tier=restricted` for COMPLIANCE_AUDITOR; otherwise 404 EVENT_NOT_FOUND.
+      tags:
+        - Events
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: Event UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - name: tier
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/GetEventInput/properties/tier
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./events.internal.yaml#/components/schemas/ArchivedEvent
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+        - COMPLIANCE_AUDITOR
+      x-aegis-backing-action:
+        - events.getEvent
+      x-aegis-fr:
+        - FR-EVT-05
+      x-aegis-error-codes:
+        - EVENT_NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/events/{eventId}/classification:
+    patch:
+      operationId: overrideEventClassification
+      summary: Override event classification
+      description: Only an analyst override with a justification (>= 20 chars) can lower severity.
+      tags:
+        - Events
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: Event UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OverrideClassificationRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./events.internal.yaml#/components/schemas/ArchivedEvent
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - events.overrideClassification
+      x-aegis-fr:
+        - FR-CLS-07
+      x-aegis-error-codes:
+        - EVENT_NOT_FOUND
+        - CLASSIFICATION_JUSTIFICATION_REQUIRED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/events/replay:
+    post:
+      operationId: createReplayJob
+      summary: Create a replay job
+      description: TENANT_ADMIN for the own tenant; PLATFORM_ADMIN for any. With `dryRun` the response carries `matchedCount`.
+      tags:
+        - Replay
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./events.internal.yaml#/components/schemas/CreateReplayJobInput
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./events.internal.yaml#/components/schemas/ReplayJobAccepted
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - events.createReplayJob
+      x-aegis-fr:
+        - FR-RPL-01
+      x-aegis-error-codes:
+        - REPLAY_FILTER_INVALID
+        - REPLAY_TARGET_NOT_ALLOWED
+        - IDEMPOTENCY_KEY_REUSED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/events/replay/{jobId}:
+    get:
+      operationId: getReplayJob
+      summary: Get a replay job
+      tags:
+        - Replay
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          description: Replay job UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./events.internal.yaml#/components/schemas/ReplayJob
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - events.getReplayJob
+      x-aegis-fr:
+        - FR-RPL-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/events/replay/{jobId}/cancel:
+    post:
+      operationId: cancelReplayJob
+      summary: Cancel a replay job
+      tags:
+        - Replay
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          description: Replay job UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./events.internal.yaml#/components/schemas/ReplayJob
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - events.cancelReplayJob
+      x-aegis-fr:
+        - FR-RPL-04
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - REPLAY_JOB_NOT_CANCELLABLE
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/cases:
+    get:
+      operationId: listCases
+      summary: List cases
+      tags:
+        - Cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListCasesQuery/properties/status
+        - name: caseType
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListCasesQuery/properties/caseType
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListCasesQuery/properties/severity
+        - name: assigneeUserId
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListCasesQuery/properties/assigneeUserId
+        - name: entityId
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListCasesQuery/properties/entityId
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./cases.internal.yaml#/components/schemas/Case
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - cases.listCases
+      x-aegis-fr:
+        - FR-CASE-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/cases/{caseId}:
+    get:
+      operationId: getCase
+      summary: Get a case
+      tags:
+        - Cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          description: Case UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./cases.internal.yaml#/components/schemas/CaseDetail
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - cases.getCase
+      x-aegis-fr:
+        - FR-CASE-05
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/cases/{caseId}/timeline:
+    get:
+      operationId: getCaseTimeline
+      summary: Get a case timeline
+      description: Transitions, evidence, notes and dispositions.
+      tags:
+        - Cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          description: Case UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./cases.internal.yaml#/components/schemas/CaseTimeline
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - cases.getCaseTimeline
+      x-aegis-fr:
+        - FR-CASE-05
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/cases/{caseId}/assign:
+    post:
+      operationId: assignCase
+      summary: Assign or unassign a case
+      description: "`expectedVersion` mismatch returns 409 CASE_CONFLICT."
+      tags:
+        - Cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          description: Case UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignCaseRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./cases.internal.yaml#/components/schemas/Case
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - cases.assignCase
+      x-aegis-fr:
+        - FR-CASE-05
+        - FR-CASE-07
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - CASE_CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/cases/{caseId}/notes:
+    post:
+      operationId: addCaseNote
+      summary: Add a case note
+      tags:
+        - Cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          description: Case UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCaseNoteRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./cases.internal.yaml#/components/schemas/CaseNote
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - cases.addCaseNote
+      x-aegis-fr:
+        - FR-CASE-05
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/cases/{caseId}/dispositions:
+    post:
+      operationId: recordDisposition
+      summary: Record a case disposition
+      description: NEEDS_REVIEW keeps the status and requires a different analyst for the final disposition (four-eyes).
+      tags:
+        - Cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          description: Case UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordDispositionRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./cases.internal.yaml#/components/schemas/DispositionResult
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - cases.recordDisposition
+      x-aegis-fr:
+        - FR-CASE-06
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - CASE_INVALID_TRANSITION
+        - CASE_CONFLICT
+        - CASE_FOUR_EYES_REQUIRED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/cases/{caseId}/reevaluate:
+    post:
+      operationId: requestCaseReevaluation
+      summary: Request manual case re-evaluation
+      tags:
+        - Cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          description: Case UUID.
+          schema:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestCaseReevaluationRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./cases.internal.yaml#/components/schemas/Case
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - cases.requestReevaluation
+      x-aegis-fr:
+        - FR-CASE-02
+        - FR-CASE-05
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - CASE_INVALID_TRANSITION
+        - CASE_CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/audit:
+    get:
+      operationId: listAuditEntries
+      summary: List audit-log entries
+      tags:
+        - Audit
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: subjectType
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListAuditQuery/properties/subjectType
+        - name: subjectId
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListAuditQuery/properties/subjectId
+        - name: actorId
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListAuditQuery/properties/actorId
+        - name: action
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListAuditQuery/properties/action
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListAuditQuery/properties/from
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/ListAuditQuery/properties/to
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./cases.internal.yaml#/components/schemas/AuditEntry
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - COMPLIANCE_AUDITOR
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - cases.listAuditEntries
+      x-aegis-fr:
+        - FR-AUD-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/audit/verify:
+    get:
+      operationId: verifyAuditChain
+      summary: Verify the audit hash chain
+      description: "A broken chain is reported in the body (`valid: false`, `code: AUDIT_CHAIN_BROKEN`) with HTTP 200."
+      tags:
+        - Audit
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: fromSeq
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/VerifyAuditChainInput/properties/fromSeq
+        - name: toSeq
+          in: query
+          required: false
+          schema:
+            $ref: ./cases.internal.yaml#/components/schemas/VerifyAuditChainInput/properties/toSeq
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./cases.internal.yaml#/components/schemas/AuditChainVerification
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - COMPLIANCE_AUDITOR
+      x-aegis-backing-action:
+        - cases.verifyAuditChain
+      x-aegis-fr:
+        - FR-AUD-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/intel/summary:
+    get:
+      operationId: getIntelSummary
+      summary: Get intelligence KPIs
+      tags:
+        - Intelligence
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/tenantId
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/from
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/to
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./data-intel.internal.yaml#/components/schemas/IntelSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - dataIntel.getIntelSummary
+      x-aegis-fr:
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/intel/drift:
+    get:
+      operationId: getIntelDrift
+      summary: Get drift metrics
+      tags:
+        - Intelligence
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/tenantId
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/from
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/to
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./data-intel.internal.yaml#/components/schemas/DriftMetric
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - dataIntel.getDrift
+      x-aegis-fr:
+        - FR-INTEL-03
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/intel/disagreement:
+    get:
+      operationId: getIntelDisagreement
+      summary: Get publisher vs algorithm disagreement by source
+      tags:
+        - Intelligence
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/tenantId
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/from
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/to
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./data-intel.internal.yaml#/components/schemas/SourceDisagreement
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - dataIntel.getDisagreement
+      x-aegis-fr:
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/intel/latency:
+    get:
+      operationId: getIntelLatency
+      summary: Get pipeline latency percentiles
+      tags:
+        - Intelligence
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/tenantId
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/from
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/to
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./data-intel.internal.yaml#/components/schemas/PipelineLatency
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - dataIntel.getLatency
+      x-aegis-fr:
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/intel/precision:
+    get:
+      operationId: getIntelPrecision
+      summary: Get disposition precision by model/rule/policy version
+      tags:
+        - Intelligence
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/tenantId
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/from
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: ./data-intel.internal.yaml#/components/schemas/IntelQuery/properties/to
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./data-intel.internal.yaml#/components/schemas/PrecisionRow
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - dataIntel.getPrecision
+      x-aegis-fr:
+        - FR-INTEL-04
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/intel/eval-runs:
+    get:
+      operationId: listEvalRuns
+      summary: List evaluation runs
+      tags:
+        - Intelligence
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./data-intel.internal.yaml#/components/schemas/EvalRun
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action:
+        - dataIntel.listEvalRuns
+      x-aegis-fr:
+        - FR-INTEL-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/ops/dead-letters:
+    get:
+      operationId: listDeadLetters
+      summary: List dead letters
+      description: PLATFORM_ADMIN sees all tenants; TENANT_ADMIN sees the own tenant.
+      tags:
+        - Ops
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/Limit
+        - $ref: ./components/common.yaml#/components/parameters/Cursor
+        - name: queue
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/ListDeadLettersQuery/properties/queue
+        - name: errorCode
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/ListDeadLettersQuery/properties/errorCode
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/ListDeadLettersQuery/properties/from
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: ./events.internal.yaml#/components/schemas/ListDeadLettersQuery/properties/to
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: ./events.internal.yaml#/components/schemas/DeadLetterSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - PLATFORM_ADMIN
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - events.listDeadLetters
+      x-aegis-fr:
+        - FR-MSG-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+  /v1/ops/dead-letters/{id}:
+    get:
+      operationId: getDeadLetter
+      summary: Get a dead letter
+      tags:
+        - Ops
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Dead-letter id.
+          schema:
+            type: string
+            minLength: 1
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./events.internal.yaml#/components/schemas/DeadLetter
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - PLATFORM_ADMIN
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - events.getDeadLetter
+      x-aegis-fr:
+        - FR-MSG-03
+      x-aegis-error-codes:
+        - DEAD_LETTER_NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/ops/dead-letters/{id}/replay:
+    post:
+      operationId: replayDeadLetter
+      summary: Replay a dead letter to its original queue
+      tags:
+        - Ops
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Dead-letter id.
+          schema:
+            type: string
+            minLength: 1
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./events.internal.yaml#/components/schemas/DeadLetter
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - PLATFORM_ADMIN
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - events.replayDeadLetter
+      x-aegis-fr:
+        - FR-MSG-03
+      x-aegis-error-codes:
+        - DEAD_LETTER_NOT_FOUND
+        - DEAD_LETTER_ALREADY_RESOLVED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+  /v1/ops/dead-letters/{id}/discard:
+    post:
+      operationId: discardDeadLetter
+      summary: Discard a dead letter
+      tags:
+        - Ops
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Dead-letter id.
+          schema:
+            type: string
+            minLength: 1
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiscardDeadLetterRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./events.internal.yaml#/components/schemas/DeadLetter
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "413":
+          $ref: ./components/common.yaml#/components/responses/PayloadTooLarge
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - PLATFORM_ADMIN
+        - TENANT_ADMIN
+      x-aegis-backing-action:
+        - events.discardDeadLetter
+      x-aegis-fr:
+        - FR-MSG-03
+      x-aegis-error-codes:
+        - DEAD_LETTER_NOT_FOUND
+        - DEAD_LETTER_ALREADY_RESOLVED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - PAYLOAD_TOO_LARGE
+  /v1/stream:
+    get:
+      operationId: getStream
+      summary: Stream pipeline events (SSE)
+      description: Server-Sent Events of tenant-scoped projections of `case.*`, `file.status.changed`, `classification.finalized`, `doc.extraction.*` and `risk.evaluation.recorded`. Projections carry ids, type, status, severity and timestamps only (no payload bodies); restricted events are never streamed. Heartbeat comment every 15 s; `id:` is the eventId; max 5 concurrent streams per user (429 STREAM_LIMIT); idle timeout 1 h. Served by the gateway transport; no ServiceAction.
+      tags:
+        - Streaming
+      security:
+        - bearerJwt: []
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: Last received event id (the eventId). Accepted for reconnects; gap-filling is best-effort, so clients re-fetch via REST after reconnecting.
+          schema:
+            type: string
+        - $ref: ./components/common.yaml#/components/parameters/XAegisTenant
+      responses:
+        "200":
+          description: Server-Sent Events stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: "SSE frames: `id: <eventId>`, `event: <type>`, `data: <JSON projection>`; `: heartbeat` comments every 15 s."
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "429":
+          $ref: ./components/common.yaml#/components/responses/RateLimited
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles:
+        - VIEWER
+        - ANALYST
+        - TENANT_ADMIN
+        - PLATFORM_ADMIN
+      x-aegis-backing-action: []
+      x-aegis-fr:
+        - FR-SSE-01
+        - FR-SSE-02
+      x-aegis-error-codes:
+        - STREAM_LIMIT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - DEPENDENCY_UNAVAILABLE
+        - INTERNAL_ERROR
+        - RATE_LIMITED
+      x-aegis-gaps:
+        - Gateway-local transport route; no §6.2 ServiceAction (FR-SSE-01 owner is gateway transport).
+  /livez:
+    get:
+      operationId: getLiveness
+      summary: Liveness probe
+      description: Process liveness. `/healthz` is internal only and is not part of the public contract.
+      tags:
+        - Health
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProbeStatus"
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+      x-aegis-roles: []
+      x-aegis-backing-action: []
+      x-aegis-fr:
+        - NFR-11
+      x-aegis-error-codes:
+        - INTERNAL_ERROR
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Readiness probe
+      description: Ready to serve traffic (dependencies reachable).
+      tags:
+        - Health
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProbeStatus"
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-roles: []
+      x-aegis-backing-action: []
+      x-aegis-fr:
+        - NFR-11
+      x-aegis-error-codes:
+        - DEPENDENCY_UNAVAILABLE
+components:
+  securitySchemes:
+    bearerJwt:
+      $ref: ./components/common.yaml#/components/securitySchemes/bearerJwt
+  schemas:
+    IssueClientCredentialsTokenRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        clientId:
+          $ref: ./registry.internal.yaml#/components/schemas/IssueClientCredentialsTokenInput/properties/clientId
+        clientSecret:
+          $ref: ./registry.internal.yaml#/components/schemas/IssueClientCredentialsTokenInput/properties/clientSecret
+      required:
+        - clientId
+        - clientSecret
+    UpdateUserRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        displayName:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateUserInput/properties/displayName
+        roles:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateUserInput/properties/roles
+        status:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateUserInput/properties/status
+      minProperties: 1
+      description: Role changes revoke the user refresh tokens; the last active TENANT_ADMIN cannot be removed (409 LAST_TENANT_ADMIN).
+    UpdateEntityRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateEntityInput/properties/name
+        entityType:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateEntityInput/properties/entityType
+        ticker:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateEntityInput/properties/ticker
+        lei:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateEntityInput/properties/lei
+        country:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateEntityInput/properties/country
+        addAliases:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateEntityInput/properties/addAliases
+        removeAliases:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateEntityInput/properties/removeAliases
+      minProperties: 1
+    UpdateWatchlistRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateWatchlistInput/properties/name
+        reason:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateWatchlistInput/properties/reason
+        severityFloor:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateWatchlistInput/properties/severityFloor
+        status:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateWatchlistInput/properties/status
+      minProperties: 1
+      description: status=PAUSED pauses the watchlist.
+    AddWatchlistEntryRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        entityId:
+          $ref: ./registry.internal.yaml#/components/schemas/AddWatchlistEntryInput/properties/entityId
+        note:
+          $ref: ./registry.internal.yaml#/components/schemas/AddWatchlistEntryInput/properties/note
+      required:
+        - entityId
+    UpdateWebhookSourceRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        displayName:
+          $ref: ./ingestion.internal.yaml#/components/schemas/UpdateWebhookSourceInput/properties/displayName
+        status:
+          $ref: ./ingestion.internal.yaml#/components/schemas/UpdateWebhookSourceInput/properties/status
+        trustLevel:
+          $ref: ./ingestion.internal.yaml#/components/schemas/UpdateWebhookSourceInput/properties/trustLevel
+        allowedAttachmentHosts:
+          $ref: ./ingestion.internal.yaml#/components/schemas/UpdateWebhookSourceInput/properties/allowedAttachmentHosts
+      minProperties: 1
+      description: Trust-level changes are audited (they affect final_severity).
+    UpdateConnectorRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          $ref: ./ingestion.internal.yaml#/components/schemas/UpdateConnectorInput/properties/url
+        schedule:
+          $ref: ./ingestion.internal.yaml#/components/schemas/UpdateConnectorInput/properties/schedule
+        category:
+          $ref: ./ingestion.internal.yaml#/components/schemas/UpdateConnectorInput/properties/category
+        trustLevel:
+          $ref: ./ingestion.internal.yaml#/components/schemas/UpdateConnectorInput/properties/trustLevel
+        mapping:
+          $ref: ./ingestion.internal.yaml#/components/schemas/UpdateConnectorInput/properties/mapping
+        status:
+          $ref: ./ingestion.internal.yaml#/components/schemas/UpdateConnectorInput/properties/status
+      minProperties: 1
+    CompleteUploadRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        parts:
+          $ref: ./files.internal.yaml#/components/schemas/CompleteUploadInput/properties/parts
+    OverrideClassificationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        finalSeverity:
+          $ref: ./events.internal.yaml#/components/schemas/OverrideClassificationInput/properties/finalSeverity
+        sensitivity:
+          $ref: ./events.internal.yaml#/components/schemas/OverrideClassificationInput/properties/sensitivity
+        justification:
+          $ref: ./events.internal.yaml#/components/schemas/OverrideClassificationInput/properties/justification
+      required:
+        - justification
+      anyOf:
+        - required:
+            - finalSeverity
+        - required:
+            - sensitivity
+      description: Only an analyst override may lower severity (elevate-only rule, PROJECT.md §1.4.3). Sets status OVERRIDDEN; emits classification.overridden.
+    AssignCaseRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        assigneeUserId:
+          $ref: ./cases.internal.yaml#/components/schemas/AssignCaseInput/properties/assigneeUserId
+        expectedVersion:
+          $ref: ./cases.internal.yaml#/components/schemas/AssignCaseInput/properties/expectedVersion
+      required:
+        - assigneeUserId
+        - expectedVersion
+      description: assigneeUserId = null unassigns.
+    AddCaseNoteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        body:
+          $ref: ./cases.internal.yaml#/components/schemas/AddCaseNoteInput/properties/body
+      required:
+        - body
+    RecordDispositionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        disposition:
+          $ref: ./cases.internal.yaml#/components/schemas/RecordDispositionInput/properties/disposition
+        rationale:
+          $ref: ./cases.internal.yaml#/components/schemas/RecordDispositionInput/properties/rationale
+      required:
+        - disposition
+        - rationale
+      description: NEEDS_REVIEW keeps the status and requires a different analyst for the final disposition (four-eyes, 409 CASE_FOUR_EYES_REQUIRED).
+    RequestCaseReevaluationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          $ref: ./cases.internal.yaml#/components/schemas/RequestReevaluationInput/properties/reason
+      required:
+        - reason
+    DiscardDeadLetterRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          $ref: ./events.internal.yaml#/components/schemas/DiscardDeadLetterInput/properties/reason
+      required:
+        - reason
+    UpdateTenantSettingsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        highValueThresholdUsd:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateTenantSettingsInput/properties/highValueThresholdUsd
+        highRiskCountries:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateTenantSettingsInput/properties/highRiskCountries
+        retentionDays:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateTenantSettingsInput/properties/retentionDays
+        demoMode:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateTenantSettingsInput/properties/demoMode
+      minProperties: 1
+      description: At least one setting must be supplied (FR-TEN-08).
+    UpdateTenantStatusRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateTenantStatusInput/properties/status
+        reason:
+          $ref: ./registry.internal.yaml#/components/schemas/UpdateTenantStatusInput/properties/reason
+      required:
+        - status
+        - reason
+      description: "PLATFORM_ADMIN status change: ACTIVE <-> SUSPENDED, or DEACTIVATED (terminal) (FR-TEN-02/03)."
+    UpdateTenantRequest:
+      oneOf:
+        - $ref: "#/components/schemas/UpdateTenantSettingsRequest"
+        - $ref: "#/components/schemas/UpdateTenantStatusRequest"
+      description: Either tenant settings (TENANT_ADMIN) or a status change (PLATFORM_ADMIN).
+    MarketEventV1:
+      type: object
+      description: Payload profile AEGIS_MARKET_EVENT_V1 (FR-WHK-04). Unknown extra fields are not rejected by this contract; schema failures return 422 VALIDATION_ERROR after signature verification.
+      required:
+        - externalId
+        - category
+        - title
+        - publishedAt
+      properties:
+        externalId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        category:
+          $ref: ./ingestion.internal.yaml#/components/schemas/MarketEventCategory
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        summary:
+          type: string
+          maxLength: 4000
+        body:
+          type: string
+          maxLength: 65536
+          description: <= 64 KiB.
+        publishedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        severity:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+        url:
+          type: string
+          format: uri
+          pattern: ^https://
+          maxLength: 2048
+        mentionedEntities:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          maxItems: 50
+        tickers:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        attachments:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              url:
+                type: string
+                format: uri
+                pattern: ^https://
+                maxLength: 2048
+              filename:
+                type: string
+                minLength: 1
+                maxLength: 255
+              contentType:
+                type: string
+                minLength: 1
+            required:
+              - url
+              - filename
+              - contentType
+          maxItems: 5
+        version:
+          type: integer
+          minimum: 1
+          default: 1
+    Jwks:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              kty:
+                type: string
+              kid:
+                type: string
+              use:
+                type: string
+              alg:
+                type: string
+              n:
+                type: string
+              e:
+                type: string
+            required:
+              - kty
+              - kid
+            description: RFC 7517 JSON Web Key (RS256 public key).
+      required:
+        - keys
+    ProbeStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+      required:
+        - status
+    TransactionStatus:
+      type: string
+      enum:
+        - ACCEPTED
+        - SCORED
+        - CASE_OPENED
+        - FAILED
+    TransactionDetail:
+      type: object
+      properties:
+        submission:
+          $ref: ./ingestion.internal.yaml#/components/schemas/TransactionSubmission
+        processingStatus:
+          $ref: "#/components/schemas/TransactionStatus"
+        latestEvaluation:
+          oneOf:
+            - $ref: ./cases.internal.yaml#/components/schemas/RiskEvaluation
+            - type: "null"
+        caseId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+      required:
+        - submission
+        - processingStatus
+        - latestEvaluation
+        - caseId
+      description: Composed by the gateway from Ingestion and Cases (FR-TXN-06).

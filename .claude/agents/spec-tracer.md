@@ -1,6 +1,7 @@
 ---
 name: spec-tracer
 description: Traces AegisPulse functional requirements to specs, code, tests, and evidence, and audits status honesty. Use to answer "is FR-XXX-NN really done?", to find FRs without tests, or to check a phase's checklist and ledger against reality before marking progress.
+model: haiku
 tools: Read, Grep, Glob, Bash
 ---
 

@@ -1,0 +1,1828 @@
+openapi: 3.1.0
+info:
+  title: AegisPulse Cases internal API
+  version: 1.0.0
+  description: |-
+    Internal RPC contract for services/cases (Java 25 / Spring Boot): risk evaluations, case state machine, evidence, dispositions and the immutable audit log. Operations are POST /internal/v1/{action}; operationId equals the ServiceAction name (PROJECT.md §6.2).
+
+    All operations are `POST /internal/v1/{actionName}` (uniform RPC style) and return the success envelope `{ data, meta }` (PROJECT.md §8.2). Caller allowlists follow PROJECT.md §5.7.4; the service re-verifies the JWT, role and tenant ownership itself (FR-AUTH-06).
+servers:
+  - url: http://{host}:8085
+    description: In-cluster Service (PROJECT.md §5.4 port).
+    variables:
+      host:
+        default: aegispulse-cases
+tags:
+  - name: cases
+    description: AegisPulse Cases internal API
+security:
+  - bearerJwt: []
+x-aegis-consumer-actions:
+  - ingestAuditEvent
+paths:
+  /internal/v1/recordRiskEvaluation:
+    post:
+      operationId: recordRiskEvaluation
+      summary: Record a risk evaluation
+      description: |-
+        201 on first record; 200 when the idempotencyKey was already recorded. A SUSPENDED tenant gets the evaluation recorded with the case suppressed (suppressedReason = TENANT_SUSPENDED), not an error.
+
+        Internal action `cases.recordRiskEvaluation`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `recordRiskEvaluation`.
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordRiskEvaluationInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RiskEvaluation"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RiskEvaluation"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - orchestrator
+      x-aegis-fr:
+        - FR-TXN-05
+        - FR-CASE-01
+      x-aegis-error-codes:
+        - TENANT_SUSPENDED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/openCase:
+    post:
+      operationId: openCase
+      summary: Open a case
+      description: |-
+        201 when created; 200 when an existing case matches (tenant_id, openIdempotencyKey). New cases enter OPEN then ENRICHING automatically.
+
+        Internal action `cases.openCase`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `openCase`.
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenCaseInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Case"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Case"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - orchestrator
+      x-aegis-fr:
+        - FR-CASE-01
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getCase:
+    post:
+      operationId: getCase
+      summary: Get a case
+      description: "Internal action `cases.getCase`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getCase`."
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetCaseInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/CaseDetail"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CASE-05
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listCases:
+    post:
+      operationId: listCases
+      summary: List cases
+      description: "Internal action `cases.listCases`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listCases`."
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListCasesQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Case"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CASE-05
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getTransactionEvaluation:
+    post:
+      operationId: getTransactionEvaluation
+      summary: Get the latest risk evaluation for a transaction
+      description: |-
+        Returns the latest evaluation (score, band, factors, modelVersion, caseId nullable). 404 NOT_FOUND when no evaluation exists yet.
+
+        Internal action `cases.getTransactionEvaluation`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getTransactionEvaluation`.
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetTransactionEvaluationInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RiskEvaluation"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-TXN-06
+      x-aegis-error-codes:
+        - NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/getCaseTimeline:
+    post:
+      operationId: getCaseTimeline
+      summary: Get a case timeline
+      description: "Internal action `cases.getCaseTimeline`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `getCaseTimeline`."
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetCaseTimelineInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/CaseTimeline"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CASE-05
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/assignCase:
+    post:
+      operationId: assignCase
+      summary: Assign or unassign a case
+      description: "Internal action `cases.assignCase`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `assignCase`."
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignCaseInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Case"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CASE-05
+        - FR-CASE-07
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - CASE_CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/addCaseNote:
+    post:
+      operationId: addCaseNote
+      summary: Add a case note
+      description: "Internal action `cases.addCaseNote`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `addCaseNote`."
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCaseNoteInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/CaseNote"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CASE-05
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/recordDisposition:
+    post:
+      operationId: recordDisposition
+      summary: Record a case disposition
+      description: |-
+        Emits case.disposition.recorded with the model and rule versions of the contributing evaluations.
+
+        Internal action `cases.recordDisposition`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `recordDisposition`.
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordDispositionInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/DispositionResult"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CASE-06
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - CASE_INVALID_TRANSITION
+        - CASE_CONFLICT
+        - CASE_FOUR_EYES_REQUIRED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/requestReevaluation:
+    post:
+      operationId: requestReevaluation
+      summary: Request manual case re-evaluation
+      description: |-
+        ESCALATED/CLEARED -> ENRICHING. RESOLVED is terminal.
+
+        Internal action `cases.requestReevaluation`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `requestReevaluation`.
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestReevaluationInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Case"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-CASE-02
+        - FR-CASE-05
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - CASE_INVALID_TRANSITION
+        - CASE_CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/reevaluateOpenCases:
+    post:
+      operationId: reevaluateOpenCases
+      summary: Re-evaluate open cases for entities
+      description: "Internal action `cases.reevaluateOpenCases`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `reevaluateOpenCases`."
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReevaluateOpenCasesInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReevaluationSummary"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - orchestrator
+      x-aegis-fr:
+        - FR-COR-02
+        - FR-COR-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/attachEvidence:
+    post:
+      operationId: attachEvidence
+      summary: Attach evidence to a case
+      description: "Internal action `cases.attachEvidence`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `attachEvidence`."
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      parameters:
+        - $ref: ./components/common.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachEvidenceInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AttachEvidenceResult"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "404":
+          $ref: ./components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ./components/common.yaml#/components/responses/Conflict
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - orchestrator
+      x-aegis-fr:
+        - FR-CASE-08
+        - FR-COR-01
+      x-aegis-error-codes:
+        - CASE_NOT_FOUND
+        - CASE_CONFLICT
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/runEnrichmentTimeouts:
+    post:
+      operationId: runEnrichmentTimeouts
+      summary: Advance cases past the enrichment timeout
+      description: |-
+        ENRICHING -> POLICY_EVALUATED after the 10-minute enrichment timeout.
+
+        Internal action `cases.runEnrichmentTimeouts`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `runEnrichmentTimeouts`.
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunEnrichmentTimeoutsInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-CASE-02
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/autoResolveCleared:
+    post:
+      operationId: autoResolveCleared
+      summary: Auto-resolve cleared cases
+      description: |-
+        CLEARED -> RESOLVED after 7 days with no new evidence.
+
+        Internal action `cases.autoResolveCleared`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `autoResolveCleared`.
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutoResolveClearedInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: ./components/common.yaml#/components/schemas/JobRunSummary
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-CASE-02
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/listAuditEntries:
+    post:
+      operationId: listAuditEntries
+      summary: List audit-log entries
+      description: "Internal action `cases.listAuditEntries`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `listAuditEntries`."
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListAuditQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEntry"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+      x-aegis-fr:
+        - FR-AUD-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+  /internal/v1/verifyAuditChain:
+    post:
+      operationId: verifyAuditChain
+      summary: Verify the audit hash chain
+      description: |-
+        A broken chain is reported as valid = false (code AUDIT_CHAIN_BROKEN) with HTTP 200. The nightly job verifies the last 24 h and emits notification.requested (N-06) on failure.
+
+        Internal action `cases.verifyAuditChain`. Requires a JWT: the user token forwarded by the gateway, or a SERVICE token (aud=aegispulse-internal) whose `act[]` includes `verifyAuditChain`.
+      tags:
+        - cases
+      security:
+        - bearerJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyAuditChainInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AuditChainVerification"
+                  meta:
+                    $ref: ./components/common.yaml#/components/schemas/SuccessMeta
+        "400":
+          $ref: ./components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ./components/common.yaml#/components/responses/Unauthorized
+        "403":
+          $ref: ./components/common.yaml#/components/responses/Forbidden
+        "422":
+          $ref: ./components/common.yaml#/components/responses/ValidationError
+        "500":
+          $ref: ./components/common.yaml#/components/responses/InternalError
+        "503":
+          $ref: ./components/common.yaml#/components/responses/DependencyUnavailable
+      x-aegis-allowed-callers:
+        - gateway
+        - scheduler-trigger
+      x-aegis-fr:
+        - FR-AUD-03
+      x-aegis-error-codes:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - BAD_REQUEST
+        - VALIDATION_ERROR
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+components:
+  securitySchemes:
+    bearerJwt:
+      $ref: ./components/common.yaml#/components/securitySchemes/bearerJwt
+  schemas:
+    CaseType:
+      type: string
+      enum:
+        - TRANSACTION_RISK
+        - DOCUMENT_RISK
+        - EXTRACTION_REVIEW
+        - CORRELATED
+    CaseStatus:
+      type: string
+      enum:
+        - OPEN
+        - ENRICHING
+        - POLICY_EVALUATED
+        - ESCALATED
+        - CLEARED
+        - RESOLVED
+    CaseSeverity:
+      type: string
+      enum:
+        - LOW
+        - MEDIUM
+        - HIGH
+        - CRITICAL
+    ScoreBand:
+      type: string
+      enum:
+        - LOW
+        - MEDIUM
+        - HIGH
+        - CRITICAL
+    ScoreFactor:
+      type: object
+      properties:
+        name:
+          type: string
+        value:
+          type: number
+        contribution:
+          type: number
+      required:
+        - name
+        - value
+        - contribution
+    WatchlistHit:
+      type: object
+      properties:
+        watchlistId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        watchlistName:
+          type: string
+        severityFloor:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+        entityId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        counterpartyId:
+          oneOf:
+            - type: string
+            - type: "null"
+      required:
+        - watchlistId
+        - watchlistName
+        - severityFloor
+        - entityId
+    RecordRiskEvaluationInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        idempotencyKey:
+          type: string
+          pattern: ^risk-eval:.+
+          maxLength: 200
+          description: risk-eval:{eventId} (FR-TXN-03).
+        transactionEventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        transactionId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        accountId:
+          type: string
+          maxLength: 64
+        counterpartyId:
+          type: string
+          maxLength: 64
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        band:
+          $ref: "#/components/schemas/ScoreBand"
+        factors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScoreFactor"
+        modelVersion:
+          type: string
+          minLength: 1
+        featureVersion:
+          type: string
+          minLength: 1
+        watchlistHits:
+          type: array
+          items:
+            $ref: "#/components/schemas/WatchlistHit"
+      required:
+        - tenantId
+        - idempotencyKey
+        - transactionEventId
+        - transactionId
+        - accountId
+        - counterpartyId
+        - score
+        - band
+        - factors
+        - modelVersion
+        - featureVersion
+      description: Persists the evaluation and emits risk.evaluation.recorded; opens a TRANSACTION_RISK case in the same transaction when score >= 70 (FR-TXN-05). Idempotent by idempotencyKey.
+    RiskEvaluation:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        transactionEventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        transactionId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        accountId:
+          type: string
+        counterpartyId:
+          type: string
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        band:
+          $ref: "#/components/schemas/ScoreBand"
+        factors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScoreFactor"
+        modelVersion:
+          type: string
+        featureVersion:
+          type: string
+        watchlistHits:
+          type: array
+          items:
+            $ref: "#/components/schemas/WatchlistHit"
+        caseId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        suppressedReason:
+          oneOf:
+            - type: string
+              description: e.g. TENANT_SUSPENDED.
+            - type: "null"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - tenantId
+        - transactionEventId
+        - transactionId
+        - score
+        - band
+        - factors
+        - modelVersion
+        - featureVersion
+        - watchlistHits
+        - createdAt
+    OpenCaseInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        caseType:
+          $ref: "#/components/schemas/CaseType"
+        severity:
+          $ref: "#/components/schemas/CaseSeverity"
+        triggerEventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        triggerFileId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        primaryEntityIds:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+          uniqueItems: true
+        openIdempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Opening is idempotent by (tenant_id, openIdempotencyKey), e.g. doc-risk:{eventId}:{entityId}.
+        previousCaseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - tenantId
+        - caseType
+        - severity
+        - triggerEventId
+        - openIdempotencyKey
+    Case:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        caseNumber:
+          type: string
+          pattern: ^AP-[0-9]{4}-[0-9]{6}$
+        caseType:
+          $ref: "#/components/schemas/CaseType"
+        status:
+          $ref: "#/components/schemas/CaseStatus"
+        severity:
+          $ref: "#/components/schemas/CaseSeverity"
+        policyScore:
+          oneOf:
+            - type: integer
+              minimum: 0
+              maximum: 100
+            - type: "null"
+        policyVersion:
+          oneOf:
+            - type: string
+            - type: "null"
+        primaryEntityIds:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+        triggerEventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        triggerFileId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        previousCaseId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        assigneeUserId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        pendingDisposition:
+          oneOf:
+            - type: string
+              enum:
+                - NEEDS_REVIEW
+            - type: "null"
+        version:
+          type: integer
+          minimum: 0
+          description: Optimistic-locking version.
+        resolvedAt:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+            - type: "null"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        updatedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - tenantId
+        - caseNumber
+        - caseType
+        - status
+        - severity
+        - primaryEntityIds
+        - triggerEventId
+        - version
+        - createdAt
+        - updatedAt
+    PolicyFactor:
+      type: object
+      properties:
+        name:
+          type: string
+        contribution:
+          type: number
+      required:
+        - name
+        - contribution
+    PolicyEvaluation:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        revision:
+          type: integer
+        policyVersion:
+          type: string
+        policyScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        outcome:
+          type: string
+          enum:
+            - ESCALATED
+            - CLEARED
+        factors:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicyFactor"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - revision
+        - policyVersion
+        - policyScore
+        - outcome
+        - factors
+        - createdAt
+    CaseDetail:
+      allOf:
+        - $ref: "#/components/schemas/Case"
+        - type: object
+          properties:
+            latestPolicyEvaluation:
+              oneOf:
+                - $ref: "#/components/schemas/PolicyEvaluation"
+                - type: "null"
+          required:
+            - latestPolicyEvaluation
+      description: Case with its latest policy-factor breakdown (FR-CASE-04, FR-FE-03).
+    GetCaseInput:
+      type: object
+      additionalProperties: false
+      properties:
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - caseId
+    ListCasesQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+        status:
+          $ref: "#/components/schemas/CaseStatus"
+        caseType:
+          $ref: "#/components/schemas/CaseType"
+        severity:
+          $ref: "#/components/schemas/CaseSeverity"
+        assigneeUserId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        entityId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+    GetTransactionEvaluationInput:
+      type: object
+      additionalProperties: false
+      properties:
+        transactionId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - transactionId
+    GetCaseTimelineInput:
+      type: object
+      additionalProperties: false
+      properties:
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - caseId
+    CaseTransition:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        fromStatus:
+          oneOf:
+            - $ref: "#/components/schemas/CaseStatus"
+            - type: "null"
+        toStatus:
+          $ref: "#/components/schemas/CaseStatus"
+        triggerType:
+          type: string
+          enum:
+            - EVENT
+            - USER
+            - TIMER
+            - SYSTEM
+        triggerRef:
+          oneOf:
+            - type: string
+            - type: "null"
+        caseVersion:
+          type: integer
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - toStatus
+        - triggerType
+        - caseVersion
+        - createdAt
+    EvidenceType:
+      type: string
+      enum:
+        - EVENT
+        - FILE
+        - EXTRACTION
+        - RISK_EVALUATION
+        - WATCHLIST_HIT
+    CaseEvidence:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        evidenceType:
+          $ref: "#/components/schemas/EvidenceType"
+        evidenceRef:
+          type: string
+        finalSeverity:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Severity
+            - type: "null"
+        summary:
+          type: object
+          additionalProperties: true
+        attachedBy:
+          type: string
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - evidenceType
+        - evidenceRef
+        - summary
+        - attachedBy
+        - createdAt
+    CaseNote:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        authorId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        body:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        lockedAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - caseId
+        - authorId
+        - body
+        - lockedAt
+        - createdAt
+      description: Immutable after lockedAt (created + 15 min).
+    DispositionValue:
+      type: string
+      enum:
+        - TRUE_POSITIVE
+        - FALSE_POSITIVE
+        - NEEDS_REVIEW
+    CaseDisposition:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        disposition:
+          $ref: "#/components/schemas/DispositionValue"
+        rationale:
+          type: string
+          minLength: 20
+        analystId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        modelVersions:
+          type: array
+          items:
+            type: string
+        ruleVersions:
+          type: array
+          items:
+            type: string
+        policyVersion:
+          oneOf:
+            - type: string
+            - type: "null"
+        createdAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+      required:
+        - id
+        - caseId
+        - disposition
+        - rationale
+        - analystId
+        - modelVersions
+        - ruleVersions
+        - createdAt
+    CaseTimeline:
+      type: object
+      properties:
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        transitions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CaseTransition"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/CaseEvidence"
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/CaseNote"
+        dispositions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CaseDisposition"
+      required:
+        - caseId
+        - transitions
+        - evidence
+        - notes
+        - dispositions
+    AssignCaseInput:
+      type: object
+      additionalProperties: false
+      properties:
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        assigneeUserId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        expectedVersion:
+          type: integer
+          minimum: 0
+          description: Mismatch returns 409 CASE_CONFLICT.
+      required:
+        - caseId
+        - assigneeUserId
+        - expectedVersion
+      description: assigneeUserId = null unassigns.
+    AddCaseNoteInput:
+      type: object
+      additionalProperties: false
+      properties:
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        body:
+          type: string
+          minLength: 1
+          maxLength: 4000
+      required:
+        - caseId
+        - body
+    RecordDispositionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        disposition:
+          $ref: "#/components/schemas/DispositionValue"
+        rationale:
+          type: string
+          minLength: 20
+      required:
+        - caseId
+        - disposition
+        - rationale
+      description: NEEDS_REVIEW keeps the status and requires a different analyst for the final disposition (four-eyes, 409 CASE_FOUR_EYES_REQUIRED).
+    DispositionResult:
+      type: object
+      properties:
+        disposition:
+          $ref: "#/components/schemas/CaseDisposition"
+        case:
+          $ref: "#/components/schemas/Case"
+      required:
+        - disposition
+        - case
+    RequestReevaluationInput:
+      type: object
+      additionalProperties: false
+      properties:
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        reason:
+          type: string
+          minLength: 1
+      required:
+        - caseId
+        - reason
+    ReevaluateOpenCasesInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        entityIds:
+          type: array
+          items:
+            $ref: ./components/common.yaml#/components/schemas/Uuid
+          minItems: 1
+          maxItems: 50
+        triggerEventId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+      required:
+        - tenantId
+        - entityIds
+        - triggerEventId
+      description: "Fan-out bounded: <= 50 entities, <= 100 cases per trigger (FR-COR-03)."
+    ReevaluationSummary:
+      type: object
+      properties:
+        matchedCases:
+          type: integer
+          minimum: 0
+        reevaluatedCases:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+          description: True when the 100-case bound was exceeded.
+      required:
+        - matchedCases
+        - reevaluatedCases
+        - truncated
+    EvidenceItem:
+      type: object
+      additionalProperties: false
+      properties:
+        evidenceType:
+          $ref: "#/components/schemas/EvidenceType"
+        evidenceRef:
+          type: string
+          minLength: 1
+        finalSeverity:
+          $ref: ./components/common.yaml#/components/schemas/Severity
+        summary:
+          type: object
+          additionalProperties: true
+      required:
+        - evidenceType
+        - evidenceRef
+    AttachEvidenceInput:
+      type: object
+      additionalProperties: false
+      properties:
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceItem"
+          minItems: 1
+      required:
+        - caseId
+        - items
+      description: Idempotent by (caseId, evidenceType, evidenceRef).
+    AttachEvidenceResult:
+      type: object
+      properties:
+        caseId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        attached:
+          type: integer
+          minimum: 0
+        duplicates:
+          type: integer
+          minimum: 0
+        reevaluationTriggered:
+          type: boolean
+        newCaseId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+      required:
+        - caseId
+        - attached
+        - duplicates
+        - reevaluationTriggered
+      description: newCaseId is set when evidence on a RESOLVED case opened a new CORRELATED case (FR-CASE-08).
+    RunEnrichmentTimeoutsInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty payload (Record<string, never>).
+    AutoResolveClearedInput:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty payload (Record<string, never>).
+    ListAuditQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/limit
+        cursor:
+          $ref: ./components/common.yaml#/components/schemas/PageQuery/properties/cursor
+        subjectType:
+          type: string
+        subjectId:
+          type: string
+        actorId:
+          type: string
+        action:
+          type: string
+        from:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        to:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        seq:
+          type: integer
+          format: int64
+          minimum: 1
+        occurredAt:
+          $ref: ./components/common.yaml#/components/schemas/IsoDateTime
+        actorType:
+          type: string
+          enum:
+            - USER
+            - SERVICE
+            - SYSTEM
+        actorId:
+          type: string
+        actingAs:
+          oneOf:
+            - type: string
+            - type: "null"
+        action:
+          type: string
+        subjectType:
+          type: string
+        subjectId:
+          type: string
+        triggerEventId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        triggerFileId:
+          oneOf:
+            - $ref: ./components/common.yaml#/components/schemas/Uuid
+            - type: "null"
+        modelVersion:
+          oneOf:
+            - type: string
+            - type: "null"
+        ruleVersion:
+          oneOf:
+            - type: string
+            - type: "null"
+        before:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: "null"
+        after:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: "null"
+        prevHash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        hash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+      required:
+        - id
+        - seq
+        - occurredAt
+        - actorType
+        - actorId
+        - action
+        - subjectType
+        - subjectId
+        - prevHash
+        - hash
+      description: Append-only; hash = SHA-256(canonicalJSON(entry without hash) || prevHash) (FR-AUD-01).
+    VerifyAuditChainInput:
+      type: object
+      additionalProperties: false
+      properties:
+        tenantId:
+          $ref: ./components/common.yaml#/components/schemas/Uuid
+        fromSeq:
+          type: integer
+          format: int64
+          minimum: 1
+        toSeq:
+          type: integer
+          format: int64
+          minimum: 1
+      description: tenantId is supplied by SERVICE callers (nightly job); user callers are scoped by the token tenant.
+    AuditChainVerification:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        checked:
+          type: integer
+          format: int64
+          minimum: 0
+        firstBrokenSeq:
+          type: integer
+          format: int64
+        code:
+          type: string
+          enum:
+            - AUDIT_CHAIN_BROKEN
+          description: Present when valid = false. Reported in the body with HTTP 200, never as an error.
+      required:
+        - valid
+        - checked

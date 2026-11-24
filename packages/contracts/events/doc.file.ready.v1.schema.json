@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/doc.file.ready.v1.schema.json",
+  "title": "doc.file.ready payload (v1)",
+  "description": "File passed validation (VALIDATED); triggers doc extraction. Producer: files. Exchange: aegispulse.enrichment. FRs: FR-FILE-05, FR-DOC-01. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "required": ["fileId", "storageKey", "sha256", "contentType", "purpose"],
+  "properties": {
+    "fileId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "storageKey": {
+      "$ref": "_shared.v1.schema.json#/$defs/storageKey"
+    },
+    "sha256": {
+      "$ref": "_shared.v1.schema.json#/$defs/sha256Hex"
+    },
+    "contentType": {
+      "$ref": "_shared.v1.schema.json#/$defs/fileContentType"
+    },
+    "purpose": {
+      "$ref": "_shared.v1.schema.json#/$defs/filePurpose"
+    }
+  },
+  "additionalProperties": true
+}

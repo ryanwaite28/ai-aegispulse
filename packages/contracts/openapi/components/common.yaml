@@ -1,0 +1,385 @@
+openapi: 3.1.0
+info:
+  title: AegisPulse shared OpenAPI components
+  version: 1.0.0
+  summary: Shared schemas, parameters, security scheme and error responses (PROJECT.md §8.2, §8.4, §1.4).
+  description: Referenced by gateway.public.yaml and every {service}.internal.yaml. Not a deployable API; it carries components only.
+paths: {}
+components:
+  securitySchemes:
+    bearerJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "RS256 access JWT issued by the Registry and validated against the Registry JWKS (`/.well-known/jwks.json`, kid-addressed). Claims: sub, tid, tslug, roles[], typ, iss=aegispulse-registry, aud=aegispulse (user/integration) or aegispulse-internal (SERVICE tokens, which also carry `act[]`), jti, iat, exp. The gateway validates, then forwards the original Authorization header; the owning service re-verifies and enforces RBAC and tenant ownership (PROJECT.md §8.3 JWT validation note, FR-AUTH-05/06)."
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+      pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+      description: Lower-case UUID (v4 or v7).
+    IsoDateTime:
+      type: string
+      format: date-time
+      description: RFC 3339 / ISO 8601 timestamp, UTC.
+    IsoDate:
+      type: string
+      format: date
+      description: ISO 8601 calendar date (YYYY-MM-DD).
+    Severity:
+      type: string
+      enum:
+        - INFO
+        - LOW
+        - MEDIUM
+        - HIGH
+        - CRITICAL
+      description: Severity scale, ranked INFO(0) < LOW < MEDIUM < HIGH < CRITICAL(4) (PROJECT.md §1.4.1).
+    Sensitivity:
+      type: string
+      enum:
+        - PUBLIC
+        - INTERNAL
+        - CONFIDENTIAL
+        - RESTRICTED
+        - UNCLASSIFIED
+      description: Sensitivity scale (PROJECT.md §1.4.1).
+    SensitivityCategory:
+      type: string
+      enum:
+        - PII
+        - MNPI
+        - REGULATORY
+        - FINANCIAL
+        - SECRET
+      description: Sensitivity categories (PROJECT.md §1.4.1).
+    Role:
+      type: string
+      enum:
+        - PLATFORM_ADMIN
+        - TENANT_ADMIN
+        - ANALYST
+        - VIEWER
+        - COMPLIANCE_AUDITOR
+        - INTEGRATION
+        - SERVICE
+      description: Roles (PROJECT.md §1.4.6). INTEGRATION and SERVICE are service-account roles.
+    ErrorCode:
+      type: string
+      enum:
+        - VALIDATION_ERROR
+        - BAD_REQUEST
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - NOT_FOUND
+        - CONFLICT
+        - PAYLOAD_TOO_LARGE
+        - RATE_LIMITED
+        - INTERNAL_ERROR
+        - DEPENDENCY_UNAVAILABLE
+        - AUTH_INVALID_CREDENTIALS
+        - AUTH_RATE_LIMITED
+        - AUTH_REFRESH_INVALID
+        - AUTH_PASSWORD_POLICY
+        - TENANT_SUSPENDED
+        - TENANT_SLUG_TAKEN
+        - LAST_TENANT_ADMIN
+        - USER_EMAIL_TAKEN
+        - ENTITY_DUPLICATE
+        - WATCHLIST_NAME_TAKEN
+        - WEBHOOK_SOURCE_NOT_FOUND
+        - WEBHOOK_SIGNATURE_INVALID
+        - WEBHOOK_TIMESTAMP_SKEW
+        - WEBHOOK_REPLAY_DETECTED
+        - WEBHOOK_SOURCE_KEY_TAKEN
+        - CONNECTOR_RUN_THROTTLED
+        - IDEMPOTENCY_KEY_REUSED
+        - IDEMPOTENCY_KEY_REQUIRED
+        - FILE_TYPE_NOT_ALLOWED
+        - FILE_TOO_LARGE
+        - UPLOAD_RATE_LIMITED
+        - STORAGE_QUOTA_EXCEEDED
+        - UPLOAD_SESSION_EXPIRED
+        - UPLOAD_NOT_FOUND_IN_STORAGE
+        - UPLOAD_SIZE_MISMATCH
+        - FILE_NOT_DOWNLOADABLE
+        - FILE_QUARANTINED
+        - EVENT_NOT_FOUND
+        - CLASSIFICATION_JUSTIFICATION_REQUIRED
+        - REPLAY_FILTER_INVALID
+        - REPLAY_TARGET_NOT_ALLOWED
+        - REPLAY_JOB_NOT_CANCELLABLE
+        - CASE_NOT_FOUND
+        - CASE_INVALID_TRANSITION
+        - CASE_CONFLICT
+        - CASE_FOUR_EYES_REQUIRED
+        - CASE_NOTE_LOCKED
+        - AUDIT_CHAIN_BROKEN
+        - DEAD_LETTER_NOT_FOUND
+        - DEAD_LETTER_ALREADY_RESOLVED
+        - STREAM_LIMIT
+        - ENVELOPE_INVALID
+      description: "Stable error codes (PROJECT.md §8.4): VALIDATION_ERROR (422), BAD_REQUEST (400), UNAUTHORIZED (401), FORBIDDEN (403), NOT_FOUND (404), CONFLICT (409), PAYLOAD_TOO_LARGE (413), RATE_LIMITED (429), INTERNAL_ERROR (500), DEPENDENCY_UNAVAILABLE (503), AUTH_INVALID_CREDENTIALS (401), AUTH_RATE_LIMITED (429), AUTH_REFRESH_INVALID (401), AUTH_PASSWORD_POLICY (422), TENANT_SUSPENDED (403), TENANT_SLUG_TAKEN (409), LAST_TENANT_ADMIN (409), USER_EMAIL_TAKEN (409), ENTITY_DUPLICATE (409), WATCHLIST_NAME_TAKEN (409), WEBHOOK_SOURCE_NOT_FOUND (404), WEBHOOK_SIGNATURE_INVALID (401), WEBHOOK_TIMESTAMP_SKEW (401), WEBHOOK_REPLAY_DETECTED (409), WEBHOOK_SOURCE_KEY_TAKEN (409), CONNECTOR_RUN_THROTTLED (429), IDEMPOTENCY_KEY_REUSED (409), IDEMPOTENCY_KEY_REQUIRED (422), FILE_TYPE_NOT_ALLOWED (422), FILE_TOO_LARGE (413), UPLOAD_RATE_LIMITED (429), STORAGE_QUOTA_EXCEEDED (413), UPLOAD_SESSION_EXPIRED (409), UPLOAD_NOT_FOUND_IN_STORAGE (409), UPLOAD_SIZE_MISMATCH (409), FILE_NOT_DOWNLOADABLE (409), FILE_QUARANTINED (403), EVENT_NOT_FOUND (404), CLASSIFICATION_JUSTIFICATION_REQUIRED (422), REPLAY_FILTER_INVALID (422), REPLAY_TARGET_NOT_ALLOWED (422), REPLAY_JOB_NOT_CANCELLABLE (409), CASE_NOT_FOUND (404), CASE_INVALID_TRANSITION (409), CASE_CONFLICT (409), CASE_FOUR_EYES_REQUIRED (409), CASE_NOTE_LOCKED (409), AUDIT_CHAIN_BROKEN (200 (in body of verify endpoint; not an HTTP error)), DEAD_LETTER_NOT_FOUND (404), DEAD_LETTER_ALREADY_RESOLVED (409), STREAM_LIMIT (429), ENVELOPE_INVALID (none (DLQ header x-aegis-error-code))."
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      properties:
+        field:
+          type: string
+          description: Offending field path.
+        issue:
+          type: string
+          description: Machine-readable issue key.
+      required:
+        - issue
+    ErrorMeta:
+      type: object
+      additionalProperties: false
+      properties:
+        requestId:
+          type: string
+        correlationId:
+          type: string
+        traceId:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          description: W3C trace id.
+      required:
+        - requestId
+        - correlationId
+        - traceId
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          properties:
+            code:
+              $ref: "#/components/schemas/ErrorCode"
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                $ref: "#/components/schemas/ErrorDetail"
+          required:
+            - code
+            - message
+        meta:
+          $ref: "#/components/schemas/ErrorMeta"
+      required:
+        - error
+        - meta
+      description: Error response envelope (PROJECT.md §8.2). Never contains stack traces.
+    SuccessMeta:
+      type: object
+      additionalProperties: false
+      properties:
+        requestId:
+          type: string
+          examples:
+            - req_01J...
+        correlationId:
+          type: string
+          examples:
+            - corr-98f1a2b3-4c5d-6e7f-8a9b-0c1d2e3f4a5b
+        nextCursor:
+          type: string
+          description: Opaque base64url cursor; present on list responses when more pages exist.
+      required:
+        - requestId
+        - correlationId
+      description: Success response meta (PROJECT.md §8.2).
+    PageQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+          description: Page size.
+        cursor:
+          type: string
+          maxLength: 1024
+          pattern: ^[A-Za-z0-9_-]+$
+          description: Opaque base64url sort-key cursor from the previous response `meta.nextCursor`.
+      description: Cursor pagination query (PROJECT.md §2.0).
+    EmptyObject:
+      type: object
+      additionalProperties: false
+      properties: {}
+      description: Empty object.
+    Ack:
+      type: object
+      properties: {}
+      description: "Acknowledgement for commands that return no resource (carried as `data: {}`)."
+    JobRunSummary:
+      type: object
+      properties:
+        processedCount:
+          type: integer
+          minimum: 0
+          description: Items processed by the run.
+        startedAt:
+          $ref: "#/components/schemas/IsoDateTime"
+        finishedAt:
+          $ref: "#/components/schemas/IsoDateTime"
+      required:
+        - processedCount
+      description: Result of a scheduled/maintenance action. PROJECT.md does not define the result shape; minimal summary chosen.
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size (1-100, default 25).
+      schema:
+        $ref: "#/components/schemas/PageQuery/properties/limit"
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor from the previous page `meta.nextCursor`.
+      schema:
+        $ref: "#/components/schemas/PageQuery/properties/cursor"
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Optional idempotency key (<= 128 chars) accepted by all mutations (PROJECT.md §2.0). Same key + same body returns the original response; same key + different body returns 409 IDEMPOTENCY_KEY_REUSED. Mandatory where an FR says "idempotent by".
+      schema:
+        type: string
+        maxLength: 128
+        minLength: 1
+    XAegisTenant:
+      name: X-Aegis-Tenant
+      in: header
+      required: false
+      description: "PLATFORM_ADMIN only: act on a specific tenant (UUID). Audited with `actingAs` (FR-AUTH-06). Ignored/forbidden for other roles."
+      schema:
+        $ref: "#/components/schemas/Uuid"
+  responses:
+    BadRequest:
+      description: Malformed JSON or unsupported content type. Body is ErrorEnvelope (PROJECT.md §8.2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+      x-aegis-typical-codes:
+        - BAD_REQUEST
+    Unauthorized:
+      description: Missing, invalid or expired token, or failed credentials/signature. Body is ErrorEnvelope (PROJECT.md §8.2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+      x-aegis-typical-codes:
+        - UNAUTHORIZED
+        - AUTH_INVALID_CREDENTIALS
+        - AUTH_REFRESH_INVALID
+        - WEBHOOK_SIGNATURE_INVALID
+        - WEBHOOK_TIMESTAMP_SKEW
+    Forbidden:
+      description: Authenticated but not permitted (role, tenant state, or SERVICE act[] allowlist). Body is ErrorEnvelope (PROJECT.md §8.2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+      x-aegis-typical-codes:
+        - FORBIDDEN
+        - TENANT_SUSPENDED
+        - FILE_QUARANTINED
+    NotFound:
+      description: Resource absent or belonging to another tenant (cross-tenant access returns 404, FR-AUTH-06). Body is ErrorEnvelope (PROJECT.md §8.2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+      x-aegis-typical-codes:
+        - NOT_FOUND
+        - WEBHOOK_SOURCE_NOT_FOUND
+        - EVENT_NOT_FOUND
+        - CASE_NOT_FOUND
+        - DEAD_LETTER_NOT_FOUND
+    Conflict:
+      description: State conflict or duplicate. Body is ErrorEnvelope (PROJECT.md §8.2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+      x-aegis-typical-codes:
+        - CONFLICT
+        - TENANT_SLUG_TAKEN
+        - LAST_TENANT_ADMIN
+        - USER_EMAIL_TAKEN
+        - ENTITY_DUPLICATE
+        - WATCHLIST_NAME_TAKEN
+        - WEBHOOK_REPLAY_DETECTED
+        - WEBHOOK_SOURCE_KEY_TAKEN
+        - IDEMPOTENCY_KEY_REUSED
+        - UPLOAD_SESSION_EXPIRED
+        - UPLOAD_NOT_FOUND_IN_STORAGE
+        - UPLOAD_SIZE_MISMATCH
+        - FILE_NOT_DOWNLOADABLE
+        - REPLAY_JOB_NOT_CANCELLABLE
+        - CASE_INVALID_TRANSITION
+        - CASE_CONFLICT
+        - CASE_FOUR_EYES_REQUIRED
+        - CASE_NOTE_LOCKED
+        - DEAD_LETTER_ALREADY_RESOLVED
+    ValidationError:
+      description: Body/query failed validation; `error.details[]` lists fields. Body is ErrorEnvelope (PROJECT.md §8.2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+      x-aegis-typical-codes:
+        - VALIDATION_ERROR
+        - AUTH_PASSWORD_POLICY
+        - IDEMPOTENCY_KEY_REQUIRED
+        - FILE_TYPE_NOT_ALLOWED
+        - CLASSIFICATION_JUSTIFICATION_REQUIRED
+        - REPLAY_FILTER_INVALID
+        - REPLAY_TARGET_NOT_ALLOWED
+    RateLimited:
+      description: Rate limit exceeded. Body is ErrorEnvelope (PROJECT.md §8.2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+      x-aegis-typical-codes:
+        - RATE_LIMITED
+        - AUTH_RATE_LIMITED
+        - CONNECTOR_RUN_THROTTLED
+        - UPLOAD_RATE_LIMITED
+        - STREAM_LIMIT
+    PayloadTooLarge:
+      description: Body or resource exceeds a limit. Body is ErrorEnvelope (PROJECT.md §8.2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+      x-aegis-typical-codes:
+        - PAYLOAD_TOO_LARGE
+        - FILE_TOO_LARGE
+        - STORAGE_QUOTA_EXCEEDED
+    InternalError:
+      description: Unhandled failure; `meta.traceId` identifies the trace. Body is ErrorEnvelope (PROJECT.md §8.2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+      x-aegis-typical-codes:
+        - INTERNAL_ERROR
+    DependencyUnavailable:
+      description: Required downstream unavailable or circuit open (synchronous paths only). Body is ErrorEnvelope (PROJECT.md §8.2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+      x-aegis-typical-codes:
+        - DEPENDENCY_UNAVAILABLE

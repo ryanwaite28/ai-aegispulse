@@ -1,0 +1,55 @@
+# registry configuration (PROJECT.md §6.9, §10.4): environment variables only; nothing environment-specific here.
+# Platform defaults (logs, probes, confirms, no runtime declaration) come from java-platform at lowest precedence.
+spring:
+  application:
+    name: registry
+  config:
+    import: optional:file:/app/build-info.properties # aegis.version=<git sha>, written by the image build
+  datasource:
+    url: jdbc:postgresql://${PG_HOST}:${PG_PORT:5432}/${PG_DATABASE}
+    username: ${PG_USER}
+    password: ${PG_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+  rabbitmq:
+    addresses: ${AMQP_URL}
+  data:
+    redis:
+      url: ${REDIS_URL}
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true # contract schemas are additionalProperties: false
+
+server:
+  port: 8084
+
+logging:
+  level:
+    root: ${LOG_LEVEL:info}
+
+aegis:
+  service: registry
+  version: dev
+  env: ${AEGIS_ENV}
+  security:
+    jwk-set-uri: ${REGISTRY_URL}/.well-known/jwks.json
+    issuer: ${JWT_ISSUER}
+    audience: ${JWT_AUDIENCE}
+    public-paths: # FR-AUTH-05 JWKS and the unauthenticated client-credentials action (FR-AUTH-04)
+      - /.well-known/jwks.json
+      - /internal/v1/issueClientCredentialsToken
+  readiness:
+    schema: registry
+    min-flyway-version: "8"
+  outbox:
+    schema: registry
+
+management:
+  health:
+    redis:
+      enabled: false # Boot's indicator runs PING/INFO, which the registry ACL user is not granted (§5.7.3)
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState,db,rabbit,flywaySchema,redisAcl

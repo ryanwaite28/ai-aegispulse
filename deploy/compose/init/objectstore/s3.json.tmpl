@@ -1,0 +1,21 @@
+{
+  "identities": [
+    { "name": "admin", "credentials": [{ "accessKey": "__S3_ADMIN_ACCESS_KEY__", "secretKey": "__S3_ADMIN_SECRET_KEY__" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"] },
+    { "name": "files", "credentials": [{ "accessKey": "__S3_FILES_ACCESS_KEY__", "secretKey": "__S3_FILES_SECRET_KEY__" }],
+      "actions": ["Read:aegispulse-local-raw/*", "Write:aegispulse-local-raw/*", "List:aegispulse-local-raw",
+                  "Read:aegispulse-local-quarantine/*", "Write:aegispulse-local-quarantine/*", "List:aegispulse-local-quarantine",
+                  "Read:aegispulse-local-artifacts/*", "Write:aegispulse-local-artifacts/*"] },
+    { "name": "ingestion", "credentials": [{ "accessKey": "__S3_INGESTION_ACCESS_KEY__", "secretKey": "__S3_INGESTION_SECRET_KEY__" }],
+      "actions": ["Write:aegispulse-local-raw/raw/webhooks/*", "Read:aegispulse-local-raw/raw/webhooks/*",
+                  "List:aegispulse-local-raw/raw/webhooks/*"] },
+    { "name": "doc_extraction", "credentials": [{ "accessKey": "__S3_DOC_EXTRACTION_ACCESS_KEY__", "secretKey": "__S3_DOC_EXTRACTION_SECRET_KEY__" }],
+      "actions": ["Write:aegispulse-local-artifacts/*", "Read:aegispulse-local-artifacts/*"] },
+    { "name": "events", "credentials": [{ "accessKey": "__S3_EVENTS_ACCESS_KEY__", "secretKey": "__S3_EVENTS_SECRET_KEY__" }],
+      "actions": ["Write:aegispulse-local-archive/*", "Read:aegispulse-local-archive/*", "List:aegispulse-local-archive"] },
+    { "name": "data_intel", "credentials": [{ "accessKey": "__S3_DATA_INTEL_ACCESS_KEY__", "secretKey": "__S3_DATA_INTEL_SECRET_KEY__" }],
+      "actions": ["Write:aegispulse-local-analytics/*", "Read:aegispulse-local-analytics/*", "List:aegispulse-local-analytics"] },
+    { "name": "backup", "credentials": [{ "accessKey": "__S3_BACKUP_ACCESS_KEY__", "secretKey": "__S3_BACKUP_SECRET_KEY__" }],
+      "actions": ["Write:aegispulse-local-backups/*", "List:aegispulse-local-backups"] }
+  ]
+}

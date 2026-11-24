@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AegisPulse topology",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "exchanges", "queues", "bindings"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "exchanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type", "durable"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^aegispulse\\.[a-z]+$"
+          },
+          "type": {
+            "enum": ["topic", "direct", "fanout"]
+          },
+          "durable": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "queues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "owner", "type", "durable", "arguments"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z-]+(\\.[a-z0-9-]+)+$"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "type": {
+            "enum": ["quorum", "classic"]
+          },
+          "durable": {
+            "type": "boolean"
+          },
+          "prefetch": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "retryTiers": {
+            "type": "array",
+            "items": {
+              "enum": ["1s", "5s", "30s"]
+            }
+          },
+          "deadLetterQueue": {
+            "type": ["string", "null"]
+          },
+          "role": {
+            "enum": ["retry", "dlq", "delay"]
+          },
+          "arguments": {
+            "type": "object"
+          },
+          "fr": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["exchange", "queue", "routingKey"],
+        "properties": {
+          "exchange": {
+            "type": "string"
+          },
+          "queue": {
+            "type": "string"
+          },
+          "routingKey": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "dynamicQueues": {
+      "type": "array"
+    }
+  }
+}

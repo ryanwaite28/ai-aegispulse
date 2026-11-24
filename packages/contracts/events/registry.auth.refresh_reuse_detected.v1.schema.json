@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/registry.auth.refresh_reuse_detected.v1.schema.json",
+  "title": "registry.auth.refresh_reuse_detected payload (v1)",
+  "description": "Security audit AUTH_REFRESH_REUSE: an invalidated refresh token was presented, so its whole family was revoked. Ids only; no secrets or password data. Producer: registry. Exchange: aegispulse.domain. FRs: FR-AUTH-02, FR-AUD-02. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/registryChange"
+    }
+  ],
+  "required": ["userId", "familyId"],
+  "properties": {
+    "userId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "familyId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    }
+  },
+  "additionalProperties": true
+}

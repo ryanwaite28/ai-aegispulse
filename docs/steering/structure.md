@@ -5,8 +5,8 @@
 ## Decision table
 | You are writing… | It goes in… | It may import… | It must NOT import… |
 |---|---|---|---|
-| A public HTTP route / webhook receiver / SSE projection | `gateway/fastify-http/src/{handlers,routes,sse}/` | `src/clients/*`, `ts-platform` (http, auth, logging), generated contract types | `pg`, `mongodb`, `ioredis`, `@aws-sdk/*`, any `services/*` source |
-| A typed client for a service | `gateway/fastify-http/src/clients/{svc}.service-client.ts` or `services/orchestrator/src/clients/` | generated types, `ts-platform/http-client` | business rules |
+| A public HTTP route / webhook receiver / SSE projection | `gateway/nest-http/src/modules/{domain}/` (controller + module) or `src/stream/` (`@Sse`); guards, pipes, interceptors in `src/common/` | `src/clients/*`, `src/common/*`, `@nestjs/*`, `ts-platform` (http, auth, logging), generated contract types | `pg`, `mongodb`, `ioredis`, `@aws-sdk/*`, any `services/*` source |
+| A typed client for a service | `gateway/nest-http/src/clients/{svc}.client.ts` (`@Injectable`) or `services/orchestrator/src/clients/` | generated types, `ts-platform/http-client` | business rules |
 | An internal route of a service | `services/{svc}/src/adapters/http/` | that service's `src/service/*`, framework types | repositories directly, other services' code |
 | A queue consumer | `services/{svc}/src/adapters/amqp/{queue}.consumer.ts` (Java/Python equivalents) | consumer kit, that service's service action | repositories, DB clients, business conditionals |
 | A business rule or calculation | `services/{svc}/src/domain/` (pure, no I/O) | other domain modules, contract types | framework types, clients, repositories |
@@ -27,6 +27,7 @@
 | Proof that something works | `docs/evidence/phase-NN.md` | — | claims without commands and output |
 
 ## Naming
+- Gateway (NestJS) files are `{domain}.controller.ts`, `{domain}.module.ts`, `{name}.guard.ts`, `{name}.pipe.ts`, `{name}.interceptor.ts`, `{svc}.client.ts`, `{domain}.mapper.ts`. Never use `*.service.ts` in the gateway.
 - Services and directories use kebab-case. TS files use `{domain}.{role}.ts` (`case.service.ts`, `webhook.handler.ts`, `txn.consumer.ts`, `files.repository.ts`, `score-transaction.saga.ts`).
 - Java packages are `io.aegispulse.{svc}.{layer}`. Classes are `{Thing}Service`, `{Thing}Repository`, `{Thing}Controller` (adapter), `{Queue}Listener` (adapter).
 - Python modules are snake_case and packages are `aegis_{svc}`.

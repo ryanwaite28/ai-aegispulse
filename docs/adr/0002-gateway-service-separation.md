@@ -9,7 +9,7 @@
 The template guide requires Service Layer Supremacy and forbids gateways and workers from opening DB connections. The source concept places HMAC/Redis nonce checks and saga coordination in "Node edge consumers".
 
 ## Decision
-- `gateway/fastify-http` is the only external entrypoint. It handles auth context, shape validation, and mapping, and calls typed clients. It holds **no** PostgreSQL, Mongo, Redis, or object-store clients. Subscribing to RabbitMQ for SSE projections is allowed because the broker is a transport, not a datastore.
+- `gateway/nest-http` (NestJS on the Fastify adapter since ADR-0013) is the only external entrypoint. It handles auth context, shape validation, and mapping, and calls typed clients. It holds **no** PostgreSQL, Mongo, Redis, or object-store clients. Subscribing to RabbitMQ for SSE projections is allowed because the broker is a transport, not a datastore.
 - Webhook verification (HMAC, skew, Redis nonce) lives in `services/ingestion`. The gateway forwards the raw bytes.
 - Cross-service sagas live in `services/orchestrator` (a service with a service layer and no datastore).
 - `workers/scheduler-trigger` CronJobs each call exactly one internal service action.

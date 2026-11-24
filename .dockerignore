@@ -1,0 +1,20 @@
+# Build context hygiene for every image (deploy/docker/*.Dockerfile, root context). Never ship secrets or caches.
+.env
+.env.*
+**/node_modules
+**/dist
+**/build
+**/.gradle
+.gradle-home
+.venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+.ruff_cache
+.import_linter_cache
+.pnpm-store
+.cache
+.git
+.claude
+docs/sessions
+**/*.log

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/ops.audit.quarantine_download.v1.schema.json",
+  "title": "ops.audit.quarantine_download payload (v1)",
+  "description": "TENANT_ADMIN downloaded a QUARANTINED file with acknowledgement (audited). Producer: files. Exchange: aegispulse.intelligence. FRs: FR-FILE-08, FR-AUD-02. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/opsEvent"
+    }
+  ],
+  "required": ["fileId", "actorId"],
+  "properties": {
+    "fileId": {
+      "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+    },
+    "actorId": {
+      "$ref": "_shared.v1.schema.json#/$defs/opsEvent/properties/actorId"
+    }
+  },
+  "additionalProperties": true
+}

@@ -10,7 +10,7 @@ Source of truth: `PROJECT.md` §9 (pipeline, deploy, bootstrap), §3 NFR-08/NFR-
 ## Pipeline rules
 - `.gitlab-ci.yml` stays declarative. Logic goes in `ci/{verb}-{thing}.sh` (shellcheck clean, `set -euo pipefail`), runnable locally.
 - Stages: `.pre → lint → test → contract → build → scan → sign → deploy → verify → release` (§9.2).
-- MR pipelines never deploy. `main` deploys to homelab. `v*` tags promote existing digests (no rebuild).
+- MR pipelines never deploy. `main` auto-deploys to **dev** (`aegispulse-dev`, `*.rmwhs-dev.space`) and runs dev verification. `deploy:prod` (protected environment, manual) or a `v*` tag promotes the **same digests** to **prod** (`aegispulse`, `*.rmwhs.com`). Nothing is rebuilt (ADR-0014).
 - Use per-runtime `rules:changes`. Cache the pnpm store, Gradle, and uv.
 - The runner uses tags `default`, `generic` and the kubernetes executor. Never use privileged mode or DinD.
 
@@ -30,15 +30,15 @@ Source of truth: `PROJECT.md` §9 (pipeline, deploy, bootstrap), §3 NFR-08/NFR-
 | Images | Trivy + GitLab Container Scanning | Critical/High fixable |
 | SBOM | Syft CycloneDX | missing SBOM attestation |
 | Signing | cosign key pair | unsigned or unverifiable digest at deploy |
-| DAST | ZAP baseline (console) + API scan (`/v1/openapi.json`) | any High |
+| DAST | ZAP baseline (console) + active API scan (`/v1/openapi.json`) against **dev only**; passive baseline on prod | any High |
 
 Exceptions (`.trivyignore`, ZAP rules) need an expiry date and a reason, and `ci/check-exceptions.sh` enforces this.
 
 ## Deploy (`ci/deploy.sh`, §9.2)
-Scoped SA token (`AEGIS_DEPLOY_SA_TOKEN`, never the runner SA or cluster-admin) → cosign verify → set image digests in the overlay → apply InfisicalSecret CRs → topology Job → migration Jobs (wait for complete) → `kubectl apply -k` → rollout status → automatic rollback of Deployments on failure → write `deploy/releases/{sha}.json`.
+Target env resolved (`dev` or `prod`) → that namespace's scoped SA token (`AEGIS_DEPLOY_SA_TOKEN_DEV` / `_PROD`, the latter scoped to the protected `prod` environment; never the runner SA or cluster-admin) → for prod, check that `deploy/releases/dev/{sha}.json` is marked verified → cosign verify → set image digests in the overlay → apply InfisicalSecret CRs → topology Job → migration Jobs (wait for complete) → `kubectl apply -k` → rollout status → automatic rollback of Deployments on failure → write `deploy/releases/{sha}.json`.
 
 ## Secrets
-- Runtime: Infisical Operator → `aegispulse-{component}-secrets`, referenced only via `secretKeyRef`.
+- Runtime: Infisical Operator → `aegispulse-{component}-secrets`, referenced only via `secretKeyRef`. Project AegisPulse (org HomeLab), envs Development/Production; keys in `deploy/infisical/secrets-catalog.yaml`; setup steps are 🛑 MANUAL (MB-03…MB-08) in `docs/runbooks/manual-bootstrap.md`. Stop and direct the operator when one is open. Never request, print, or store a secret value; `svc_admin` stays on the operator's workstation.
 - Pipeline: GitLab Protected + Masked variables (§9.2 list).
 - Never echo secrets, enable `set -x` around them, or write them to artifacts.
 - Rotation runbooks are in `docs/runbooks/key-rotation.md`. Practice the drills.

@@ -1,0 +1,100 @@
+# Spec — FR-EVT-01..07, FR-CLS-01/02/07 — Events archive and Stage-1 classification (Phase 6)
+
+| | |
+|---|---|
+| Phase | 06 — Events Archive & Stage-1 Classification (`PROJECT.md` §11). FR-CLS-03..06 (scanner, Stage 2) are Phase 12 |
+| Owner runtime(s) | `services/events` (TS/Fastify, MongoDB); gateway `/v1/events*` |
+| Status | 6a–6d RUNTIME-VERIFIED locally (2026-11-24); Phase 6 exit captured |
+| Slices | **6a** archive consumer + Stage 1 + finalization + Mongo outbox + source-trust amendment (FR-EVT-01..03, FR-CLS-01/02) · **6b** query APIs (FR-EVT-04..06) · **6c** analyst override (FR-CLS-07) · **6d** retention TTL (FR-EVT-07 part 1) |
+| Related | ADR-0004 (outbox), ADR-0008 (elevate-only), ADR-0009; §1.4.2, §1.4.3, §7.6; NFR-02 |
+
+## 1. Requirement
+`PROJECT.md` §2.9 FR-EVT-01..07 and §2.10 FR-CLS-01/02/07 (verbatim there). Collections, validators and indexes come from the Phase 1 baseline migration `20261122000001-baseline.cjs` (§7.6); no new Mongo migration is needed for 6a.
+
+## 2. Behavior
+### Source trust (amendment, owner-approved 2026-11-24)
+- §1.4.3 counts `publisher_stated_severity` only for TRUSTED sources, but trust lives in ingestion.
+- The envelope's `classification` gains an optional `source_trust_level` (`TRUSTED|UNTRUSTED`), stamped by the producer at ingest. Ingestion stamps webhook events with the source's `trustLevel`; connectors will do the same.
+- Absent means UNTRUSTED. A later trust change does not re-resolve archived events.
+
+### archiveEvent (6a; consumer `events.archive.q`, bound `#` on all four exchanges)
+1. **Envelope validation:** done by the kit consumer (`parseEnvelope`): non-JSON or schema-invalid → `PoisonMessageError ENVELOPE_INVALID` → DLQ immediately, no retry tiers (FR-EVT-01).
+2. **Replay:** a delivery with `x-aegis-replay-job` only bumps `replay.count`, `lastReplayedAt` and `lastJobId` on the archived record (either tier). It never creates a record and logs a warning when the event is unknown (FR-EVT-02).
+3. **Stage 1** (`domain/classification/rules-v1.ts`, `rules-v1.0.0`, synchronous; histogram `aegispulse_classification_stage1_seconds`):
+   - The baseline table (§1.4.2), including terminal families (`classification.*`, `intel.*`, `ops.*`, `registry.*`, `correlation.*`, `notification.*`): INTERNAL/INFO, never Stage 2, never emit.
+   - **Clarifications:**
+     - `doc.extraction.completed` and `doc.extraction.review_required` share a row. Red flags 0 → LOW, 1–2 → MEDIUM, ≥ 3 → HIGH; Stage 2 when `textExcerpt` is non-empty.
+     - `risk.evaluation.recorded` takes the payload `band`.
+     - `case.*` takes the payload `severity` (default MEDIUM).
+   - **Detectors** (elevate-only), with values masked in the stored payload and listed as `redactions[{path, rule, kind: MASK}]` (dotted paths with `[n]`):
+     - Secrets → RESTRICTED, SECRET, ≥ HIGH: AWS key, PEM private-key header, Slack token, generic `api_key|secret|password` assignment with a value of 16+ characters, and fields named like those.
+     - Luhn-valid 13–19-digit cards → last 4. US SSNs (excluding area 000/666/9xx and group 00/serial 0000) → `***-**-NNNN`. RESTRICTED, PII; PII raises sensitivity, not severity.
+     - PII-named keys `ssn, dob, taxId, passportNumber, accountNumber` (string or number) → last 4. RESTRICTED, PII.
+     - MNPI lexicon → MNPI, ≥ CONFIDENTIAL, ≥ HIGH (not masked).
+   - `payloadSha256` is the SHA-256 of the pre-redaction payload (`JSON.stringify`).
+4. **Tier:** RESTRICTED → `events_restricted_audit`, otherwise `events_archive`.
+5. **Resolution** (`severity-resolver.ts`, §1.4.3, pure):
+   - `algorithm = max(rule, ai if confidence ≥ 0.60)`.
+   - `final = max(algorithm, publisher)` only when TRUSTED.
+   - An override wins.
+   - Before Stage 2 there is no AI result, so `final` is the rule resolution (FR-CLS-06 "never blocked").
+6. **Expiry:** `archivedAt + tenant retentionDays` (registry `getTenantSettings`, kit cache), or `archivedAt + 7 years` for the restricted tier. Tenantless envelopes and the reserved platform tenant use the default 400 days, and so does a tenant unknown to the registry (with a warning). A registry outage → TransientError → retry tiers.
+7. **One Mongo transaction:**
+   - Insert the record: classification `{sensitivity, categories, publisher_stated_severity (verbatim), source_trust_level, algorithm_severity, algorithm_confidence null, final_severity, classification_source RULES, rule_version, classifier_version null, revision 1}`, `statusHistory` INGESTED → RULE_SCANNED (→ CLASSIFIED), `classificationHistory[RULES]`, `mentionedEntityIds []` (entity resolution arrives with correlation), and `replay {0, null, null}`.
+   - Non-terminal types, no Stage 2 → status CLASSIFIED and outbox `classification.finalized`.
+   - Non-terminal types, Stage 2 needed → status RULE_SCANNED, `pendingAiScan: true`, outbox `classification.scan.requested {eventId, revision}`. The consumer and scanner arrive in Phase 12.
+   - A duplicate `{tenantId, eventId}` in either tier aborts the transaction → ack as a duplicate (FR-EVT-02).
+8. **Outbox events** go on `aegispulse.enrichment` with `causationId` = the archived event id and the same correlationId. They carry the classification and entity mentions, never payload bodies.
+
+### Queries (6b; FR-EVT-04..06)
+- **Authorization:**
+  - `tenantAccess` with the contract roles (`searchEvents` and `getEvent` include COMPLIANCE_AUDITOR; the correlation chain does not). PLATFORM_ADMIN needs `X-Aegis-Tenant`.
+  - **Tier:** `restricted` is COMPLIANCE_AUDITOR-only (others → 403); the default and everyone else read `standard`. A restricted event requested in the standard tier → `404 EVENT_NOT_FOUND`, so its existence never leaks.
+- **Mandatory tenant filter:** `EventQueryRepository.scoped` refuses a missing tenant. There is no cross-tenant read path.
+- **`searchEvents`:**
+  - Filters: `correlationId`; `eventType` prefix (escaped regex); `finalSeverity` ≥ (`$in` of that level and above); `status`; `source`; `entity` (in `mentionedEntityIds`); `from` ≤ `occurredAt` < `to`.
+  - Order `occurredAt desc, eventId desc`, keyset cursor (base64url of `occurredAt|eventId`). `limit` 1–100, default 25.
+  - Returns `EventSummary`: no payload.
+- **`getEvent`:** `ArchivedEvent`, the summary plus the redacted payload, `redactions`, `payloadSha256`, `statusHistory`, `classificationHistory`, `replay` and `pendingAiScan`.
+- **`getCorrelationChain`:** the standard tier of one correlation (≤ 500), ordered causally by `domain/correlation.causalOrder`. Each event follows its cause when the cause is in the set; roots and siblings go by `(occurredAt, eventId)`; cycles are tolerated.
+- **`searchEventsForEntities`** (SERVICE, orchestrator `act[]`): tenant given explicitly, `mentionedEntityIds $in`, types exact or `prefix.*`, `occurredAt ≥ since`, newest first, `limit` ≤ 100.
+- **Views:** the contract classification includes `source_trust_level` (`EventClassification` extended with the amendment); null `algorithm_confidence` and `classifier_version` are omitted.
+- **Gateway:** `GET /v1/events`, `GET /v1/events/{eventId}?tier=`, `GET /v1/events/correlation/{correlationId}` via a typed `EventsClient`. A malformed path id → local 404; a bad `tier` → 422.
+
+### Analyst override (6c; FR-CLS-07)
+- **Who:** `tenantAccess` with the contract roles (ANALYST, TENANT_ADMIN, PLATFORM_ADMIN via `X-Aegis-Tenant`); a person only (`userId`).
+- **Validation:**
+  - A trimmed justification under 20 characters → `422 CLASSIFICATION_JUSTIFICATION_REQUIRED`.
+  - Neither `finalSeverity` nor `sensitivity` → `422 VALIDATION_ERROR`.
+  - Standard tier only: a restricted event (invisible to these roles) or another tenant's → `404 EVENT_NOT_FOUND`.
+- **The write:** one Mongo transaction, conditional on `classification.revision` (retried up to 3 times on a concurrent change, then `409 CONFLICT`).
+  - Sets `final_severity` and/or `sensitivity`, `classification_source ANALYST`, `revision + 1`, status `OVERRIDDEN`.
+  - Appends `statusHistory {OVERRIDDEN, at, by user:{id}}` and `classificationHistory {stage ANALYST, version analyst-override, actor, justification}`.
+  - Sets `pendingAiScan false`: an override is final (§1.4.3); the Phase 12 AI patch must leave OVERRIDDEN events' `final_severity` alone.
+  - Enqueues `classification.overridden {eventId, before, after, actorId, justification}` on enrichment (cases records the audit entry; FR-AUD-02).
+- **Lowering is allowed:** this is the only path that may lower severity (ADR-0008).
+- **Raising sensitivity to RESTRICTED** moves the record to `events_restricted_audit` in the same transaction, with `expireAt` recomputed to 7 years (as FR-CLS-05 will).
+- **Repeats:** the same override again (same values, actor and justification) returns the record unchanged. §7.6 defines no Idempotency-Key store for events, so this natural idempotency stands in for it.
+- **Gateway:** `PATCH /v1/events/{eventId}/classification` (forwards `Idempotency-Key`).
+
+### Retention (6d; FR-EVT-07 part 1)
+- `expireAt` is computed at archive time (tenant `retentionDays`; restricted: 7 years; tenantless/platform/unknown: 400 days) and recomputed when a record moves to the restricted tier.
+- The baseline TTL indexes (`ttl_expire_at`, `expireAfterSeconds 0`) on both tiers do the deletion.
+- **Clarification:** §11 says "`purgeRetention` for restricted moves", but the contract defines `events.purgeRetention` as the Phase 15 cold-tier export (Parquet, then `ARCHIVED`). In part 1 the restricted-move duty is the `expireAt` recomputation above; the action itself ships with FR-EVT-07 part 2.
+- A change to a tenant's `retentionDays` applies to newly archived events only (no back-fill), the same snapshot rule as source trust.
+
+### Mongo outbox (6a; `outbox` collection, §7.6)
+`MongoOutboxRelay` atomically claims one due entry at a time with `findOneAndUpdate`: PENDING and due, or SENDING with a lapsed 30 s lease. It publishes through the kit `AmqpPublisher` (publisher confirms) and then marks SENT (TTL 7 d). A failure → PENDING with backoff `min(60 s, 2^attempts s)`, and the pass stops. Gauge `aegispulse_outbox_lag_seconds{store="mongo"}`.
+
+## 3. Tests
+| Level | Test | Proves |
+|---|---|---|
+| Unit | `rules-v1.test.ts` | every baseline row incl. terminal families; secret/card/SSN/PII-key masking goldens with paths; MNPI; no false positives on uuids/hex/dates; p95 ≤ 5 ms over 2,000 runs |
+| Unit | `severity-resolver.test.ts` | exhaustive elevate-only (5×6×4×6×2 = 1,440 combinations): never below rule, final ≥ algorithm, AI only at ≥ 0.60, publisher only when TRUSTED; override wins |
+| Unit | `retention.test.ts`, `tenant-retention.test.ts` | 400/30-day and 7-year expiry; platform/tenantless/unknown → default without failing; registry outage propagates |
+| Unit | `correlation.test.ts` (6b) | cause before effects (depth-first, siblings by time); a cause outside the set → root; cycles; deterministic ties |
+| Integration (Mongo 8 replica set) | `query.integration.test.ts` (6b) | filters (correlation, prefix, severity ≥, source, time) + keyset pages + bad cursor 422; restricted tier: VIEWER/ANALYST/TENANT_ADMIN never see it (search excludes, `tier=restricted` 403, get 404), CA sees it masked; full lineage on get; other tenant 404; PA needs `X-Aegis-Tenant`; causal chain even when an effect's `occurredAt` is earlier than its cause; entity search (wildcard + exact types, other tenant empty, user 403); tenantless query refused |
+| E2E | `tests/e2e/events.e2e.test.ts` + role matrix Phase 6 (6b/6c; 6c: VIEWER 403, short justification 422, ANALYST lowers → OVERRIDDEN, `classification.overridden` joins the correlation chain) | signed webhook → `GET /v1/events?correlationId=` with lineage (publisher HIGH, UNTRUSTED, algorithm/final MEDIUM) → `GET /v1/events/{id}` with status history → correlation chain webhook → `classification.scan.requested`; synthetic card → restricted tier, masked for CA, hidden from VIEWER (search empty, tier 403, get 404), tenant B empty |
+| Integration (Mongo 8 replica set) | `override.integration.test.ts` (6c) | ANALYST lowers HIGH → LOW (OVERRIDDEN, ANALYST, revision 2, histories with actor + trimmed justification, pendingAiScan off, exactly one `classification.overridden` with before/after); repeat → no-op; short justification 422; VIEWER 403; nothing to change 422; restricted event and other tenant 404 (no event); RESTRICTED override moves tiers with a 7-year expiry; two concurrent overrides → revisions 2 and 3, two events |
+| Integration (Mongo 8 replica set) | `retention.integration.test.ts` (6d) | both tiers: TTL `ttl_expire_at` (0 s), unique `ux_tenant_event`, the full §7.6 index set; expireAt 30 / 3650 days per tenant, 7 years restricted; Mongo's TTL monitor deletes expired records in both tiers and keeps live ones |
+| Integration (Testcontainers Mongo 8 replica set + RabbitMQ 4, contract topology) | `archive.integration.test.ts` | 3× redelivery → 1 document; Stage 2 path + scan.requested relayed once; trusted vs untrusted publisher; terminal type emits nothing; RESTRICTED → restricted tier with masked payload, redactions, pre-redaction sha256, 7-year expiry; tenant retention; replay header updates only (never creates); non-JSON and schema-invalid → DLQ `ENVELOPE_INVALID`, retry count 0 |

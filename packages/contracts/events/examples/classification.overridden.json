@@ -1,0 +1,11 @@
+{
+  "eventId": "019352b8-7110-7b22-8c33-1a2b3c4d5e6f",
+  "before": {
+    "final_severity": "HIGH"
+  },
+  "after": {
+    "final_severity": "MEDIUM"
+  },
+  "actorId": "2b7d3e51-9c4a-4f08-8d1e-5a6b7c8d9e0f",
+  "justification": "Duplicate of an already reviewed filing; severity lowered."
+}
