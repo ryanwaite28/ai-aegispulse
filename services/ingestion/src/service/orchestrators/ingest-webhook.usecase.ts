@@ -67,10 +67,6 @@ export interface IngestDeps {
 
 type Reason = "source" | "tenant" | "signature" | "skew" | "replay" | "schema" | "size";
 
-const rejected = getMeter().createCounter("aegispulse_webhook_rejected_total", {
-  description: "Webhook deliveries rejected, by source key and reason (FR-WHK-03)",
-});
-
 const ERRORS: Readonly<Record<Reason, () => DomainError>> = {
   source: () => new DomainError("WEBHOOK_SOURCE_NOT_FOUND", "unknown webhook source"),
   tenant: () => new DomainError("TENANT_SUSPENDED", "tenant is suspended or deactivated"),
@@ -83,15 +79,24 @@ const ERRORS: Readonly<Record<Reason, () => DomainError>> = {
 
 export class IngestWebhookUseCase {
   private readonly now: () => number;
+  /**
+   * Created per instance, not at module load: the OTel metrics API has no proxy provider, so a counter created before
+   * startTelemetry() sets the global MeterProvider stays a no-op forever. main() builds this use case after it.
+   */
+  private readonly rejected: ReturnType<ReturnType<typeof getMeter>["createCounter"]>;
 
   constructor(private readonly deps: IngestDeps) {
     this.now = deps.now ?? Date.now;
+    this.rejected = getMeter().createCounter("aegispulse_webhook_rejected_total", {
+      description: "Webhook deliveries rejected, by source key and reason (FR-WHK-03)",
+    });
   }
 
   async execute(principal: Principal, input: IngestInput): Promise<IngestResult> {
     if (principal.kind !== "service") throw new DomainError("FORBIDDEN", "webhook deliveries come from the gateway");
     const reject = (reason: Reason, detail: Record<string, unknown> = {}): never => {
-      rejected.add(1, { source: input.sourceKey, reason });
+      // Unknown keys come from the internet: label them "unknown" so the series stay bounded by registered sources.
+      this.rejected.add(1, { source: reason === "source" ? "unknown" : input.sourceKey, reason });
       this.deps.logger.info(
         { sourceKey: input.sourceKey, reason, clientIp: input.clientIp, ...detail },
         "webhook.rejected",

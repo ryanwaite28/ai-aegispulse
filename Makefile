@@ -117,13 +117,15 @@ eval: ## Golden-dataset evaluation
 	$(call not_yet,Phase 16)
 
 # ---------------------------------------------------------------- runtime helpers
-.PHONY: dev images demo chaos trigger k3d-up k3d-down env-sleep env-wake env-reset
+.PHONY: dev images demo demo-webhook chaos trigger k3d-up k3d-down env-sleep env-wake env-reset
 dev: ## Run one service natively with hot reload (SERVICE=name)
 	$(call not_yet,Phase 1 (service skeletons))
 images: ## Build all container images locally (tagged with the git sha; deploy/docker/*.Dockerfile)
 	@scripts/dev/build-images.sh
 demo: ## End-to-end demo scenario
 	$(call not_yet,Phase 20)
+demo-webhook: ## Phase 4 demo: signed webhook → 202 → event on aegispulse.ingress (make up + make seed first)
+	@scripts/demo/webhook-demo.sh
 chaos: ## Chaos scenario (SCENARIO=name; dev/local only)
 	$(call not_yet,Phase 18)
 trigger: ## Run a scheduler-trigger job against the local stack (JOB=name, e.g. ingestion-secret-expiry)

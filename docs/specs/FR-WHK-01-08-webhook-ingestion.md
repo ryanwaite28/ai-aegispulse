@@ -38,7 +38,7 @@
 
 ### Ingest (FR-WHK-02..05; 4b)
 - The gateway reads the raw request bytes and forwards them unparsed. Clarification: instead of Nest `rawBody: true`, the gateway replaces Fastify's JSON parser with one buffer parser (`src/common/body-parsing.ts`). Webhook routes keep the `Buffer` (1 MiB route limit, so malformed JSON reaches signature verification instead of a gateway 400); every other route is `JSON.parse`d strictly at 256 KiB. The bytes go as `ingestWebhookDelivery{sourceKey, headers, rawBodyBase64, receivedAt, clientIp}`, with its SERVICE token.
-- **IngestWebhookUseCase**, in this order. A failure at any step → that code, the `aegispulse_webhook_rejected_total{source,reason}` metric, and a log line without the body:
+- **IngestWebhookUseCase**, in this order. A failure at any step → that code, the `aegispulse_webhook_rejected_total{source,reason}` metric (`source="unknown"` for keys that match no source, keeping the label bounded), and a log line without the body:
   1. Look up the source by key: SECURITY DEFINER `ingestion.webhook_source_for_delivery(key)` (pre-tenant, ADR-0016). Unknown, deleted or DISABLED → `404 WEBHOOK_SOURCE_NOT_FOUND`.
   2. Tenant status (registry `getTenantSettings`, kit 60 s cache): not ACTIVE → `403 TENANT_SUSPENDED`.
   3. Signature (`src/domain/signature.ts`):

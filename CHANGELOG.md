@@ -17,6 +17,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
   - **Ingestion:** `expirePreviousSecrets` expires PREVIOUS secrets past 72 h and sweeps orphan raw objects. The sweep covers 7 days of per-tenant day prefixes and objects older than 1 h with no delivery row. `V5__webhook_maintenance` adds the definer functions (ADR-0016).
   - **Worker:** new `workers/scheduler-trigger` (Node CLI, SERVICE token, one action per job, exit codes 0/1/2), plus the compose `scheduler-trigger` tool and `make trigger JOB=ingestion-secret-expiry`.
   - **Object store:** the `ingestion` identity can now list `raw/webhooks/*` (prefix-scoped; other prefixes denied).
+  - **Demo:** `make demo-webhook` (Phase 4 exit demo). It runs re-runnably through the gateway with a temporary tenant admin, which it disables afterwards, and keeps the source secret in memory only.
 - Phase 4b webhook ingestion (FR-WHK-02..05):
   - **Ingestion:** `V4__webhook_deliveries` (RLS; definer `webhook_source_for_delivery`). `IngestWebhookUseCase`: source → tenant status → HMAC over `{ts}.{deliveryId}.{raw}` against CURRENT and PREVIOUS (every pair compared with `timingSafeEqual`) → ±300 s skew → Redis nonce → `AEGIS_MARKET_EVENT_V1` validation → raw object PUT → delivery row + outbox envelope on `aegispulse.ingress`; a repeated idempotency key records `DUPLICATE` and emits nothing. Rejections count in `aegispulse_webhook_rejected_total{source,reason}`; logs never carry the body.
   - **Gateway:** public `POST /webhooks/:sourceKey` forwards the raw bytes (1 MiB route limit; 256 KiB strict JSON elsewhere) with its own SERVICE token; `GET /v1/webhook-sources/:id/deliveries` (metadata only).
@@ -118,6 +119,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Model routing policy in `CLAUDE.md`; review agents pinned to models (architecture-reviewer → sonnet, security-reviewer → opus, spec-tracer → haiku).
 
 ### Fixed
+- `scripts/dev/ensure-local-vars.sh` appended to `.env` without checking for a trailing newline. On a `.env` whose last line lacked one, the generated `JWT_SIGNING_KEY_CURRENT_PEM` was glued onto `OTEL_EXPORTER_OTLP_HEADERS`, so OpenObserve rejected every OTLP export (401: no local metrics or traces) and the key fragment travelled in that header to the local OpenObserve. The script now starts appends on a fresh line and repairs glued lines: it splits them and keeps the value compose used, never printing values. It also accepts an env-file path (tested on a fake file).
+- FR-WHK-03 `aegispulse_webhook_rejected_total` never recorded. The counter was created at module load, before `startTelemetry()` installed the MeterProvider, and the OTel metrics API has no proxy provider, so it stayed a no-op. The counter is now created with the use case, and a regression test installs the provider after import. Unknown source keys are labelled `source="unknown"`, so internet-supplied keys can't create unbounded series. Found while collecting the Phase 4 exit evidence.
 - Kit `toErrorResponse` now maps all 50 §8.4 codes (`STATUS_BY_CODE`, kept in sync with PROJECT.md by a test); service codes such as `WEBHOOK_SOURCE_NOT_FOUND` had fallen back to 409.
 - Local KEK: `gen-local-secrets.sh` generated `INGESTION_KEK_BASE64` in the wrong format, and ingestion refused it. The generator now emits base64 of 32 bytes, and `ensure-local-vars.sh` replaces a KEK that does not decode to 32 bytes.
 - E2E role matrix: authorized calls now also fail on 5xx. A down service (503) previously counted as "allowed".
@@ -183,6 +186,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 4 `RUNTIME-VERIFIED` locally: all §11 exit items captured (demo → 202 → broker, adversarial suite 192/192, rejection metric in OpenObserve); the exit waits on green pipelines ([phase-04](docs/evidence/phase-04.md)).
 - Phase 4 slice 4c `RUNTIME-VERIFIED` locally: `make trigger JOB=ingestion-secret-expiry` exit 0, E2E 192/192 ([phase-04c](docs/evidence/phase-04c.md)).
 - Phase 4 slice 4b `RUNTIME-VERIFIED` locally: E2E 192/192 incl. the adversarial webhook suite ([phase-04b](docs/evidence/phase-04b.md)).
 - Phase 2 slice 2a `INTEGRATION-VERIFIED` (tenants, users, platform bootstrap): 24 unit + 13 integration tests; V3/V4 applied locally; registry `/readyz` 200 at schema 4 — [evidence](docs/evidence/phase-02a.md). Local bootstrap runtime-verified (create, then no-op; event relayed).

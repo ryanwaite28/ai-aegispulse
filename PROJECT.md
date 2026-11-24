@@ -2872,7 +2872,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 1 | Contracts, Platform Kits & Data Foundations | IN PROGRESS: slice 1a INTEGRATION-VERIFIED (contracts + data foundations); slices 1a–1e INTEGRATION-VERIFIED; all 12 runtimes `/readyz` 200 locally; health-request traces in OpenObserve; remaining exit evidence: commit + green first GitLab pipeline | [phase-01a](docs/evidence/phase-01a.md), [phase-01b](docs/evidence/phase-01b.md), [phase-01c](docs/evidence/phase-01c.md), [phase-01d](docs/evidence/phase-01d.md), [phase-01e](docs/evidence/phase-01e.md) |
 | 2 | Registry: Tenancy, Identity & RBAC | IN PROGRESS (2a, 2b INTEGRATION-VERIFIED; 2c RUNTIME-VERIFIED locally; drill + pipeline pending) | [phase-02a](docs/evidence/phase-02a.md), [phase-02b](docs/evidence/phase-02b.md), [phase-02c](docs/evidence/phase-02c.md) |
 | 3 | Entities & Watchlists | IN PROGRESS (RUNTIME-VERIFIED locally; pipeline pending) | [phase-03](docs/evidence/phase-03.md) |
-| 4 | Webhook Ingestion | IN PROGRESS (4a, 4b RUNTIME-VERIFIED locally; 4c RUNTIME-VERIFIED locally) | [phase-04a](docs/evidence/phase-04a.md), [phase-04b](docs/evidence/phase-04b.md), [phase-04c](docs/evidence/phase-04c.md) |
+| 4 | Webhook Ingestion | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-04](docs/evidence/phase-04.md) ([4a](docs/evidence/phase-04a.md), [4b](docs/evidence/phase-04b.md), [4c](docs/evidence/phase-04c.md)) |
 | 5 | Files Subsystem | PENDING | — |
 | 6 | Events Archive & Stage-1 Classification | PENDING | — |
 | 7 | Messaging Resilience & Dead Letters | PENDING | — |
@@ -3070,7 +3070,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 **Phase 4 exit evidence:** signed webhook via `scripts/demo/webhook-sign.ts` → 202 → message observed on broker; adversarial suite report; OpenObserve rejection metric screenshot.
 **Phase note:** migrations are V3/V4 (V2 is ADR-0016's `enforced_rls_bypass`), plus `V5__webhook_maintenance` (FR-WHK-08 definer functions; no table changes). Delivered in slices: 4a sources + secret crypto; 4b verification, persistence, outbox, gateway webhook route, adversarial suite; 4c expiry + sweep. Spec `FR-WHK-01-08-webhook-ingestion`.
-**Phase note:** status **`IN PROGRESS`**: slice 4a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04a](docs/evidence/phase-04a.md); E2E 183/183); slice 4b `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04b](docs/evidence/phase-04b.md); E2E 192/192 incl. the adversarial suite). Slice 4c `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04c](docs/evidence/phase-04c.md); `make trigger` exit 0). Phase exit still needs the demo → broker capture, the rejection-metric screenshot, and the pipeline.
+**Phase note:** status **`IN PROGRESS`**: slice 4a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04a](docs/evidence/phase-04a.md); E2E 183/183); slice 4b `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04b](docs/evidence/phase-04b.md); E2E 192/192 incl. the adversarial suite). Slice 4c `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04c](docs/evidence/phase-04c.md); `make trigger` exit 0). Phase exit ([phase-04](docs/evidence/phase-04.md)): demo → 202 → broker captured, adversarial suite 192/192; rejection metric visible in OpenObserve after two exit fixes (counter binding, local OTLP auth); still needs green pipelines.
 
 ---
 

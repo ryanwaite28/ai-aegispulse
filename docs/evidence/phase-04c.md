@@ -38,5 +38,5 @@ make test-e2e → Test Files 4 passed, Tests 192 passed (regression)
 - The first attempt returned 404 `route not found`. The ingestion container was still on the pre-4c image; it was rebuilt but not recreated. Recreating the container fixed it, and no code change was needed.
 
 ## Pending
-- Phase 4 exit: the demo → broker capture, the OpenObserve rejection-metric screenshot, the pipeline.
+- Phase 4 exit: `make demo-webhook` → 202 → the event on `events.archive.q` (RabbitMQ UI), the OpenObserve rejection-metric screenshot, the pipeline.
 - Phase 9: the k8s CronJob `aegispulse-cron-secret-expiry` (added to §5.1 by the approved amendment, 2026-11-24).
