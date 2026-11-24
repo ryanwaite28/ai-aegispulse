@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/events/ops.audit.dead_letter_resolved.v1.schema.json",
+  "title": "ops.audit.dead_letter_resolved payload (v1)",
+  "description": "A dead letter was replayed or discarded by an administrator (audited). Producer: events. Exchange: aegispulse.intelligence. FRs: FR-MSG-03, FR-AUD-02. Describes only the envelope `payload` (PROJECT.md §6.4, §6.7); consumers ignore unknown fields (NFR-13).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_shared.v1.schema.json#/$defs/opsEvent"
+    }
+  ],
+  "required": ["deadLetterId", "queue", "action", "actorId"],
+  "properties": {
+    "deadLetterId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "queue": {
+      "type": "string",
+      "minLength": 1
+    },
+    "action": {
+      "type": "string",
+      "enum": ["REPLAYED", "DISCARDED"]
+    },
+    "actorId": {
+      "$ref": "_shared.v1.schema.json#/$defs/opsEvent/properties/actorId"
+    },
+    "originalEventId": {
+      "anyOf": [
+        {
+          "$ref": "../envelope/canonical-envelope.v1.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": true
+}

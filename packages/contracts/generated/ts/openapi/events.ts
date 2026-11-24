@@ -363,7 +363,7 @@ export type components = {
         /** @description Opaque base64url sort-key cursor from the previous response `meta.nextCursor`. */
         cursor: string;
         DeadLetter: components["schemas"]["DeadLetterSummary"] & {
-            /** @description Original canonical envelope. */
+            /** @description Original canonical envelope, masked by the rules-v1 detectors (§1.4.2); {} when the body was not a JSON object (see rawBody). */
             envelope: {
                 [key: string]: unknown;
             };
@@ -371,6 +371,19 @@ export type components = {
             headers: {
                 [key: string]: unknown;
             };
+            /** @description Failures of the same message recorded while this record was OPEN. */
+            occurrences?: number;
+            /** @description Body text of a poison message that was not a JSON object (bounded to 256 KiB), masked; absent otherwise. */
+            rawBody?: string;
+            /** @description Values masked in this view (envelope, rawBody, headers, errorMessage). The stored message stays unmasked only for replay. */
+            redactions?: {
+                /** @enum {string} */
+                kind: "MASK";
+                path: string;
+                rule: string;
+            }[];
+            /** @description False for suspect records (the queue header disagreed with the routing key); replay is refused (422). */
+            replayable?: boolean;
             stackHash?: string;
         };
         /** @enum {string} */
@@ -506,7 +519,7 @@ export type components = {
         } | unknown | unknown;
         /** @description Empty payload (Record<string, never>). */
         PurgeRetentionInput: Record<string, never>;
-        /** @description Republishes to the original queue with x-retry-count = 0 and marks REPLAYED. */
+        /** @description Republishes the stored message to the original queue with x-retry-count = 0 (via aegispulse.retry and the queue's shortest retry/delay queue) and marks REPLAYED. */
         ReplayDeadLetterInput: {
             deadLetterId: string;
         };

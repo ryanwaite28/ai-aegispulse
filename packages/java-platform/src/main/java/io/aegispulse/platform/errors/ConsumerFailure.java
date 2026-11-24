@@ -102,4 +102,47 @@ public final class ConsumerFailure {
     String text = error.getClass().getSimpleName() + code + ": " + (message == null ? "" : message);
     return text.length() > 500 ? text.substring(0, 499) + "…" : text;
   }
+
+  /**
+   * The {@code x-aegis-error-message} value (§6.4, FR-MSG-02): the full description only for the
+   * platform's own exception types (messages written by our code); any other exception (Jackson,
+   * JDBC, driver) may embed input values, so only its type travels.
+   */
+  public static String deadLetterMessage(Throwable error) {
+    return switch (error) {
+      case DomainException d -> describe(d);
+      case TransientException t -> describe(t);
+      case PermanentException p -> describe(p);
+      case PoisonMessageException p -> describe(p);
+      default -> error.getClass().getSimpleName() + " (message withheld)";
+    };
+  }
+
+  /** Stack frames hashed by {@link #stackHash}: enough to tell call sites apart, bounded. */
+  private static final int STACK_HASH_FRAMES = 10;
+
+  /**
+   * Groups identical failures for the dead-letter registry (§6.4 {@code x-aegis-error-stack-hash},
+   * FR-MSG-02): first 16 hex of SHA-256 over the error class name and its top stack frames without
+   * line numbers. The message is excluded because it may vary per delivery.
+   */
+  public static String stackHash(Throwable error) {
+    StringBuilder material = new StringBuilder(error.getClass().getName());
+    StackTraceElement[] frames = error.getStackTrace();
+    for (int i = 0; i < Math.min(STACK_HASH_FRAMES, frames.length); i++) {
+      material
+          .append('\n')
+          .append(frames[i].getClassName())
+          .append('.')
+          .append(frames[i].getMethodName());
+    }
+    try {
+      byte[] digest =
+          java.security.MessageDigest.getInstance("SHA-256")
+              .digest(material.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      return java.util.HexFormat.of().formatHex(digest).substring(0, 16);
+    } catch (java.security.NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 unavailable", e);
+    }
+  }
 }

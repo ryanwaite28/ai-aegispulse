@@ -34,6 +34,27 @@ class ConsumerFailureTest {
   }
 
   @Test
+  void stackHashGroupsBySiteNotMessage_FR_MSG_02() {
+    String a = ConsumerFailure.stackHash(fail("row 1 missing"));
+    assertThat(a).matches("[0-9a-f]{16}");
+    assertThat(ConsumerFailure.stackHash(fail("row 2 missing"))).isEqualTo(a);
+    assertThat(ConsumerFailure.stackHash(new IllegalStateException("row 1 missing")))
+        .isNotEqualTo(a);
+  }
+
+  @Test
+  void deadLetterMessageWithholdsForeignMessages_FR_MSG_02() {
+    assertThat(ConsumerFailure.deadLetterMessage(fail("gone")))
+        .isEqualTo("PermanentException[NOT_FOUND]: gone");
+    assertThat(ConsumerFailure.deadLetterMessage(new IllegalArgumentException("ssn 123-45-6789")))
+        .isEqualTo("IllegalArgumentException (message withheld)");
+  }
+
+  private static ConsumerFailure.PermanentException fail(String message) {
+    return new ConsumerFailure.PermanentException("NOT_FOUND", message);
+  }
+
+  @Test
   void describesWithoutStackAndBoundsLength() {
     assertThat(
             ConsumerFailure.describe(

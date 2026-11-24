@@ -31,10 +31,11 @@ public class TestApplication {
     TRANSIENT_ONCE,
     TRANSIENT_ALWAYS,
     PERMANENT,
+    PERMANENT_ONCE,
     SLOW
   }
 
-  record Received(String eventId, EnvelopeHandler.DeliveryContext context) {}
+  record Received(String eventId, EnvelopeHandler.DeliveryContext context, long atNanos) {}
 
   static final AtomicReference<Mode> MODE = new AtomicReference<>(Mode.OK);
   static final List<Received> RECEIVED = new CopyOnWriteArrayList<>();
@@ -45,7 +46,7 @@ public class TestApplication {
     return listeners.container(
         QueueName.CASES_AUDIT_INGEST_Q,
         (envelope, ctx) -> {
-          RECEIVED.add(new Received(envelope.eventId(), ctx));
+          RECEIVED.add(new Received(envelope.eventId(), ctx, System.nanoTime()));
           switch (MODE.get()) {
             case DUPLICATE -> {
               return EnvelopeHandler.Outcome.DUPLICATE;
@@ -60,6 +61,11 @@ public class TestApplication {
                 throw new ConsumerFailure.TransientException(
                     "DEPENDENCY_UNAVAILABLE", "still down");
             case PERMANENT -> throw new DomainException.NotFound("NOT_FOUND", "case missing");
+            case PERMANENT_ONCE -> {
+              if (RECEIVED.size() == 1) {
+                throw new DomainException.NotFound("NOT_FOUND", "case missing");
+              }
+            }
             case SLOW -> Thread.sleep(700);
             case OK -> {}
           }

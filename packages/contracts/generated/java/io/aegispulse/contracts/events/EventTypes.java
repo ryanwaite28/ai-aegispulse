@@ -30,6 +30,7 @@ public final class EventTypes {
       java.util.Map.entry("intel.eval.completed", io.aegispulse.contracts.events.IntelEvalCompletedPayload.class),
       java.util.Map.entry("intel.rollup.completed", io.aegispulse.contracts.events.IntelRollupCompletedPayload.class),
       java.util.Map.entry("notification.requested", io.aegispulse.contracts.events.NotificationRequestedPayload.class),
+      java.util.Map.entry("ops.audit.dead_letter_resolved", io.aegispulse.contracts.events.OpsAuditDeadLetterResolvedPayload.class),
       java.util.Map.entry("ops.audit.file_deleted", io.aegispulse.contracts.events.OpsAuditFileDeletedPayload.class),
       java.util.Map.entry("ops.audit.quarantine_download", io.aegispulse.contracts.events.OpsAuditQuarantineDownloadPayload.class),
       java.util.Map.entry("ops.audit.source_trust_changed", io.aegispulse.contracts.events.OpsAuditSourceTrustChangedPayload.class),

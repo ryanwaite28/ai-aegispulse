@@ -6,6 +6,7 @@ queue, DLQ, poison, replay headers, graceful drain).
 
 import asyncio
 import json
+import re
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -43,6 +44,8 @@ async def admin(broker: Broker) -> AsyncIterator[aio_pika.abc.AbstractChannel]:
         "events.deadletter.q",
         "events.archive.q",
         "intel.facts.q.retry.1s",
+        "intel.facts.q.retry.5s",
+        "intel.facts.q.retry.30s",
     ):
         await (await channel.get_queue(q)).purge()
     yield channel
@@ -252,13 +255,17 @@ class Recorder:
         self.mode = "ok"
         self.received: list[DeliveryContext] = []
         self.finished: list[str] = []
+        self.at: list[float] = []
 
     async def __call__(self, e: CanonicalEnvelope, ctx: DeliveryContext) -> Outcome | None:
         self.received.append(ctx)
+        self.at.append(asyncio.get_running_loop().time())
         if self.mode == "transient_once" and ctx.retry_count == 0:
             raise TransientError("DEPENDENCY_UNAVAILABLE", "scanner down")
         if self.mode == "transient_always":
             raise TransientError("DEPENDENCY_UNAVAILABLE", "still down")
+        if self.mode == "permanent_once" and len(self.received) == 1:
+            raise NotFoundError("NOT_FOUND", "fact source missing")
         if self.mode == "permanent":
             raise NotFoundError("NOT_FOUND", "fact source missing")
         if self.mode == "slow":
@@ -321,6 +328,8 @@ async def test_dead_letters_permanent_poison_and_exhausted(
     dead = await wait_for_message(admin, "intel.facts.q.dlq")
     assert dead.headers["x-aegis-error-code"] == "NOT_FOUND"
     assert dead.headers["x-aegis-original-queue"] == "intel.facts.q"
+    assert dead.headers["x-aegis-error-message"] == "NotFoundError[NOT_FOUND]: fact source missing"
+    assert re.fullmatch(r"[0-9a-f]{16}", str(dead.headers["x-aegis-error-stack-hash"]))
     assert json.loads(dead.body)["eventId"] == e.eventId.root
     await wait_for_message(admin, "events.deadletter.q")
 
@@ -334,6 +343,44 @@ async def test_dead_letters_permanent_poison_and_exhausted(
     assert (await wait_for_message(admin, "intel.facts.q.dlq")).headers[
         "x-aegis-error-code"
     ] == "DEPENDENCY_UNAVAILABLE"
+
+
+async def test_walks_the_full_retry_chain_with_increasing_delays_then_dead_letters(
+    consumer: tuple[AmqpClient, Recorder], admin: aio_pika.abc.AbstractChannel
+) -> None:
+    # FR-MSG-01: 1 s → 5 s → 30 s through the real TTL queues, then the DLQ.
+    _, recorder = consumer
+    recorder.mode = "transient_always"
+    await publish(admin, encode_envelope(envelope()))
+    dead = await wait_for_message(admin, "intel.facts.q.dlq", timeout=60)
+    assert [c.retry_count for c in recorder.received] == [0, 1, 2, 3]
+    gaps = [b - a for a, b in zip(recorder.at, recorder.at[1:], strict=False)]
+    assert gaps[0] >= 0.9
+    assert gaps[1] >= 4.5
+    assert gaps[2] >= 29
+    assert gaps[0] < gaps[1] < gaps[2]
+    assert dead.headers["x-aegis-error-code"] == "DEPENDENCY_UNAVAILABLE"
+    assert dead.headers["x-retry-count"] == 3
+
+
+async def test_requeues_the_original_when_the_dead_letter_republish_fails(
+    consumer: tuple[AmqpClient, Recorder], admin: aio_pika.abc.AbstractChannel
+) -> None:
+    # FR-MSG-01: the DLX disappears after the consumer started; the DLQ copy is never confirmed, so the original is
+    # requeued and redelivered instead of being lost.
+    _, recorder = consumer
+    recorder.mode = "permanent_once"
+    await admin.exchange_delete("aegispulse.dlx")
+    try:
+        e = envelope()
+        await publish(admin, encode_envelope(e))
+        await until(lambda: e.eventId.root in recorder.finished, timeout=30)
+        assert [c.redelivered for c in recorder.received] == [False, True]
+    finally:
+        dlx = await admin.declare_exchange("aegispulse.dlx", aio_pika.ExchangeType.TOPIC, durable=True)
+        await (await admin.get_queue("intel.facts.q.dlq")).bind(dlx, "intel.facts.q")
+        await (await admin.get_queue("events.deadletter.q")).bind(dlx, "#")
+    assert await drain(admin, "intel.facts.q.dlq") == []
 
 
 async def test_passes_replay_headers_and_acks_duplicates(

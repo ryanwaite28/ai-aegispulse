@@ -17,7 +17,9 @@ from aegis_platform.errors import (
     PoisonMessageError,
     TransientError,
     classify_failure,
+    dead_letter_message,
     describe_error,
+    stack_hash,
 )
 
 
@@ -38,6 +40,27 @@ def test_domain_errors_validate_codes_and_describe_safely() -> None:
         == "TransientError[DEPENDENCY_UNAVAILABLE]: down"
     )
     assert len(describe_error(RuntimeError("x" * 2000))) == 500
+
+
+def _raise_not_found(message: str) -> PermanentError:
+    try:
+        raise PermanentError("NOT_FOUND", message)
+    except PermanentError as e:
+        return e
+
+
+def test_stack_hash_groups_by_site_not_message_fr_msg_02() -> None:
+    a = stack_hash(_raise_not_found("row 1 missing"))
+    assert len(a) == 16
+    assert int(a, 16) >= 0
+    assert stack_hash(_raise_not_found("row 2 missing")) == a
+    assert stack_hash(TransientError("NOT_FOUND", "row 1 missing")) != a
+    assert len(stack_hash(RuntimeError("never raised"))) == 16
+
+
+def test_dead_letter_message_withholds_foreign_messages_fr_msg_02() -> None:
+    assert dead_letter_message(PermanentError("NOT_FOUND", "gone")) == "PermanentError[NOT_FOUND]: gone"
+    assert dead_letter_message(ValueError("input_value='123-45-6789'")) == "ValueError (message withheld)"
 
 
 def test_settings_parse_and_apply_defaults() -> None:

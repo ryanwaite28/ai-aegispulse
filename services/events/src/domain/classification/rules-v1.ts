@@ -215,3 +215,12 @@ export function classifyStage1(eventType: string, payload: Record<string, unknow
     redactions: f.redactions,
   };
 }
+
+/**
+ * Masks every rules-v1 detector hit in an arbitrary value (same detectors and masks as Stage 1), without classifying.
+ * Used for views of stored messages that never went through Stage 1, e.g. dead letters (FR-MSG-03, §1.4.2).
+ */
+export function maskValue(value: unknown, root: string): { value: unknown; redactions: Redaction[] } {
+  const f: Findings = { sensitivity: "PUBLIC", severity: "INFO", categories: new Set(), redactions: [] };
+  return { value: walk(value, root, undefined, f), redactions: f.redactions };
+}

@@ -1,6 +1,7 @@
 // Phase 1 data foundations (PROJECT.md §11 Phase 1, §5.7.2, §7.0, ADR-0005): applies every PostgreSQL migration with the
 // real migrate image to an empty PostgreSQL 18 initialised by the real compose init script, then asserts grants and RLS.
 import { randomBytes } from "node:crypto";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
@@ -10,6 +11,21 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const root = join(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const schemas = ["ingestion", "files", "registry", "cases", "analytics"] as const;
+const MIGRATION_DIRS: Record<(typeof schemas)[number], string> = {
+  ingestion: "services/ingestion/db/migrations",
+  files: "services/files/db/migrations",
+  registry: "services/registry/src/main/resources/db/migration",
+  cases: "services/cases/src/main/resources/db/migration",
+  analytics: "services/data-intel/db/migrations",
+};
+/** Highest V{n}__ migration on disk for a schema: the history must end there (assertions follow new migrations). */
+const latestVersion = (s: (typeof schemas)[number]): number =>
+  Math.max(
+    ...readdirSync(join(root, MIGRATION_DIRS[s]))
+      .map((f) => /^V(\d+)__/.exec(f)?.[1])
+      .filter((v): v is string => v !== undefined)
+      .map(Number),
+  );
 const secret = (): string => randomBytes(16).toString("hex");
 const env: Record<string, string> = { PG_BACKUP_PASSWORD: secret() };
 for (const s of schemas) {
@@ -70,8 +86,10 @@ describe("PostgreSQL migrations + role model (ADR-0005, NFR-06)", () => {
   it("migrates every schema with the migrate image", () => {
     expect(migrateLogs).toContain("aegis-migrate: done");
     for (const s of schemas) {
-      expect(migrateLogs).toMatch(new RegExp(`${s}: \\| Versioned \\| 1 .*Success`));
-      expect(migrateLogs).toMatch(new RegExp(`${s}: \\| Versioned \\| 2 .*Success`));
+      // Flyway pads the type column (e.g. to "Repeatable" when a schema has repeatable migrations).
+      for (let v = 1; v <= latestVersion(s); v++) {
+        expect(migrateLogs).toMatch(new RegExp(`${s}: \\| Versioned\\s+\\| ${String(v)}\\s.*Success`));
+      }
     }
   });
 
@@ -88,7 +106,7 @@ describe("PostgreSQL migrations + role model (ADR-0005, NFR-06)", () => {
   it.each(schemas)("lets svc_%s read but never modify its migration history", async (s) => {
     const c = await svc(s);
     const v = await c.query<{ v: string }>(`select max(version) as v from ${s}.flyway_schema_history`);
-    expect(v.rows[0]?.v).toBe("2");
+    expect(v.rows[0]?.v).toBe(String(latestVersion(s)));
     await expect(c.query(`delete from ${s}.flyway_schema_history`)).rejects.toThrow(/permission denied/);
     await c.end();
   });

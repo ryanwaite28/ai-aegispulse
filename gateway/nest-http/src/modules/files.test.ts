@@ -177,3 +177,35 @@ describe("files upload routes over the gateway (FR-FILE-01..04)", () => {
     expect(seen).toHaveLength(4);
   });
 });
+
+describe("dead-letter routes over the gateway (FR-MSG-03)", () => {
+  const ID = "6745c1f0a3b2c4d5e6f70812";
+
+  it("list/get forward filters and X-Aegis-Tenant (PLATFORM_ADMIN may omit it); replay/discard forward Idempotency-Key", async () => {
+    expect((await get("/v1/ops/dead-letters?queue=files.validation.q&errorCode=NOT_FOUND&limit=10")).statusCode).toBe(
+      200,
+    );
+    expect((await get(`/v1/ops/dead-letters/${ID}`, { "x-aegis-tenant": TENANT })).statusCode).toBe(200);
+    expect((await post(`/v1/ops/dead-letters/${ID}/replay`, undefined, { "idempotency-key": "r-1" })).statusCode).toBe(
+      200,
+    );
+    expect((await post(`/v1/ops/dead-letters/${ID}/discard`, { reason: "fixed upstream" })).statusCode).toBe(200);
+    expect(seen.map((x) => [x.path, x.body, x.tenant, x.idem])).toEqual([
+      [
+        "/internal/v1/listDeadLetters",
+        { queue: "files.validation.q", errorCode: "NOT_FOUND", limit: 10 },
+        undefined,
+        undefined,
+      ],
+      ["/internal/v1/getDeadLetter", { deadLetterId: ID }, TENANT, undefined],
+      ["/internal/v1/replayDeadLetter", { deadLetterId: ID }, undefined, "r-1"],
+      ["/internal/v1/discardDeadLetter", { reason: "fixed upstream", deadLetterId: ID }, undefined, undefined],
+    ]);
+  });
+
+  it("a malformed id is a local 404 and never reaches events", async () => {
+    expect((await get("/v1/ops/dead-letters/not%20an%20id")).statusCode).toBe(404);
+    expect((await post("/v1/ops/dead-letters/a.b/replay")).statusCode).toBe(404);
+    expect(seen).toHaveLength(0);
+  });
+});

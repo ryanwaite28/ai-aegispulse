@@ -1,10 +1,13 @@
-// Envelopes events publishes through its Mongo outbox (§6.4, §6.7): classification.* on aegispulse.enrichment.
+// Envelopes events publishes through its Mongo outbox (§6.4, §6.7): classification.* on aegispulse.enrichment,
+// ops.dead_letter.recorded / ops.audit.dead_letter_resolved on aegispulse.intelligence.
 // They carry ids, the classification and entity mentions only — never payload bodies. Their own archive copy is
 // terminal (rules-v1 loop prevention), so they never trigger another classification event.
 import type { CanonicalEnvelope } from "@aegispulse/contracts/generated/ts/envelope.ts";
 import { uuidv7 } from "@aegispulse/ts-platform/ids";
 import type { OutboxMessage } from "@aegispulse/ts-platform/outbox";
 import type { ArchivedEvent } from "../db/archive.repository.js";
+import type { DeadLetterDoc } from "../db/dead-letter.repository.js";
+import type { ResolveAction } from "../domain/dead-letter.js";
 
 /** §6.4 producer `aegispulse-events@{git sha}`; non-image runs use the all-zero sha. */
 export function producer(version: string): string {
@@ -83,4 +86,83 @@ export function classificationOverridden(
     actorId: o.actorId,
     justification: o.justification,
   });
+}
+
+const CORRELATION = /^corr-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** ops.* envelopes on aegispulse.intelligence (§6.7): operational ids + actor, never message bodies. */
+function opsEnvelope(
+  version: string,
+  d: DeadLetterDoc,
+  eventType: string,
+  idempotencyKey: string,
+  tenantId: string | null,
+  payload: Record<string, unknown>,
+): OutboxMessage {
+  const now = new Date().toISOString();
+  const original = d.envelope?.["correlationId"];
+  const env = {
+    eventId: uuidv7(),
+    // The failed message's correlation chain when it had a valid one; poison gets a fresh chain.
+    correlationId: typeof original === "string" && CORRELATION.test(original) ? original : `corr-${uuidv7()}`,
+    causationId: d.eventId,
+    tenantId,
+    schemaVersion: "1.0.0",
+    eventType,
+    source: "service:events",
+    producer: producer(version),
+    occurredAt: now,
+    ingestedAt: now,
+    idempotencyKey,
+    classification: { sensitivity: "INTERNAL", status: "INGESTED", classification_source: "PRODUCER" },
+    payload,
+  } as CanonicalEnvelope;
+  return { exchange: "aegispulse.intelligence", routingKey: eventType, envelope: env };
+}
+
+/** FR-MSG-02: ops.dead_letter.recorded when a dead letter opens a registry record (alerting, intel facts). */
+export function deadLetterRecorded(version: string, d: DeadLetterDoc): OutboxMessage {
+  return opsEnvelope(
+    version,
+    d,
+    "ops.dead_letter.recorded",
+    `ops.dead_letter.recorded:${d._id.toHexString()}`,
+    d.tenantId,
+    {
+      deadLetterId: d._id.toHexString(),
+      queue: d.queue,
+      originalEventId: d.eventId,
+      routingKey: d.routingKey,
+      errorCode: d.errorCode,
+      retryCount: d.retryCount,
+    },
+  );
+}
+
+/**
+ * FR-MSG-03 / FR-AUD-02: ops.audit.dead_letter_resolved (replay or discard) → cases audit chain. A dead letter
+ * without a tenant (platform traffic or unreadable poison) is audited under the reserved platform tenant.
+ */
+export function deadLetterResolved(
+  version: string,
+  d: DeadLetterDoc,
+  action: ResolveAction,
+  actorId: string,
+  platformTenantId: string,
+): OutboxMessage {
+  return opsEnvelope(
+    version,
+    d,
+    "ops.audit.dead_letter_resolved",
+    `ops.audit.dead_letter_resolved:${d._id.toHexString()}`,
+    d.tenantId ?? platformTenantId,
+    {
+      deadLetterId: d._id.toHexString(),
+      queue: d.queue,
+      action,
+      actorId,
+      originalEventId: d.eventId,
+      reason: d.reason,
+    },
+  );
 }

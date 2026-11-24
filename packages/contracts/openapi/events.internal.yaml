@@ -1384,13 +1384,38 @@ components:
             envelope:
               type: object
               additionalProperties: true
-              description: Original canonical envelope.
+              description: Original canonical envelope, masked by the rules-v1 detectors (§1.4.2); {} when the body was not a JSON object (see rawBody).
+            rawBody:
+              type: string
+              description: Body text of a poison message that was not a JSON object (bounded to 256 KiB), masked; absent otherwise.
             headers:
               type: object
               additionalProperties: true
               description: Original AMQP headers.
             stackHash:
               type: string
+            occurrences:
+              type: integer
+              minimum: 1
+              description: Failures of the same message recorded while this record was OPEN.
+            redactions:
+              type: array
+              description: Values masked in this view (envelope, rawBody, headers, errorMessage). The stored message stays unmasked only for replay.
+              items:
+                type: object
+                additionalProperties: false
+                required: [path, rule, kind]
+                properties:
+                  path:
+                    type: string
+                  rule:
+                    type: string
+                  kind:
+                    type: string
+                    enum: [MASK]
+            replayable:
+              type: boolean
+              description: False for suspect records (the queue header disagreed with the routing key); replay is refused (422).
           required:
             - envelope
             - headers
@@ -1428,7 +1453,7 @@ components:
           minLength: 1
       required:
         - deadLetterId
-      description: Republishes to the original queue with x-retry-count = 0 and marks REPLAYED.
+      description: Republishes the stored message to the original queue with x-retry-count = 0 (via aegispulse.retry and the queue's shortest retry/delay queue) and marks REPLAYED.
     DiscardDeadLetterInput:
       type: object
       additionalProperties: false

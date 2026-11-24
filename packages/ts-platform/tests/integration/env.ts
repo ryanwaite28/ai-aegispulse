@@ -70,6 +70,11 @@ export async function startPostgres(role: (typeof SCHEMAS)[number] = "files"): P
     password: env[`PG_SVC_PASSWORD_${role.toUpperCase()}`],
     max: 10,
   });
+  // An idle client can receive the server's 57P01 (admin shutdown) while the container stops during teardown; without a
+  // listener the pool re-throws it as an uncaught exception that fails an otherwise green run. Anything else surfaces.
+  pool.on("error", (error: Error & { code?: string }) => {
+    if (error.code !== "57P01") throw error;
+  });
   return {
     pool,
     stop: async () => {

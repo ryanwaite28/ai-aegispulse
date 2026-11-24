@@ -31,8 +31,11 @@ describe("MongoDB migrations (FR-EVT-02, FR-RPL, FR-MSG-02)", () => {
     await mongo?.stop();
   });
 
-  it("applies the baseline and is a no-op on re-run", () => {
-    expect(migrate()).toContain("MIGRATED UP: 20261122000001-baseline.cjs");
+  it("applies every migration in order and is a no-op on re-run", () => {
+    const first = migrate();
+    expect(first).toContain("MIGRATED UP: 20261122000001-baseline.cjs");
+    expect(first).toContain("MIGRATED UP: 20261124000001-dead-letter-open-identity.cjs");
+    expect(first).toContain("MIGRATED UP: 20261124000002-dead-letter-tenant-identity-retention.cjs");
     expect(migrate()).not.toContain("MIGRATED UP");
   });
 

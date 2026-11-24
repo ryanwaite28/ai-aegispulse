@@ -1,0 +1,49 @@
+{
+  "$comment": "FR-MSG-04 (PROJECT.md §2.15, §9 OpenObserve alerts as code). OpenObserve v2 alert definitions (POST /api/v2/{org}/alerts), format checked against OpenObserve v1.1.2. Destination 'aegispulse-ntfy' is created per environment and posts to that environment's ntfy topic (prod aegispulse-alerts, dev aegispulse-alerts-dev); N-04 wording: '{count} dead letters on {queue} in {window}'. Local equivalent: make check-dlq-alert.",
+  "alerts": [
+    {
+      "name": "aegispulse-dlq-spike",
+      "description": "N-04 Dead-letter spike: more than 10 dead letters recorded by the events registry in 5 min (all queues). Runbook: docs/runbooks/dlq.md",
+      "stream_type": "metrics",
+      "stream_name": "aegispulse_dead_letters_recorded_total",
+      "is_real_time": false,
+      "query_condition": {
+        "type": "promql",
+        "promql": "sum(increase(aegispulse_dead_letters_recorded_total[5m]))",
+        "promql_condition": { "column": "value", "operator": ">", "value": 10 }
+      },
+      "trigger_condition": {
+        "period": 5,
+        "operator": ">=",
+        "threshold": 1,
+        "frequency": 1,
+        "frequency_type": "minutes",
+        "silence": 10
+      },
+      "destinations": ["aegispulse-ntfy"],
+      "enabled": true
+    },
+    {
+      "name": "aegispulse-dlq-depth",
+      "description": "N-04 Dead letters waiting: a *.dlq queue has had messages ready for 10 min. Needs RabbitMQ per-object metrics (rabbitmq_prometheus, prometheus.return_per_object_metrics = true) shipped to OpenObserve. Runbook: docs/runbooks/dlq.md",
+      "stream_type": "metrics",
+      "stream_name": "rabbitmq_queue_messages_ready",
+      "is_real_time": false,
+      "query_condition": {
+        "type": "promql",
+        "promql": "max by (queue) (min_over_time(rabbitmq_queue_messages_ready{queue=~\".+\\\\.dlq\"}[10m]))",
+        "promql_condition": { "column": "value", "operator": ">", "value": 0 }
+      },
+      "trigger_condition": {
+        "period": 10,
+        "operator": ">=",
+        "threshold": 1,
+        "frequency": 5,
+        "frequency_type": "minutes",
+        "silence": 60
+      },
+      "destinations": ["aegispulse-ntfy"],
+      "enabled": true
+    }
+  ]
+}

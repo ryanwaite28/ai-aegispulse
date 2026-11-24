@@ -137,7 +137,13 @@ class PlatformIntegrationTest {
     TestApplication.RECEIVED.clear();
     TestApplication.FINISHED.clear();
     for (String q :
-        List.of(QUEUE + ".dlq", "events.deadletter.q", "events.archive.q", QUEUE + ".retry.1s")) {
+        List.of(
+            QUEUE + ".dlq",
+            "events.deadletter.q",
+            "events.archive.q",
+            QUEUE + ".retry.1s",
+            QUEUE + ".retry.5s",
+            QUEUE + ".retry.30s")) {
       adminCh.queuePurge(q);
     }
   }
@@ -475,6 +481,10 @@ class PlatformIntegrationTest {
         .isEqualTo("NOT_FOUND");
     assertThat(dead.getProps().getHeaders().get("x-aegis-original-queue").toString())
         .isEqualTo(QUEUE);
+    assertThat(dead.getProps().getHeaders().get("x-aegis-error-message").toString())
+        .isEqualTo("NotFound[NOT_FOUND]: case missing");
+    assertThat(dead.getProps().getHeaders().get("x-aegis-error-stack-hash").toString())
+        .matches("[0-9a-f]{16}");
     assertThat(JSON.readTree(dead.getBody()).get("eventId").asString()).isEqualTo(e.eventId());
     assertThat(awaitMessage("events.deadletter.q")).isNotNull();
     assertThat(TestApplication.RECEIVED).hasSize(1);
@@ -613,6 +623,48 @@ class PlatformIntegrationTest {
   }
 
   // ── graceful shutdown (NFR-11) — last: stops the listener ───────────────────
+
+  @Test
+  @Order(11)
+  void walksTheFullRetryChainWithIncreasingDelaysThenDeadLetters_FR_MSG_01() throws Exception {
+    TestApplication.MODE.set(TestApplication.Mode.TRANSIENT_ALWAYS);
+    publish(envelope("registry.tenant.created"), Map.of());
+    await(() -> TestApplication.RECEIVED.size() == 4, Duration.ofSeconds(60));
+    List<TestApplication.Received> seen = List.copyOf(TestApplication.RECEIVED);
+    assertThat(seen).extracting(r -> r.context().retryCount()).containsExactly(0, 1, 2, 3);
+    long[] gapsMs = new long[3];
+    for (int i = 0; i < 3; i++) {
+      gapsMs[i] = (seen.get(i + 1).atNanos() - seen.get(i).atNanos()) / 1_000_000;
+    }
+    assertThat(gapsMs[0]).isGreaterThanOrEqualTo(900);
+    assertThat(gapsMs[1]).isGreaterThanOrEqualTo(4_500).isGreaterThan(gapsMs[0]);
+    assertThat(gapsMs[2]).isGreaterThanOrEqualTo(29_000).isGreaterThan(gapsMs[1]);
+    GetResponse dead = awaitMessage(QUEUE + ".dlq");
+    assertThat(dead.getProps().getHeaders().get("x-aegis-error-code").toString())
+        .isEqualTo("DEPENDENCY_UNAVAILABLE");
+    assertThat(dead.getProps().getHeaders().get("x-retry-count").toString()).isEqualTo("3");
+  }
+
+  @Test
+  @Order(12)
+  void requeuesTheOriginalWhenTheDeadLetterRepublishFails_FR_MSG_01() throws Exception {
+    // The DLX disappears after the listener started: the DLQ copy is never confirmed, so the
+    // original is nack-requeued and redelivered instead of being lost.
+    TestApplication.MODE.set(TestApplication.Mode.PERMANENT_ONCE);
+    adminCh.exchangeDelete("aegispulse.dlx");
+    try {
+      publish(envelope("registry.tenant.created"), Map.of());
+      await(() -> TestApplication.FINISHED.size() == 1, Duration.ofSeconds(30));
+      assertThat(TestApplication.RECEIVED)
+          .extracting(r -> r.context().redelivered())
+          .containsExactly(false, true);
+    } finally {
+      adminCh.exchangeDeclare("aegispulse.dlx", "topic", true);
+      adminCh.queueBind(QUEUE + ".dlq", "aegispulse.dlx", QUEUE);
+      adminCh.queueBind("events.deadletter.q", "aegispulse.dlx", "#");
+    }
+    assertThat(adminCh.messageCount(QUEUE + ".dlq")).isZero();
+  }
 
   @Test
   @Order(99)

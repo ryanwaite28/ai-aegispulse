@@ -11,6 +11,8 @@ import {
   ok,
   PermanentError,
   PoisonMessageError,
+  deadLetterMessage,
+  stackHash,
   TransientError,
   unwrap,
   unwrapOr,
@@ -48,6 +50,28 @@ describe("errors (PROJECT.md §6.8, FR-MSG-01 classification)", () => {
     const long = describeError(new Error("x".repeat(2000)), 50);
     expect(long).toHaveLength(50);
     expect(long.endsWith("…")).toBe(true);
+  });
+
+  it("hashes the error name + stack frames without line numbers (x-aegis-error-stack-hash, FR-MSG-02)", () => {
+    const failAt = (message: string): Error => new PermanentError("NOT_FOUND", message);
+    const a = failAt("row 1 missing");
+    const b = failAt("row 2 missing");
+    expect(stackHash(a)).toMatch(/^[0-9a-f]{16}$/);
+    expect(stackHash(a)).toBe(stackHash(b)); // same call site, different message → same group
+    const moved = new PermanentError("NOT_FOUND", "x");
+    moved.stack = (a.stack ?? "").replace(/:(\d+):(\d+)\)/g, (_m, l: string, c: string) => `:${Number(l) + 7}:${c})`);
+    expect(stackHash(moved)).toBe(stackHash(a)); // line shifts do not split the group
+    expect(stackHash(new TransientError("NOT_FOUND", "x"))).not.toBe(stackHash(a)); // different error name
+    expect(stackHash("thrown string")).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("withholds foreign error messages from the DLQ header (FR-MSG-02, no payload values)", () => {
+    expect(deadLetterMessage(new PermanentError("NOT_FOUND", "file row missing"))).toBe(
+      "PermanentError[NOT_FOUND]: file row missing",
+    );
+    const foreign = new TypeError('Cannot parse "123-45-6789" as a date');
+    expect(deadLetterMessage(foreign)).toBe("TypeError (message withheld)");
+    expect(deadLetterMessage("x")).toBe("non-error thrown: string");
   });
 
   it("composes Results", async () => {

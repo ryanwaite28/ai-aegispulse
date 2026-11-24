@@ -1,10 +1,15 @@
 // events composition root: config → telemetry → logs → owned clients → probes → Mongo outbox relay → consumers → HTTP.
 // No business logic here: services own it; adapters only parse and dispatch.
-import { AmqpPublisher, amqpReadyCheck, createAmqpClient } from "@aegispulse/ts-platform/amqp";
+import { AmqpPublisher, amqpReadyCheck, createAmqpClient, workQueueNames } from "@aegispulse/ts-platform/amqp";
 import { JwtVerifier, ServiceTokenProvider } from "@aegispulse/ts-platform/auth";
 import { InternalServiceClient } from "@aegispulse/ts-platform/http-client";
 import { TenantSettingsCache } from "@aegispulse/ts-platform/tenant-settings";
 import { consumeArchive } from "./adapters/amqp/archive.consumer.js";
+import { consumeDeadLetters } from "./adapters/amqp/deadletter.consumer.js";
+import { registerDeadLetterRoutes } from "./adapters/http/dead-letters.routes.js";
+import { DeadLetterRepository } from "./db/dead-letter.repository.js";
+import { DeadLetterService } from "./service/dead-letter.service.js";
+import { TopologyReplayPublisher } from "./storage/dead-letter-replay.js";
 import { registerEventRoutes } from "./adapters/http/events.routes.js";
 import { EventQueryRepository } from "./db/event-query.repository.js";
 import { EventQueryService } from "./service/event-query.service.js";
@@ -95,6 +100,16 @@ async function main(): Promise<void> {
     logger,
   });
   consumeArchive(amqp, logger, archive);
+  const deadLetters = new DeadLetterService({
+    client: mongo,
+    repo: new DeadLetterRepository(db),
+    outbox,
+    replay: new TopologyReplayPublisher(amqp),
+    version,
+    logger,
+  });
+  deadLetters.primeMetrics(workQueueNames());
+  consumeDeadLetters(amqp, logger, deadLetters);
 
   const app = createHttpServer({ logger });
   registerHealthRoutes(app, health);
@@ -109,6 +124,7 @@ async function main(): Promise<void> {
     new EventQueryService(new EventQueryRepository(db)),
     new OverrideService({ client: mongo, archive: new ArchiveRepository(db), outbox, version, logger }),
   );
+  registerDeadLetterRoutes(app, verifier, deadLetters);
   await app.listen({ host: "0.0.0.0", port: PORT });
   lifecycle
     .onShutdown("http", "fastify", () => app.close())

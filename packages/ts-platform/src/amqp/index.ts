@@ -14,7 +14,14 @@ import { RabbitMQClient, type RmqEventMessage } from "rxjs-rabbitmq";
 import type { Subscription } from "rxjs";
 import type { CanonicalEnvelope } from "@aegispulse/contracts/generated/ts/envelope.ts";
 import type { ExchangeName, QueueName, WorkQueueName } from "@aegispulse/contracts/generated/ts/topology.ts";
-import { classifyFailure, describeError, PoisonMessageError, type ClassifiedFailure } from "../errors/index.js";
+import {
+  classifyFailure,
+  deadLetterMessage,
+  describeError,
+  PoisonMessageError,
+  stackHash,
+  type ClassifiedFailure,
+} from "../errors/index.js";
 import { runWithContext, type Logger } from "../logging/index.js";
 import { extractTraceContext, getMeter, injectTraceHeaders, SpanKind, withSpan } from "../telemetry/index.js";
 import type { EnvelopePublisher, OutboxMessage } from "../outbox/index.js";
@@ -33,6 +40,8 @@ export const HEADERS = {
   replayGeneration: "x-aegis-replay-generation",
   errorCode: "x-aegis-error-code",
   originalQueue: "x-aegis-original-queue",
+  errorMessage: "x-aegis-error-message",
+  errorStackHash: "x-aegis-error-stack-hash",
 } as const;
 
 // ── Topology policy (read from the contract, never hard-coded) ────────────────
@@ -40,6 +49,7 @@ export const HEADERS = {
 interface TopologyQueue {
   readonly name: string;
   readonly role?: string;
+  readonly arguments?: Readonly<Record<string, unknown>>;
   readonly prefetch?: number;
   readonly retryTiers?: readonly string[];
   readonly deadLetterQueue?: string | null;
@@ -72,6 +82,40 @@ function loadPolicies(): ReadonlyMap<string, QueuePolicy> {
   }
   policies = map;
   return map;
+}
+
+let delayRoutes: ReadonlyMap<string, { routingKey: string; delayMs: number }> | undefined;
+
+/**
+ * How to put a message back on `queue` through the contract topology (dead-letter replay, FR-MSG-03): the shortest
+ * retry/delay queue whose TTL dead-letters into `queue`, published via aegispulse.retry (routing key = that queue).
+ * Runtime users may write to aegispulse.retry (§5.7.3), so no default-exchange grant is needed. Undefined when the
+ * queue has no such route.
+ */
+export function replayRoute(
+  queue: string,
+): { exchange: ExchangeName; routingKey: string; delayMs: number } | undefined {
+  if (delayRoutes === undefined) {
+    const path = fileURLToPath(import.meta.resolve("@aegispulse/contracts/topology"));
+    const topology = JSON.parse(readFileSync(path, "utf8")) as { queues: TopologyQueue[] };
+    const map = new Map<string, { routingKey: string; delayMs: number }>();
+    for (const q of topology.queues) {
+      if (q.role !== "retry" && q.role !== "delay") continue;
+      const target = q.arguments?.["x-dead-letter-routing-key"];
+      const ttl = q.arguments?.["x-message-ttl"];
+      if (typeof target !== "string" || typeof ttl !== "number") continue;
+      const best = map.get(target);
+      if (best === undefined || ttl < best.delayMs) map.set(target, { routingKey: q.name, delayMs: ttl });
+    }
+    delayRoutes = map;
+  }
+  const route = delayRoutes.get(queue);
+  return route === undefined ? undefined : { exchange: RETRY_EXCHANGE, ...route };
+}
+
+/** Every work queue in the topology contract (e.g. to pre-create per-queue metric series). */
+export function workQueueNames(): WorkQueueName[] {
+  return [...loadPolicies().values()].map((p) => p.queue);
 }
 
 export function queuePolicy(queue: WorkQueueName): QueuePolicy {
@@ -159,7 +203,8 @@ export function createAmqpClient(options: AmqpClientOptions): AegisAmqpClient {
     // Bodies are parsed by the kit, so an undeserializable message becomes POISON → DLQ instead of a silent reject.
     serializers: {
       "application/json": {
-        serialize: (value: unknown) => Buffer.from(JSON.stringify(value), "utf8"),
+        // Buffers pass through unchanged: dead-letter replay republishes the stored bytes (FR-MSG-03).
+        serialize: (value: unknown) => (Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value), "utf8")),
         deserialize: (value: Buffer) => value,
       },
     },
@@ -208,6 +253,36 @@ export class AmqpPublisher implements EnvelopePublisher {
       },
     });
   }
+}
+
+/** A message published as-is (dead-letter replay, FR-MSG-03): stored bytes plus the AMQP properties to restore. */
+export interface RawMessage {
+  readonly exchange: ExchangeName;
+  readonly routingKey: string;
+  readonly body: Buffer;
+  readonly headers: Readonly<Record<string, unknown>>;
+  readonly messageId?: string | undefined;
+  readonly correlationId?: string | undefined;
+  readonly type?: string | undefined;
+}
+
+/** Confirmed publish of stored bytes (contentType application/json, persistent, mandatory). */
+export function publishRaw(client: AegisAmqpClient, message: RawMessage): Promise<void> {
+  return client.publishEvent({
+    exchange: message.exchange,
+    routingKey: message.routingKey,
+    data: message.body,
+    publishOptions: {
+      ...(message.messageId === undefined ? {} : { messageId: message.messageId }),
+      ...(message.correlationId === undefined ? {} : { correlationId: message.correlationId }),
+      ...(message.type === undefined ? {} : { type: message.type }),
+      contentType: "application/json",
+      persistent: true,
+      mandatory: true,
+      timestamp: Math.floor(Date.now() / 1000),
+      headers: { ...message.headers },
+    },
+  });
 }
 
 // ── Consumer ──────────────────────────────────────────────────────────────────
@@ -309,7 +384,12 @@ export function consumeEnvelopes(options: ConsumeOptions): Subscription {
         await delivery.republish({
           exchange: DEAD_LETTER_EXCHANGE,
           routingKey: queue,
-          headers: { [HEADERS.errorCode]: failure.code, [HEADERS.originalQueue]: queue },
+          headers: {
+            [HEADERS.errorCode]: failure.code,
+            [HEADERS.originalQueue]: queue,
+            [HEADERS.errorMessage]: deadLetterMessage(error),
+            [HEADERS.errorStackHash]: stackHash(error),
+          },
         });
         log.error(fields, "message dead-lettered");
         return "dead_letter";
@@ -383,4 +463,94 @@ export function consumeEnvelopes(options: ConsumeOptions): Subscription {
   };
 
   return client.onQueue(queue).handleAll((delivery) => onDelivery(delivery));
+}
+
+// ── Raw consumer (dead-letter registry) ───────────────────────────────────────
+
+/** A delivery as received: bytes, headers and the properties needed to record or replay it. */
+export interface RawDelivery {
+  readonly content: Buffer;
+  readonly headers: Readonly<Record<string, unknown>>;
+  readonly messageId: string | undefined;
+  readonly correlationId: string | undefined;
+  readonly type: string | undefined;
+  readonly exchange: string;
+  readonly routingKey: string;
+  readonly redelivered: boolean;
+}
+
+export interface ConsumeRawOptions {
+  readonly client: AegisAmqpClient;
+  /** A queue without a DLQ (events.deadletter.q): failures are never dead-lettered again. */
+  readonly queue: WorkQueueName;
+  readonly logger: Logger;
+  /** Calls exactly one service action. */
+  readonly handler: (delivery: RawDelivery) => Promise<void>;
+  /** First in-process retry delay (§5.5: 5 s); doubles per attempt up to `maxDelayMs`. */
+  readonly initialDelayMs?: number;
+  readonly maxDelayMs?: number;
+  /** How long one delivery is held and retried before it is requeued (below the broker's 30 min ack timeout). */
+  readonly maxHoldMs?: number;
+}
+
+/**
+ * Consumes a queue whose bodies may be anything (poison included), without envelope validation. Success acks.
+ * Failure retries in-process with capped backoff (5 s → 60 s) while holding the delivery, so a store outage of up to
+ * `maxHoldMs` costs no redelivery; only then (or on shutdown) the delivery is nack-requeued. Each requeue counts
+ * against the quorum queue's x-delivery-limit (10), so a message survives ~10 × maxHoldMs of outage instead of
+ * ~10 × 5 s. Nothing is dead-lettered twice (§5.5 dead-letter routing note). Holding deliveries applies
+ * backpressure: while the store is down, nothing else on this queue can succeed either.
+ */
+export function consumeRaw(options: ConsumeRawOptions): Subscription {
+  const { client, queue, logger, handler } = options;
+  if (queuePolicy(queue).deadLetter) throw new TypeError(`${queue} has a DLQ; use consumeEnvelopes`);
+  const initialDelayMs = options.initialDelayMs ?? 5_000;
+  const maxDelayMs = options.maxDelayMs ?? 60_000;
+  const maxHoldMs = options.maxHoldMs ?? 20 * 60_000;
+  const log = logger.child({ queue });
+  const stopping = (): boolean => client.state === "closing" || client.state === "closed";
+  /** Sleeps up to `ms`, waking early when the client starts closing. */
+  const pause = async (ms: number): Promise<void> => {
+    const until = Date.now() + ms;
+    while (Date.now() < until && !stopping()) {
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250, until - Date.now())));
+    }
+  };
+  return client.onQueue(queue).handleAll(async (delivery) => {
+    const { properties, fields, content } = delivery.message;
+    const raw: RawDelivery = {
+      content,
+      headers: (properties.headers ?? {}) as Record<string, unknown>,
+      messageId: typeof properties.messageId === "string" ? properties.messageId : undefined,
+      correlationId: typeof properties.correlationId === "string" ? properties.correlationId : undefined,
+      type: typeof properties.type === "string" ? properties.type : undefined,
+      exchange: fields.exchange,
+      routingKey: fields.routingKey,
+      redelivered: fields.redelivered,
+    };
+    const started = Date.now();
+    let delayMs = initialDelayMs;
+    let outcome: ConsumerOutcome = "requeue";
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await handler(raw);
+        delivery.ack();
+        outcome = "success";
+        break;
+      } catch (error: unknown) {
+        const giveBack = stopping() || Date.now() - started + delayMs > maxHoldMs;
+        log.error(
+          { err: describeError(error), attempt, ...(giveBack ? {} : { retryInMs: delayMs }) },
+          giveBack ? "raw handler failed; delivery requeued" : "raw handler failed; retrying in process",
+        );
+        if (giveBack) {
+          delivery.nack(true);
+          break;
+        }
+        await pause(delayMs);
+        delayMs = Math.min(delayMs * 2, maxDelayMs);
+      }
+    }
+    processedCounter().add(1, { queue, outcome });
+  });
 }

@@ -21,6 +21,8 @@
 | `PoisonMessageError` | envelope/schema invalid, undeserializable body, unknown major `schemaVersion` | DLQ immediately with `x-aegis-error-code` |
 | Duplicate | already processed (dedup hit, unique violation on idempotency key) | ack (success) |
 
+Every DLQ copy carries the §6.4 DLQ-only headers `x-aegis-error-code`, `x-aegis-original-queue`, `x-aegis-error-message` (the kit's log-safe `describeError`: class, code and message, ≤ 500 chars, never payload content) and `x-aegis-error-stack-hash` (first 16 hex of SHA-256 over the error type and its top 10 stack frames without line numbers, so one bug groups under one hash across deliveries and builds). Error messages therefore must not embed payload values. All three kits set them; the dead-letter registry (FR-MSG-02) stores them and `docs/runbooks/dlq.md` explains triage.
+
 ## Code review checklist (human or agent)
 1. Is any business decision made in a handler, consumer, CronJob, or the gateway?
 2. Does any non-owner touch a datastore, or does any service reach into another service's data?

@@ -176,6 +176,11 @@ services:
       ZO_ROOT_USER_EMAIL: dev@aegispulse.local
       ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_LOCAL_PASSWORD:?run make env}
       ZO_DATA_DIR: /data
+      # Fits the 512 MiB limit under the full stack's OTLP load: persist the in-memory WAL tables every 60 s (default
+      # 600 s) and bound memtables (MB) and the query cache, otherwise ingestion fails with MemoryTableOverflowError.
+      ZO_MAX_FILE_RETENTION_TIME: "60"
+      ZO_MEM_TABLE_MAX_SIZE: "160"
+      ZO_MEMORY_CACHE_MAX_SIZE: "96"
     volumes:
       - o2data:/data
     ports: ["5080:5080"]

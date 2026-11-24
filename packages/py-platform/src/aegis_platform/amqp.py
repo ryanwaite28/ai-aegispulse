@@ -31,7 +31,15 @@ from aegis_contracts.topology import (
     policy,
 )
 from aegis_platform.envelope import decode_envelope, encode_envelope, event_id, uuid_str
-from aegis_platform.errors import ClassifiedFailure, FailureKind, PoisonMessageError, classify_failure, describe_error
+from aegis_platform.errors import (
+    ClassifiedFailure,
+    FailureKind,
+    PoisonMessageError,
+    classify_failure,
+    dead_letter_message,
+    describe_error,
+    stack_hash,
+)
 from aegis_platform.logging import get_logger, log_context
 from aegis_platform.outbox import OutboxMessage
 from aegis_platform.telemetry import extract_trace_context, inject_trace_headers, meter, tracer
@@ -45,6 +53,8 @@ REPLAY_JOB = "x-aegis-replay-job"
 REPLAY_GENERATION = "x-aegis-replay-generation"
 ERROR_CODE = "x-aegis-error-code"
 ORIGINAL_QUEUE = "x-aegis-original-queue"
+ERROR_MESSAGE = "x-aegis-error-message"
+ERROR_STACK_HASH = "x-aegis-error-stack-hash"
 
 
 class Outcome(StrEnum):
@@ -303,7 +313,12 @@ class AmqpClient:
                     message,
                     DEAD_LETTER_EXCHANGE.value,
                     queue_policy.queue.value,
-                    {ERROR_CODE: failure.code, ORIGINAL_QUEUE: queue_policy.queue.value},
+                    {
+                        ERROR_CODE: failure.code,
+                        ORIGINAL_QUEUE: queue_policy.queue.value,
+                        ERROR_MESSAGE: dead_letter_message(error),
+                        ERROR_STACK_HASH: stack_hash(error),
+                    },
                 )
                 await message.ack()
                 log.error("message dead-lettered", **fields)

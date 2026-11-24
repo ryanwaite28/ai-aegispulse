@@ -133,7 +133,11 @@ public final class EnvelopeListener implements ChannelAwareMessageListener {
                   Headers.ERROR_CODE,
                   failure.code(),
                   Headers.ORIGINAL_QUEUE,
-                  policy.queue().wireName()));
+                  policy.queue().wireName(),
+                  Headers.ERROR_MESSAGE,
+                  ConsumerFailure.deadLetterMessage(error),
+                  Headers.ERROR_STACK_HASH,
+                  ConsumerFailure.stackHash(error)));
           channel.basicAck(tag, false);
           log.atError()
               .addKeyValue("code", failure.code())

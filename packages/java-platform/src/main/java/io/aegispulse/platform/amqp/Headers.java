@@ -9,6 +9,8 @@ public final class Headers {
   public static final String REPLAY_GENERATION = "x-aegis-replay-generation";
   public static final String ERROR_CODE = "x-aegis-error-code";
   public static final String ORIGINAL_QUEUE = "x-aegis-original-queue";
+  public static final String ERROR_MESSAGE = "x-aegis-error-message";
+  public static final String ERROR_STACK_HASH = "x-aegis-error-stack-hash";
 
   private Headers() {}
 }

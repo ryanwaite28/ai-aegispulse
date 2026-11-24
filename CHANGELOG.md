@@ -13,6 +13,30 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 7 messaging resilience and dead letters (FR-MSG-01..04; spec `docs/specs/FR-MSG-01-04-messaging-resilience.md`, evidence `docs/evidence/phase-07.md`):
+  - **Kits (TS, Java, Python):** the DLQ copy now carries `x-aegis-error-message` (log-safe, ≤ 500 chars) and `x-aegis-error-stack-hash` (16 hex over the error type + top 10 frames without line numbers). New integration tests per kit cover the full 1 s → 5 s → 30 s chain with increasing gaps → DLQ, and redelivery of the original when the DLQ republish fails. The TS kit adds `consumeRaw` (no envelope validation; failure waits 5 s and requeues), `publishRaw`, `replayRoute` and `workQueueNames`.
+  - **Dead-letter registry (events):**
+    - The `events.deadletter.q` consumer records one OPEN `dead_letters` record per failing message: envelope or raw poison body, headers, code, message, stack hash, retry count, occurrences, first/last failure.
+    - A new record enqueues `ops.dead_letter.recorded`, except for a dead-lettered `ops.dead_letter.recorded`, to avoid a loop.
+    - Metric `aegispulse_dead_letters_recorded_total{queue}`, primed at 0 per work queue.
+  - **Admin API:** `GET /v1/ops/dead-letters` (filters, cursor), `GET …/{id}`, `POST …/{id}/replay`, `POST …/{id}/discard`.
+    - Visibility: PA sees every tenant and may narrow with `X-Aegis-Tenant`; TA sees the own tenant.
+    - Replay republishes the stored bytes through `aegispulse.retry` into the original queue with `x-retry-count 0`, before the commit.
+    - Both actions write `ops.audit.dead_letter_resolved` through the Mongo outbox.
+  - **Architecture-review fixes:**
+    - Mongo migration `20261124000001-dead-letter-open-identity.cjs` adds the partial unique index `{queue, identityKey}` for OPEN records, enforcing one OPEN record per failing message under concurrency. A losing recording reruns.
+    - Replay drives its transaction explicitly, so retries never re-publish. Only the commit is retried after the publish, and a poison replay gets a stable `messageId`.
+    - `consumeRaw` retries in process with backoff (5 s → 60 s) for up to 20 min before requeueing, instead of a fixed 5 s requeue that lost dead letters after about 50 s of store outage through the quorum delivery limit.
+  - **Security-review fixes:**
+    - The dead-letter API views are masked by the rules-v1 detectors, with a `redactions[]` list. The stored message stays unmasked only for replay.
+    - Resolved records expire after 30 days (TTL).
+    - The kits' `x-aegis-error-message` withholds the messages of non-platform errors (`deadLetterMessage` in TS, Python and Java).
+    - The record identity includes the tenant (migration `20261124000002-dead-letter-tenant-identity-retention.cjs`).
+    - The queue comes from the routing key; a disagreeing queue header marks the record unreplayable.
+    - A poison replay requires byte-identical stored bytes.
+    - Added authz tests: another tenant's id, tenantless records, TA with `X-Aegis-Tenant`, integration principals.
+  - **Alerting (FR-MSG-04):** `deploy/observability/alerts/dlq-spike.json` (OpenObserve v2 PromQL alerts: spike > 10 in 5 min, any `*.dlq` depth > 0 for 10 min → `aegispulse-ntfy`), plus `make check-dlq-alert` as the local equivalent.
+  - **Demo and runbook:** `make demo-dlq` (ClamAV stopped → retries → registry → restart → replay → VALIDATED) and runbook `docs/runbooks/dlq.md`.
 - `make dev SERVICE=<name>` (PROJECT.md §4.5/§9.5; the Makefile had it as a Phase 1 placeholder), for all 11 backend runtimes:
   - It stops the service's container and runs the service natively with hot reload (Node `tsx watch`, Java `bootRun`, Python `uvicorn --reload`), using its resolved compose environment, which is never printed.
   - In-network hosts are rewritten to host ports. A pinned `alpine/socat:1.8.0.3` proxy answers under the service's name on the compose network, so the gateway and other callers keep working.
@@ -166,6 +190,9 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Model routing policy in `CLAUDE.md`; review agents pinned to models (architecture-reviewer → sonnet, security-reviewer → opus, spec-tracer → haiku).
 
 ### Fixed
+- Local OpenObserve stopped ingesting traces and metrics (`MemoryTableOverflowError`, persist stalled) under the full stack's OTLP load in its 512 MiB container. Compose now sets `ZO_MAX_FILE_RETENTION_TIME=60`, `ZO_MEM_TABLE_MAX_SIZE=160` and `ZO_MEMORY_CACHE_MAX_SIZE=96`. With these, a full E2E run showed 0 errors.
+- `tests/migrations/postgres.integration.test.ts` still asserted Phase 1's `max(version) = 2` and a single-space Flyway column that registry's repeatable migrations widen. It now derives the latest version per schema from the migration files on disk. The full `make test-integration` run now passes.
+- Shared Testcontainers Postgres harness: an idle pool client receiving `57P01` (admin shutdown) during container teardown no longer surfaces as an uncaught error that fails a green run.
 - `make up` on a never-migrated stack (after `make reset`) waited for runtime `/livez` that cannot come before `make migrate`, timed out and exited 1. `compose-wait` now detects the fresh stack, waits for infrastructure and init jobs only and points to `make migrate`, which stays the `/readyz` gate. Found by the clean-state gate run.
 - events: platform-tenant envelopes (FR-TEN-09) were dead-lettered because `getTenantSettings` correctly 404s for the reserved tenant. The retention lookup now uses the default for the platform tenant, tenantless envelopes, and tenants unknown to the registry. Found on the compose stack; the one historical message stays in `events.archive.q.dlq` for the Phase 7 replay tooling.
 - `tests/security/webhooks.spec.ts`: the +301 s skew probe floored the host clock, so up to 0.999 s of its 1 s margin could vanish and request latency landed it inside the window (an intermittent 202). Probes now round away from now.
@@ -195,6 +222,9 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- PROJECT.md amendments (owner-approved 2026-11-24) for Phase 7:
+  - **Headers:** §6.4 adds the DLQ-only headers `x-aegis-error-message` and `x-aegis-error-stack-hash` (FR-MSG-02 needs the error message and stack hash).
+  - **Audit event:** new `ops.audit.dead_letter_resolved {deadLetterId, queue, action, actorId, originalEventId, reason}` (events → intelligence → `cases.audit-ingest.q`); FR-MSG-03 / FR-AUD-02 / §6.7 updated; contracts regenerated.
 - Review of Phases 0–6 (2026-11-24):
   - **Phase 0:** Spotless/Error Prone/ArchUnit items ticked (delivered in Phase 1) and the layer-size self-test added.
   - **Phase 2:** the FR-TEN-08 scoring-propagation test moved to Phase 8 (risk-scoring), where it is now a checklist item. The reference had said Phase 5.
@@ -246,6 +276,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 7 `IN PROGRESS` (2026-11-24): all exit items are met locally (forced-failure demo, registry, replay, alert definitions + local check). Open: pipelines, merge to `main`, clean-state run; the FR-MSG-04 dev alert test → Phase 18.
+- Phases 0–6 `COMPLETE` (2026-11-24): the Runtime Completion Gate is met. Pipelines are green (owner-reported), the clean-state run passed, and the work was merged to `main` in !1 (`46ccd5e`). Carried to Phase 9: Linux `make up`, the dev JWKS drill, MB-15.
 - Runtime Completion Gate item 2 (clean state) met for Phases 0–6 on 2026-11-24: `make reset && make up && make migrate` → 12 runtimes `/readyz`, then bootstrap, seed, E2E 267/267, both demos, all three scheduler jobs, empty DLQs ([clean-state-2026-11-24](docs/evidence/clean-state-2026-11-24.md)). Only gate 1 (merge to `main`) remains.
 - GitLab pipelines green for `feature/project` through `7e2c8d8` (owner-reported 2026-11-24). Phases 0–6 now wait only on gate 1 (merge to `main`) and gate 2 (clean-state run); Linux `make up` moves to Phase 9 (CI has no compose stage). OpenObserve traces and metrics for the files/events flows recorded (gate 6).
 - Phase 2: local JWKS rotation drill rerun passed after the 5 s cooldown fix (2026-11-24): `/me` 200 with the new kid right after rotation and with a pre-rotation token ([phase-02c](docs/evidence/phase-02c.md)).

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PermanentError, PoisonMessageError, TransientError, classifyFailure } from "../errors/index.js";
 import { sampleEnvelope } from "../../tests/fixtures.js";
-import { failureRoute, parseEnvelope, queuePolicy } from "./index.js";
+import { failureRoute, parseEnvelope, queuePolicy, replayRoute } from "./index.js";
 
 describe("queuePolicy (read from the topology contract)", () => {
   it("exposes prefetch, retry tiers and DLQ presence", () => {
@@ -13,6 +13,20 @@ describe("queuePolicy (read from the topology contract)", () => {
     });
     expect(queuePolicy("doc.extraction.q").retryTiers).toEqual(["5s", "30s", "30s"]);
     expect(queuePolicy("events.deadletter.q")).toMatchObject({ retryTiers: [], deadLetter: false });
+  });
+});
+
+describe("replayRoute (FR-MSG-03 dead-letter replay)", () => {
+  it("uses the shortest retry/delay queue that dead-letters back into the queue", () => {
+    expect(replayRoute("files.validation.q")).toEqual({
+      exchange: "aegispulse.retry",
+      routingKey: "files.validation.q.retry.1s",
+      delayMs: 1000,
+    });
+    expect(replayRoute("doc.extraction.q")?.routingKey).toBe("doc.extraction.q.retry.5s");
+    expect(replayRoute("cases.enrichment-timer.q")?.routingKey).toBe("cases.enrichment-timer.q.delay.10m");
+    expect(replayRoute("events.deadletter.q")).toBeUndefined();
+    expect(replayRoute("no.such.q")).toBeUndefined();
   });
 });
 

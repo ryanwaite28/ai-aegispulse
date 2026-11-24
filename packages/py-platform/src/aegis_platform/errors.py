@@ -1,6 +1,8 @@
 """Error model (PROJECT.md §6.8, §8.4) and consumer failure classes (§6.5, steering/quality.md)."""
 
+import hashlib
 import re
+import traceback
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import ClassVar
@@ -120,3 +122,32 @@ def describe_error(error: BaseException, max_length: int = 500) -> str:
     code = getattr(error, "code", None)
     text = f"{type(error).__name__}{f'[{code}]' if isinstance(code, str) else ''}: {error}"
     return text if len(text) <= max_length else text[: max_length - 1] + "…"
+
+
+_OWN_ERRORS = (DomainError, TransientError, PermanentError, PoisonMessageError)
+
+
+def dead_letter_message(error: BaseException) -> str:
+    """The ``x-aegis-error-message`` value (§6.4, FR-MSG-02).
+
+    Full description only for the platform's own error types (messages written by our code); any other exception
+    (pydantic, driver, parser) may embed input values, so only its type travels.
+    """
+    if isinstance(error, _OWN_ERRORS):
+        return describe_error(error)
+    return f"{type(error).__name__} (message withheld)"
+
+
+_STACK_HASH_FRAMES = 10
+
+
+def stack_hash(error: BaseException) -> str:
+    """Groups identical failures for the dead-letter registry (§6.4 ``x-aegis-error-stack-hash``, FR-MSG-02).
+
+    First 16 hex of SHA-256 over the error's qualified class name and its innermost traceback frames (file + function,
+    no line numbers). The message is excluded because it may vary per delivery.
+    """
+    kind = type(error)
+    frames = traceback.extract_tb(error.__traceback__)[-_STACK_HASH_FRAMES:]
+    material = "\n".join([f"{kind.__module__}.{kind.__qualname__}", *(f"{f.filename}:{f.name}" for f in frames)])
+    return hashlib.sha256(material.encode()).hexdigest()[:16]

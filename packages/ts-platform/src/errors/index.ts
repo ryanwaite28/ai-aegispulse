@@ -1,5 +1,6 @@
 // Error model (PROJECT.md §6.8): hand-rolled Result type, typed domain errors with stable §8.4 codes,
 // and the consumer failure classes used by the AMQP kit (§6.5, steering/quality.md "Error classification").
+import { createHash } from "node:crypto";
 
 /** Stable error codes from PROJECT.md §8.4 that the platform itself raises. Services add their own §8.4 codes. */
 export type PlatformErrorCode =
@@ -100,6 +101,47 @@ export function describeError(error: unknown, maxLength = 500): string {
     text = `non-error thrown: ${typeof error}`;
   }
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+}
+
+/**
+ * The `x-aegis-error-message` value (§6.4, FR-MSG-02): the full log-safe description only for the platform's own
+ * error types, whose messages are written by our code and must not embed payload values (steering/quality.md).
+ * Any other error (driver, parser, validation library) can carry input values in its message, so only its type
+ * travels: "MongoServerError (message withheld)".
+ */
+export function deadLetterMessage(error: unknown): string {
+  if (
+    error instanceof DomainError ||
+    error instanceof TransientError ||
+    error instanceof PermanentError ||
+    error instanceof PoisonMessageError
+  ) {
+    return describeError(error);
+  }
+  return error instanceof Error ? `${error.name} (message withheld)` : `non-error thrown: ${typeof error}`;
+}
+
+/** Stack frames hashed by {@link stackHash}: enough to tell call sites apart, bounded against deep recursion. */
+const STACK_HASH_FRAMES = 10;
+
+/**
+ * Groups identical failures for the dead-letter registry (§6.4 `x-aegis-error-stack-hash`, FR-MSG-02): first 16 hex
+ * of SHA-256 over the error name and its top stack frames with line/column numbers removed, so the same failure
+ * hashes the same across builds that only move lines. The message is excluded (it may vary per delivery).
+ */
+export function stackHash(error: unknown): string {
+  let material: string;
+  if (error instanceof Error) {
+    const frames = (error.stack ?? "")
+      .split("\n")
+      .filter((line) => /^\s+at\s/.test(line))
+      .slice(0, STACK_HASH_FRAMES)
+      .map((line) => line.trim().replace(/:\d+(?::\d+)?(?=\)?$)/, ""));
+    material = [error.name, ...frames].join("\n");
+  } else {
+    material = `non-error:${typeof error}`;
+  }
+  return createHash("sha256").update(material).digest("hex").slice(0, 16);
 }
 
 // ── Result ────────────────────────────────────────────────────────────────────

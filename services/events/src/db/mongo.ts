@@ -4,7 +4,7 @@ import type { Config } from "../config.js";
 
 export const DATABASE = "aegispulse_events";
 /** Newest migrate-mongo file this build requires in `schema_meta` (NFR-11 c). */
-export const REQUIRED_MIGRATION = "20261122000001-baseline.cjs";
+export const REQUIRED_MIGRATION = "20261124000002-dead-letter-tenant-identity-retention.cjs";
 
 export async function connectMongo(config: Config): Promise<MongoClient> {
   const client = new MongoClient(config.MONGO_URI, { serverSelectionTimeoutMS: 5_000, appName: "aegispulse-events" });
