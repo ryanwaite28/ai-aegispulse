@@ -56,5 +56,5 @@
 | Security | `tests/security/cross-tenant.spec.ts` (2) | B's tenant/users/service accounts → 404 for A; lists scoped; TA cannot use X-Aegis-Tenant |
 
 ## 5. Deferred
-- FR-TEN-08 "settings change propagates to scoring threshold within 60 s" needs risk-scoring (Phase 5).
+- FR-TEN-08 "settings change propagates to scoring threshold within 60 s" needs risk-scoring, which is Phase 8; the test is tracked in Phase 8's FR-TXN-04 checklist.
 - The Phase 2 JWKS rotation drill log: `scripts/dev/jwks-rotation-drill.sh`, operator-run.

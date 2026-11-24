@@ -54,6 +54,7 @@ known-first-party = ["aegis_platform", "aegis_contracts", "aegis_risk", "aegis_s
 ".claude/hooks/*.py" = ["S603", "S607", "BLE001"]
 "scripts/dev/*.py" = ["S113"]
 "scripts/infisical/*.py" = ["S603", "S607"]  # fixed `infisical` CLI calls; arguments come from the repo catalog
+"scripts/dev/dev_service.py" = ["S603", "S607"]  # fixed docker/compose/pnpm/gradle/uv commands; names come from the compose file
 "packages/py-platform/tests/**" = ["S603", "S607", "S105", "S106", "S608"]
 
 [tool.mypy]

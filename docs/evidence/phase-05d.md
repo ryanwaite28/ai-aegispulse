@@ -43,5 +43,7 @@ make test-e2e → Test Files 5 passed (5) · Tests 232 passed (232)
   role matrix: + listFiles, getFile, getFileDownloadUrl × 6 roles
 ```
 
-## Pending
+## Pending (at the time of this slice)
+> Superseded: every item below was completed later in the phase; see [phase-05.md](phase-05.md) for what remains.
+
 - 5e (orphan sweep, retention purge, soft delete), 5b (multipart), Phase 5 exit (`scripts/demo/upload.ts`).

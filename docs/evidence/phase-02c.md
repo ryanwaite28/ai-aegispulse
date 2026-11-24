@@ -50,7 +50,18 @@ The rotation mechanics hold:
 
 **Finding: step 2 `/me(new)=401`.** The gateway's TS verifier (`jose`) had fetched the JWKS within its 30 s refetch cooldown, so it rejected the first new-kid token. The registry restart takes less than 30 s. **Fix:** the refetch cooldown is now 5 s in all three kits (TS, Python, Java); the rotation unit tests were updated. Rerunning the drill after the next rebuild should show `/me(new)=200` in step 2.
 
+## JWKS rotation drill rerun (2026-11-24, run by Claude Code after the 5 s refetch-cooldown fix)
+```
+scripts/dev/jwks-rotation-drill.sh
+1 before:   jwks=[local-2026-11, drill-20261124045005] new-login kid=local-2026-11 /me(new)=200
+2 rotated:  jwks=[drill-20261124190628, local-2026-11, …] new-login kid=drill-20261124190628 /me(new)=200
+            /me(token from before rotation, kid=local-2026-11)=200
+3 restored: jwks=[local-2026-11, drill-20261124190628, …] new-login kid=local-2026-11 /me(new)=200
+            /me(token from before rotation)=200
+```
+Step 2 is 200 right after rotation; the first drill's 30 s 401 window is gone. The drill key stays PREVIOUS for 24 h, then retires.
+
 ## Pending (Phase 2 exit)
-- **Drill rerun** after the 5 s cooldown fix (operator), expecting `/me(new)=200` in step 2.
 - Commit + green first GitLab pipeline.
-- FR-TEN-08 scoring propagation test → Phase 5.
+- FR-TEN-08 scoring propagation test → Phase 8 (risk-scoring; tracked in its checklist).
+- Dev-environment rotation drill (Phase 9).

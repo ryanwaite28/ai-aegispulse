@@ -34,5 +34,7 @@ Test Files  3 passed (3)
 ```
 **Defect found and fixed.** The first `make up` crash-looped ingestion (`INGESTION_KEK_BASE64 must be 32 bytes`): the local generator had produced a KEK in the wrong format, and the helper only replaced missing or placeholder lines. Both scripts are fixed. That run also showed the role matrix accepting a 503 as "allowed"; it now requires < 500.
 
-## Pending
+## Pending (at the time of this slice)
+> Superseded: every item below was completed later in the phase; see [phase-04.md](phase-04.md) for what remains.
+
 - Slices 4b (verification, delivery persistence, outbox → `aegispulse.ingress`, gateway webhook route, adversarial suite) and 4c (expiry + sweep).

@@ -68,5 +68,16 @@ services/events test:integration → 17/17 · make test-e2e → 267/267
 - Stage 2 (scanner, `events.classification.q`, the pending-scan sweep) is Phase 12. Until then, Stage-2 events stay `RULE_SCANNED` with `pendingAiScan`, and `final_severity` = the rule resolution (FR-CLS-06 "never blocked").
 - One historical platform-tenant event sits in `events.archive.q.dlq` (dead-lettered before the 6a fix); the Phase 7 dead-letter tooling will replay it.
 
+
+## Operations: OpenObserve (gate item 6; queried 2026-11-24 over the last 6 h, through the ingestion container's own OTLP credentials)
+```
+traces by service: gateway 10,683 · registry 16,917 · cases 1,491 · files 1,055 · events 666 · ingestion 666 · others
+metric streams: aegispulse_classification_stage1_seconds(_bucket/_count/_sum/_min/_max), aegispulse_consumer_processed_total,
+                aegispulse_outbox_lag_seconds, aegispulse_webhook_rejected_total
+aegispulse_consumer_processed_total by queue/outcome: files.validation.q success · events.archive.q success ·
+                events.archive.q dead_letter (the one historical platform-tenant event; a cumulative counter re-exported every 15 s)
+```
+
 ## Pending
-- Green pipelines for the Phase 6 commits.
+- ~~Green pipelines~~ green (owner-reported 2026-11-24).
+- Gate 1: merge `feature/project` to `main`. Gate 2: clean-state run (`make reset && make up && make migrate`).

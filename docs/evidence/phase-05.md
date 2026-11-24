@@ -43,6 +43,17 @@ make lint (0) · make typecheck (0) · make check (0) · make test-unit (0; file
 services/files test:integration → 21/21 · make test-e2e → 240/240
 ```
 
+
+## Operations: OpenObserve (gate item 6; queried 2026-11-24 over the last 6 h, through the ingestion container's own OTLP credentials)
+```
+traces by service: gateway 10,683 · registry 16,917 · cases 1,491 · files 1,055 · events 666 · ingestion 666 · others
+metric streams: aegispulse_classification_stage1_seconds(_bucket/_count/_sum/_min/_max), aegispulse_consumer_processed_total,
+                aegispulse_outbox_lag_seconds, aegispulse_webhook_rejected_total
+aegispulse_consumer_processed_total by queue/outcome: files.validation.q success · events.archive.q success ·
+                events.archive.q dead_letter (the one historical platform-tenant event; a cumulative counter re-exported every 15 s)
+```
+
 ## Pending
-- Green pipelines for the Phase 5 commits.
+- ~~Green pipelines~~ green (owner-reported 2026-11-24).
+- Gate 1: merge `feature/project` to `main`. Gate 2: clean-state run (`make reset && make up && make migrate`).
 - Phase 9: k8s CronJobs `aegispulse-cron-file-sweep` / `aegispulse-cron-retention`, and clamd StreamMaxLength/MaxFileSize/MaxScanSize 520M in the cluster config.

@@ -53,5 +53,7 @@ compose: rebuild files → make test-e2e 239/239 → files.outbox_events ops.aud
 ### Defect found during the slice
 The first E2E run failed the 4b `+301 s` skew probe (202): it floored the host clock (up to 0.999 s of the 1 s margin), and request latency landed it inside ±300 s. The probes now round away from now; two clean runs since.
 
-## Pending
+## Pending (at the time of this slice)
+> Superseded: every item below was completed later in the phase; see [phase-05.md](phase-05.md) for what remains.
+
 - 5b multipart (FR-FILE-13) and the Phase 5 exit (`scripts/demo/upload.ts`, EICAR evidence, orphan-sweep logs).

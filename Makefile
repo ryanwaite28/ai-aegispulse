@@ -118,8 +118,9 @@ eval: ## Golden-dataset evaluation
 
 # ---------------------------------------------------------------- runtime helpers
 .PHONY: dev images demo demo-webhook demo-upload chaos trigger k3d-up k3d-down env-sleep env-wake env-reset
-dev: ## Run one service natively with hot reload (SERVICE=name)
-	$(call not_yet,Phase 1 (service skeletons))
+dev: ## Run one service natively with hot reload against the compose stack (SERVICE=name; Ctrl-C restores the container)
+	@test -n "$(SERVICE)" || { echo "usage: make dev SERVICE=<name>" >&2; exit 2; }
+	@scripts/dev/dev-service.sh $(SERVICE)
 images: ## Build all container images locally (tagged with the git sha; deploy/docker/*.Dockerfile)
 	@scripts/dev/build-images.sh
 demo: ## End-to-end demo scenario

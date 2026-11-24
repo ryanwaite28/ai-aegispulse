@@ -39,6 +39,8 @@ rabbitmqctl list_queues: files.validation.q 0 (1 consumer) · files.validation.q
 ```
 Since 5d, the files E2E asserts these outcomes through `GET /v1/files/{id}` ([phase-05d](phase-05d.md)).
 
-## Pending
+## Pending (at the time of this slice)
+> Superseded: every item below was completed later in the phase; see [phase-05.md](phase-05.md) for what remains.
+
 - 5d (lifecycle API + reads/downloads, incl. quarantine acknowledgement), 5e, 5b.
 - k8s clamd config (Phase 9) needs the same `StreamMaxLength`/`MaxFileSize` 65M.

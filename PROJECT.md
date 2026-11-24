@@ -2870,13 +2870,13 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 
 | Phase | Name | Status | Evidence |
 |---|---|---|---|
-| 0 | Project Scaffold & Toolchain | SOURCE-IMPLEMENTED (local runtime verified; CI pipeline pending) | [phase-00](docs/evidence/phase-00.md) |
-| 1 | Contracts, Platform Kits & Data Foundations | IN PROGRESS: slice 1a INTEGRATION-VERIFIED (contracts + data foundations); slices 1a–1e INTEGRATION-VERIFIED; all 12 runtimes `/readyz` 200 locally; health-request traces in OpenObserve; remaining exit evidence: commit + green first GitLab pipeline | [phase-01a](docs/evidence/phase-01a.md), [phase-01b](docs/evidence/phase-01b.md), [phase-01c](docs/evidence/phase-01c.md), [phase-01d](docs/evidence/phase-01d.md), [phase-01e](docs/evidence/phase-01e.md) |
-| 2 | Registry: Tenancy, Identity & RBAC | IN PROGRESS (2a, 2b INTEGRATION-VERIFIED; 2c RUNTIME-VERIFIED locally; drill + pipeline pending) | [phase-02a](docs/evidence/phase-02a.md), [phase-02b](docs/evidence/phase-02b.md), [phase-02c](docs/evidence/phase-02c.md) |
-| 3 | Entities & Watchlists | IN PROGRESS (RUNTIME-VERIFIED locally; pipeline pending) | [phase-03](docs/evidence/phase-03.md) |
-| 4 | Webhook Ingestion | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-04](docs/evidence/phase-04.md) ([4a](docs/evidence/phase-04a.md), [4b](docs/evidence/phase-04b.md), [4c](docs/evidence/phase-04c.md)) |
-| 5 | Files Subsystem | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-05](docs/evidence/phase-05.md) ([5a](docs/evidence/phase-05a.md), [5b](docs/evidence/phase-05b.md), [5c](docs/evidence/phase-05c.md), [5d](docs/evidence/phase-05d.md), [5e](docs/evidence/phase-05e.md)) |
-| 6 | Events Archive & Stage-1 Classification | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-06](docs/evidence/phase-06.md) ([6a](docs/evidence/phase-06a.md), [6b](docs/evidence/phase-06b.md), [6c+6d](docs/evidence/phase-06c.md)) |
+| 0 | Project Scaffold & Toolchain | SOURCE-IMPLEMENTED (local runtime verified; pipelines green (owner-reported 2026-11-24); open gate items: merge to `main` (gate 1) and the clean-state run `make reset && make up && make migrate` (gate 2); Linux `make up` → Phase 9) | [phase-00](docs/evidence/phase-00.md) |
+| 1 | Contracts, Platform Kits & Data Foundations | RUNTIME-VERIFIED locally (slices 1a–1e INTEGRATION-VERIFIED; all 12 runtimes `/readyz` 200; traces and metrics in OpenObserve); pipelines green (owner-reported 2026-11-24); open gate items: merge to `main` (gate 1) and the clean-state run `make reset && make up && make migrate` (gate 2) | [phase-01a](docs/evidence/phase-01a.md), [phase-01b](docs/evidence/phase-01b.md), [phase-01c](docs/evidence/phase-01c.md), [phase-01d](docs/evidence/phase-01d.md), [phase-01e](docs/evidence/phase-01e.md) |
+| 2 | Registry: Tenancy, Identity & RBAC | RUNTIME-VERIFIED locally (2a, 2b INTEGRATION-VERIFIED; 2c E2E; local JWKS drill passed 2026-11-24); pipelines green (owner-reported 2026-11-24); open gate items: merge to `main` (gate 1) and the clean-state run `make reset && make up && make migrate` (gate 2); dev drill → Phase 9 | [phase-02a](docs/evidence/phase-02a.md), [phase-02b](docs/evidence/phase-02b.md), [phase-02c](docs/evidence/phase-02c.md) |
+| 3 | Entities & Watchlists | RUNTIME-VERIFIED locally; pipelines green (owner-reported 2026-11-24); open gate items: merge to `main` (gate 1) and the clean-state run `make reset && make up && make migrate` (gate 2) | [phase-03](docs/evidence/phase-03.md) |
+| 4 | Webhook Ingestion | RUNTIME-VERIFIED locally (exit items captured); pipelines green (owner-reported 2026-11-24); open gate items: merge to `main` (gate 1) and the clean-state run `make reset && make up && make migrate` (gate 2) | [phase-04](docs/evidence/phase-04.md) ([4a](docs/evidence/phase-04a.md), [4b](docs/evidence/phase-04b.md), [4c](docs/evidence/phase-04c.md)) |
+| 5 | Files Subsystem | RUNTIME-VERIFIED locally (exit items captured; OpenObserve traces + metrics); pipelines green (owner-reported 2026-11-24); open gate items: merge to `main` (gate 1) and the clean-state run `make reset && make up && make migrate` (gate 2) | [phase-05](docs/evidence/phase-05.md) ([5a](docs/evidence/phase-05a.md), [5b](docs/evidence/phase-05b.md), [5c](docs/evidence/phase-05c.md), [5d](docs/evidence/phase-05d.md), [5e](docs/evidence/phase-05e.md)) |
+| 6 | Events Archive & Stage-1 Classification | RUNTIME-VERIFIED locally (exit items captured; OpenObserve traces + metrics); pipelines green (owner-reported 2026-11-24); open gate items: merge to `main` (gate 1) and the clean-state run `make reset && make up && make migrate` (gate 2) | [phase-06](docs/evidence/phase-06.md) ([6a](docs/evidence/phase-06a.md), [6b](docs/evidence/phase-06b.md), [6c+6d](docs/evidence/phase-06c.md)) |
 | 7 | Messaging Resilience & Dead Letters | PENDING | — |
 | 8 | Transactions, Scoring & Risk Cases (MVP slice) | PENDING | — |
 | 9 | Kubernetes, IaC & Secrets (homelab dev + prod) | PENDING | — |
@@ -2905,9 +2905,9 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [x] `Makefile` targets from §9.5. Targets for later phases exit 2 with "delivered in Phase N", so they never fake success. `env-sleep`/`env-wake`/`env-reset` refuse `ENV=prod`.
 - [x] `.editorconfig`, `.gitignore` (`.env*` except `.env.example`, keys, `.tools/`, build outputs), `.nvmrc` (24.22.3), `.python-version` (3.13), Gradle Java 25 toolchain convention
 - [x] ESLint 10 (flat, typescript-eslint strict, `no-explicit-any: error`) / Prettier, Ruff / mypy `--strict` configs (NFR-14)
-- [ ] Spotless / Error Prone / ArchUnit. Moved to Phase 1, because they need the first Java project (`packages/java-platform`).
+- [x] Spotless / Error Prone / ArchUnit. Delivered in Phase 1 with the first Java project: Error Prone + NullAway and Spotless in `build.gradle.kts` (`ci/lint-java.sh` runs `spotlessCheck`), ArchUnit rules in `java-platform` (`AegisArchitectureRulesTest`)
 - [x] `ci/check-boundaries.sh` (NFR-09, ADR-0013), `ci/check-migrations.sh`, `ci/check-resource-budget.sh` (+ `ci/lib/resource_budget.py`) with self-tests (`ci/tests/run.sh`, 10 cases)
-- [ ] `ci/check-layer-sizes.sh`: implemented but has no automated test until images exist (Phase 1 Dockerfiles)
+- [x] `ci/check-layer-sizes.sh`: self-tested in `ci/tests/run.sh` (FROM-scratch images: a small layer passes, a 96 MB incompressible layer fails; skipped without a Docker daemon) — 2026-11-24
 - [x] Gitleaks pre-commit hook (`.githooks/pre-commit`, enabled by `make bootstrap`); `.gitleaks.toml` allowlists `tests/fixtures/secrets-synthetic/` only
 - [x] `CLAUDE.md`, `AGENTS.md`, `.claude/` (skills, agents with model routing, hooks), `docs/steering/`, `docs/adr/0001–0014`, `docs/specs/_template.md`, `docs/evidence/_template.md`, `CHANGELOG.md`
 - [x] Exact versions pinned after verifying current releases (`docs/steering/tech.md`); TS 7 deferred with rationale; ADR-0011 decided (SeaweedFS 4.54, 10/10 compatibility checks)
@@ -2917,11 +2917,11 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [x] Init: `init/postgres/01-roles-schemas.sh` (5 schemas, `mig_*`/`svc_*`, default privileges, `backup_reader`), `init/mongo/01-users.js`, `init/redis/redis.conf.tmpl` (ACL per owner), `init/rabbitmq/init.sh` (vhost, topology user, least-privilege `svc_*`), `init/objectstore/{s3.json.tmpl,buckets.py}`. The Phase 0 plan named `definitions.json`/`buckets.sh`; replaced by API-driven init so passwords are never hashed into committed files.
 - [x] `.env.example` (Section A generated secrets, Section B per-runtime variables) + `scripts/dev/gen-local-secrets.sh` + `make env`
 - [x] `make up` / `make down` / `make reset` verified on macOS (Docker 29.4.3, arm64). Isolation probes pass: cross-schema denial, DDL denial for `svc_*`, Mongo DB scoping, Redis key-prefix ACLs, RabbitMQ permissions, prefix-scoped S3.
-- [ ] `make up` verified on Linux. Pending: covered by the first GitLab pipeline or by Phase 9 homelab runs.
+- [ ] `make up` verified on Linux. Pending: the CI pipeline runs lint/test/contract only (no compose), so this moves to the Phase 9 homelab runs.
 
 #### Workstream: CI skeleton
 - [x] `.gitlab-ci.yml` with `.pre` (gitleaks), `lint` (shell, node, python, java, guardrails), `test` stages calling `ci/*.sh`; every job image tag verified to exist
-- [ ] First green GitLab pipeline. Pending: requires commit + push to `gitlab.rmwhs.com/apps/aegispulse` (owner action).
+- [x] First green GitLab pipeline (owner-reported 2026-11-24: pipelines green for the pushed `feature/project` commits through `7e2c8d8`)
 - [x] Merge request template with checklist: FR ids, spec link, migrations expand/contract, contract diff, CHANGELOG entry, evidence
 
 **Phase 0 exit evidence:** [docs/evidence/phase-00.md](docs/evidence/phase-00.md), with `make bootstrap`, `make lint`, `make test`, `make up`, isolation probes, and ADR-0011 compatibility output. The first green GitLab pipeline URL + SHA is still pending.
@@ -2993,7 +2993,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 #### FR-TEN-08 — Tenant settings
 - [x] `getTenantSettings`/`updateTenantSettings` + `registry.tenant.settings_changed`; caller-side 60 s cache in kits (TS `TenantSettingsCache`, Python `aegis_platform.tenant_settings`)
-- [ ] Tests: settings change propagates to scoring threshold within 60 s (integration). Cache TTL/invalidation unit-tested in both kits; the scoring propagation test needs risk-scoring (Phase 5) and moves there
+- [x] Tests: settings change propagates to scoring threshold within 60 s (integration). Cache TTL/invalidation unit-tested in both kits; the end-to-end scoring propagation test needs risk-scoring, which is Phase 8, and is tracked there (FR-TXN-04 checklist)
 
 #### FR-AUTH-01 / FR-AUTH-02 / FR-AUTH-03 / FR-AUTH-07 — User authentication
 - [x] Migration `V6__auth.sql` (`refresh_tokens`, `signing_keys`)
@@ -3005,7 +3005,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [x] `/v1/auth/token` (INTEGRATION) and `issueClientCredentialsToken` (`POST /internal/v1/issueClientCredentialsToken`, unauthenticated; SERVICE, `aud=aegispulse-internal`, `act[]`)
 - [x] `/.well-known/jwks.json` with current + previous keys; key rotation runbook `docs/runbooks/key-rotation.md`
 - [x] Kits: JWKS cache refresh on unknown `kid`
-- [ ] Tests: rotation drill — tokens signed by previous key accepted ≤ 24 h (integration ✅ `JwksIT`; environment drill on dev for the phase exit)
+- [ ] Tests: rotation drill — tokens signed by previous key accepted ≤ 24 h (integration ✅ `JwksIT`; local drill ✅ 2026-11-24 after the 5 s cooldown fix, [phase-02c](docs/evidence/phase-02c.md); environment drill on dev for the phase exit, Phase 9)
 
 #### FR-AUTH-06 — Authorization enforcement
 - [x] Authorization policy module in every service (role matrix §1.4.6 as data), tenant-ownership checks in service layer, `X-Aegis-Tenant` for PA with `actingAs` audit (registry `AccessPolicy`; gateway edge check from the generated contract route table; later services add theirs with their FRs)
@@ -3014,7 +3014,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 **Phase 2 exit evidence:** E2E auth flows over the gateway (login, refresh, rotate, logout); cross-tenant suite green; JWKS rotation drill log.
 **Phase note:** migrations are V3–V6 (V2 is ADR-0016's `enforced_rls_bypass`). Auth lookups that precede tenant context (refresh token by hash, service account by client id) are `SECURITY DEFINER` functions per ADR-0016. Delivered in slices: 2a tenants + users + platform bootstrap; 2b signing keys/JWKS, auth flows, service accounts, client credentials; 2c settings, gateway routes, role matrix, cross-tenant suite, E2E + rotation drill.
-**Phase note:** status **`IN PROGRESS`**. Slice 2c (settings, gateway routes, role matrix, cross-tenant suite, E2E) is `RUNTIME-VERIFIED` locally (2026-11-23, [phase-02c](docs/evidence/phase-02c.md)): `make test-e2e` 85/85 over the gateway. JWKS rotation drill run 2026-11-24: mechanics verified, and its finding (a 30 s post-rotation 401 window) was fixed with a 5 s refetch cooldown; a confirming rerun is pending. Exit items still open: the green pipeline and the FR-TEN-08 scoring propagation test (moves to Phase 5). Slice 2b (auth flows, JWKS, client credentials, service accounts; ADR-0017) is `INTEGRATION-VERIFIED` and runtime-verified locally (2026-11-23, [phase-02b](docs/evidence/phase-02b.md)): 29 unit + 29 Testcontainers tests; JVM heap rule amended to 50%. Slice 2a (tenants, users, platform bootstrap) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-02a](docs/evidence/phase-02a.md)): 24 unit + 13 Testcontainers tests, migrations applied locally, registry `/readyz` 200 at schema 4. Local bootstrap runtime-verified (create, then no-op; event relayed `SENT`). `registry.tenant.deactivated` added by amendment (2026-11-23).
+**Phase note:** status **`IN PROGRESS`**. Slice 2c (settings, gateway routes, role matrix, cross-tenant suite, E2E) is `RUNTIME-VERIFIED` locally (2026-11-23, [phase-02c](docs/evidence/phase-02c.md)): `make test-e2e` 85/85 over the gateway. JWKS rotation drill run 2026-11-24: mechanics verified, and its finding (a 30 s post-rotation 401 window) was fixed with a 5 s refetch cooldown; the confirming rerun passed the same day (`/me` 200 with the new kid right after rotation, and with a pre-rotation token). Exit items still open: the green pipeline and the dev-environment drill (Phase 9). The FR-TEN-08 scoring propagation test moved to Phase 8 (risk-scoring). Slice 2b (auth flows, JWKS, client credentials, service accounts; ADR-0017) is `INTEGRATION-VERIFIED` and runtime-verified locally (2026-11-23, [phase-02b](docs/evidence/phase-02b.md)): 29 unit + 29 Testcontainers tests; JVM heap rule amended to 50%. Slice 2a (tenants, users, platform bootstrap) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-02a](docs/evidence/phase-02a.md)): 24 unit + 13 Testcontainers tests, migrations applied locally, registry `/readyz` 200 at schema 4. Local bootstrap runtime-verified (create, then no-op; event relayed `SENT`). `registry.tenant.deactivated` added by amendment (2026-11-23).
 
 ---
 
@@ -3190,6 +3190,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [ ] `services/risk-scoring`: `domain/heuristic_v1.py` (§1.4.4), static FX table `fx-static-v1`, Redis features with `feat:seen` idempotency, `POST /v1/score`
 - [ ] Pydantic request/response models generated from contracts
 - [ ] Tests: factor table tests; redelivery does not inflate velocity; demo override only with demo tenant flag
+- [ ] Tests (moved from Phase 2, FR-TEN-08): a tenant settings change (`highValueThresholdUsd` / `highRiskCountries`) reaches scoring within 60 s (kit cache ≤ 60 s)
 
 #### FR-TXN-03 — Score transaction saga
 - [ ] `services/orchestrator`: consumer adapter `orchestrator.txn.q` → `ScoreTransactionSaga` (checkWatchlists → score → recordRiskEvaluation) with typed clients, SERVICE token, timeouts, breakers

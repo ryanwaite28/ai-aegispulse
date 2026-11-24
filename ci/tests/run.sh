@@ -43,5 +43,19 @@ expect "migrations: editing committed file fails" 1 bash -c "cd '$repo' && '$tmp
 expect "budget: compliant manifests pass" 0 "$ci/check-resource-budget.sh" "$here/fixtures/prod"
 expect "budget: missing limits / over budget fail" 1 "$ci/check-resource-budget.sh" "$here/fixtures/dev"
 
+# --- layer sizes (NFR-15): needs a local Docker daemon; FROM scratch images, nothing is pulled ---
+if docker info >/dev/null 2>&1 && command -v jq >/dev/null; then
+  small="$tmp/small"; big="$tmp/big"; mkdir -p "$small" "$big"
+  head -c 1024 /dev/urandom > "$small/blob"
+  head -c 96000000 /dev/urandom > "$big/blob"   # random data does not compress: one ~96 MB pushed layer
+  printf 'FROM scratch\nCOPY blob /blob\n' > "$small/Dockerfile"; cp "$small/Dockerfile" "$big/Dockerfile"
+  docker build -q -t aegis-ci-selftest:small "$small" >/dev/null && docker build -q -t aegis-ci-selftest:big "$big" >/dev/null
+  expect "layer sizes: small layer passes" 0 "$ci/check-layer-sizes.sh" aegis-ci-selftest:small
+  expect "layer sizes: 96 MB incompressible layer fails" 1 "$ci/check-layer-sizes.sh" aegis-ci-selftest:big
+  docker image rm -f aegis-ci-selftest:small aegis-ci-selftest:big >/dev/null 2>&1 || true
+else
+  echo "skip - layer sizes (no Docker daemon or jq)"
+fi
+
 echo; echo "ci self-tests: $pass passed, $fail failed"
 [[ $fail -eq 0 ]]

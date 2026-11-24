@@ -123,3 +123,8 @@ no leaks found
 - First green GitLab pipeline (URL + SHA) after the owner commits and pushes.
 - `make up` on Linux (CI or homelab).
 - Spotless / Error Prone / ArchUnit, and a `check-layer-sizes` test, move to Phase 1.
+
+## Update 2026-11-24 (review)
+- `ci/check-layer-sizes.sh` is now self-tested in `ci/tests/run.sh`: `make check` → `ci self-tests: 12 passed, 0 failed`, including "layer sizes: small layer passes" and "layer sizes: 96 MB incompressible layer fails".
+- Spotless / Error Prone / NullAway / ArchUnit arrived with the first Java project in Phase 1 (`build.gradle.kts`, `ci/lint-java.sh` `spotlessCheck`, `AegisArchitectureRulesTest`).
+- Still open: `make up` on Linux and the first green GitLab pipeline.

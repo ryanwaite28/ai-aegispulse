@@ -51,5 +51,7 @@ make test-e2e → Test Files 5 passed · Tests 240 passed
   - The one historical message (eventId `01a20b10-…`) stays in `events.archive.q.dlq`; the dead-letter registry and replay arrive in Phase 7.
 - **Registry did not compile after the envelope amendment.** The generated Java `Classification` record gained a component; `RegistryEvents` now passes `source_trust_level = null`, which is omitted on the wire.
 
-## Pending
+## Pending (at the time of this slice)
+> Superseded: every item below was completed later in the phase; see [phase-06.md](phase-06.md) for what remains.
+
 - 6b query APIs (the exit item `GET /v1/events?correlationId=` with lineage), 6c override, 6d retention TTL / purge, Mongo index listing.

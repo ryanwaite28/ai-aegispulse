@@ -48,5 +48,7 @@ make test-e2e → Test Files 5 passed (5) · Tests 213 passed (213)
   role matrix: + initUpload, completeUpload, abortUpload × 6 roles
 ```
 
-## Pending
+## Pending (at the time of this slice)
+> Superseded: every item below was completed later in the phase; see [phase-05.md](phase-05.md) for what remains.
+
 - Slices 5c, 5d, 5e, 5b.

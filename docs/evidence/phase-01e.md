@@ -113,3 +113,17 @@ aegispulse-registry GET /healthz → SELECT "registry".flyway_schema_history (re
 - **`make dev SERVICE=…`** is still unimplemented. Hot reload matters once services have code (Phase 2+).
 - **Gateway SERVICE credentials** (`SERVICE_CLIENT_ID`/`SECRET`) are not required yet. The gateway first calls registry in Phase 2.
 - **Console** publishes on host port 8091 locally (the gateway owns 8080); in the cluster it is port 8080 behind its own Service.
+
+## Update 2026-11-24 (review): `make dev SERVICE=<name>`
+The developer loop from §4.5/§9.5, a Phase 1 placeholder in the Makefile until now, is implemented (`scripts/dev/dev-service.sh` + `dev_service.py`) and was run on the compose stack:
+```
+make dev SERVICE=files        → container stopped, proxy aegispulse-dev-files up, native "files ready" on :8082
+                                make test-e2e → 267/267 through gateway → proxy → native files (its log shows the
+                                uploads/validations); touching src/domain/file.ts → hot reload ("files ready" ×2);
+                                Ctrl-C → "shutdown complete", proxy removed, "files container restored"
+make dev SERVICE=risk-scoring → native uvicorn --reload /readyz 200 in ~4 s; Ctrl-C → container restored
+make dev SERVICE=registry     → native gradle bootRun /readyz 200 in ~12 s; gateway /.well-known/jwks.json via the
+                                proxy → 200; Ctrl-C → container restored
+```
+Local-only tool: the native process listens on all interfaces like the container does. Run it on a trusted network.
+

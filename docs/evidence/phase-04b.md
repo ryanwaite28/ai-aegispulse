@@ -41,6 +41,8 @@ The kit's `toErrorResponse` only knew the shared codes, so `WEBHOOK_SOURCE_NOT_F
 ```
 The attacks covered: wrong secret, truncated signature, missing headers, body tampered after signing, skew ±301 s, replayed delivery id, malformed JSON (422 only after a valid signature, 401 otherwise), oversize (413).
 
-## Pending
+## Pending (at the time of this slice)
+> Superseded: every item below was completed later in the phase; see [phase-04.md](phase-04.md) for what remains.
+
 - Phase 4 exit: `scripts/demo/webhook-sign.mts` → 202 → message seen on the broker; an OpenObserve screenshot of `aegispulse_webhook_rejected_total`.
 - Slice 4c (expiry + orphan sweep).

@@ -13,6 +13,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- `make dev SERVICE=<name>` (PROJECT.md §4.5/§9.5; the Makefile had it as a Phase 1 placeholder), for all 11 backend runtimes:
+  - It stops the service's container and runs the service natively with hot reload (Node `tsx watch`, Java `bootRun`, Python `uvicorn --reload`), using its resolved compose environment, which is never printed.
+  - In-network hosts are rewritten to host ports. A pinned `alpine/socat:1.8.0.3` proxy answers under the service's name on the compose network, so the gateway and other callers keep working.
+  - Ctrl-C restores the container.
+- CI self-test for `ci/check-layer-sizes.sh` (FROM-scratch images: a small layer passes, a 96 MB incompressible layer fails; skipped without Docker).
 - Phase 6c analyst override (FR-CLS-07):
   - **Behaviour:** `overrideClassification` (ANALYST+, justification ≥ 20 chars) in a revision-guarded Mongo transaction sets OVERRIDDEN, the ANALYST source and histories, clears pendingAiScan, and emits `classification.overridden`. Raising to RESTRICTED moves tiers (7-year expiry). An identical repeat is a no-op.
   - **Gateway:** `PATCH /v1/events/{id}/classification`.
@@ -189,6 +194,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- Review of Phases 0–6 (2026-11-24):
+  - **Phase 0:** Spotless/Error Prone/ArchUnit items ticked (delivered in Phase 1) and the layer-size self-test added.
+  - **Phase 2:** the FR-TEN-08 scoring-propagation test moved to Phase 8 (risk-scoring), where it is now a checklist item. The reference had said Phase 5.
+  - **Ledger:** Phase 1–3 rows updated (all committed; pipelines pending). Superseded "Pending" lists in slice evidence marked as such.
 - PROJECT.md amendment (owner-approved 2026-11-24): envelope `classification.source_trust_level` (`TRUSTED|UNTRUSTED`, optional), stamped by the producer at ingest. §1.4.3 counts publisher severity only when it is TRUSTED (absent = UNTRUSTED); §6.4 example and FR-WHK-05 updated. The envelope schema change is additive, and generated types regenerated (Java `Classification` gains the component).
 - PROJECT.md §5.7.3: the object-store `files` row adds delete on `artifacts/*` for the FR-FILE-12 retention purge (clarification).
 - PROJECT.md amendment (owner-approved 2026-11-24): new event `ops.audit.file_deleted {fileId, actorId}` (files → `aegispulse.intelligence` → `cases.audit-ingest.q`). FR-AUD-02 lists file deletions, FR-FILE-12 names the event, and the §6.7 catalog row includes it. Contracts: payload schema + example, AsyncAPI channel, send/receive operations, archive listing (42 event types).
@@ -233,6 +242,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- GitLab pipelines green for `feature/project` through `7e2c8d8` (owner-reported 2026-11-24). Phases 0–6 now wait only on gate 1 (merge to `main`) and gate 2 (clean-state run); Linux `make up` moves to Phase 9 (CI has no compose stage). OpenObserve traces and metrics for the files/events flows recorded (gate 6).
+- Phase 2: local JWKS rotation drill rerun passed after the 5 s cooldown fix (2026-11-24): `/me` 200 with the new kid right after rotation and with a pre-rotation token ([phase-02c](docs/evidence/phase-02c.md)).
 - Phase 6 `RUNTIME-VERIFIED` locally: slices 6a–6d; events integration 17/17, E2E 267/267; exit items captured (webhook lineage by correlationId, synthetic-PAN masking, Mongo index listing) ([phase-06](docs/evidence/phase-06.md)); the pipeline is pending.
 - Phase 6 slice 6b `RUNTIME-VERIFIED` locally: events unit 34/34, integration 10/10, E2E 260/260 including the Phase 6 exit flows (webhook lineage by correlationId, synthetic-PAN masking) ([phase-06b](docs/evidence/phase-06b.md)).
 - Phase 6 slice 6a `RUNTIME-VERIFIED` locally: events unit 32/32, archive integration 5/5, the compose backlog of 1,229 messages archived in < 10 s, a demo webhook archived with trust and lineage, E2E 240/240 ([phase-06a](docs/evidence/phase-06a.md)).

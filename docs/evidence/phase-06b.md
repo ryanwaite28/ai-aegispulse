@@ -44,5 +44,7 @@ make test-e2e → Test Files 6 passed · Tests 260 passed
   role matrix + searchEvents, getEvent, getEventCorrelationChain × 6 roles
 ```
 
-## Pending
+## Pending (at the time of this slice)
+> Superseded: every item below was completed later in the phase; see [phase-06.md](phase-06.md) for what remains.
+
 - 6c analyst override (FR-CLS-07), 6d retention TTL/purge + the Mongo index listing (exit item).
