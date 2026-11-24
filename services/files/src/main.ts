@@ -7,6 +7,9 @@ import { IdempotencyRepository } from "@aegispulse/ts-platform/idempotency";
 import { OutboxRelay, OutboxRepository } from "@aegispulse/ts-platform/outbox";
 import { TenantSettingsCache } from "@aegispulse/ts-platform/tenant-settings";
 import { registerUploadRoutes } from "./adapters/http/uploads.routes.js";
+import { registerFileRoutes } from "./adapters/http/files.routes.js";
+import { FileProcessingService } from "./service/file-processing.service.js";
+import { FileQueryService } from "./service/file-query.service.js";
 import { FilesRepository } from "./db/files.repository.js";
 import { FileUploadService } from "./service/file-upload.service.js";
 import {
@@ -15,6 +18,7 @@ import {
   RedisInitRateLimiter,
   RedisUploadSessions,
   RegistryTenantStatus,
+  S3DownloadSigner,
   S3UploadStore,
 } from "./storage/upload-infra.js";
 import { buildVersion } from "@aegispulse/ts-platform/build-info";
@@ -32,7 +36,18 @@ import { startTelemetry } from "@aegispulse/ts-platform/telemetry";
 import { configSchema, PORT, SERVICE } from "./config.js";
 import { createPostgresPool } from "./db/postgres.js";
 import { connectRedis, redisCheck } from "./storage/redis.js";
-import { bucketName, createObjectStore, createPresigner, objectStoreCheck } from "./storage/objectstore.js";
+import {
+  bucketName,
+  createObjectStore,
+  createPresigner,
+  objectStoreCheck,
+  quarantineBucketName,
+} from "./storage/objectstore.js";
+import { ClamdScanner } from "./storage/clamav.js";
+import { RegistryTenantSlug, S3ValidationStore } from "./storage/validation-infra.js";
+import { FileValidationService } from "./service/file-validation.service.js";
+import { consumeFileValidation } from "./adapters/amqp/files-validation.consumer.js";
+import { ProcessedMessagesRepository } from "@aegispulse/ts-platform/idempotency";
 import { clamavCheck } from "./storage/clamav.js";
 
 async function main(): Promise<void> {
@@ -50,7 +65,7 @@ async function main(): Promise<void> {
 
   const pg = createPostgresPool(config);
   await connectWithRetry("postgres", async () => pg.query("SELECT 1"), { logger });
-  health.addCheck("postgres", postgresPingCheck(pg)).addCheck("schema", flywaySchemaVersionCheck(pg, "files", "3"));
+  health.addCheck("postgres", postgresPingCheck(pg)).addCheck("schema", flywaySchemaVersionCheck(pg, "files", "4"));
   lifecycle.onShutdown("pools", "postgres", () => pg.end());
   const redis = await connectWithRetry("redis", () => connectRedis(config), { logger });
   health.addCheck("redis", redisCheck(redis));
@@ -105,6 +120,7 @@ async function main(): Promise<void> {
     await registry.close();
     await registryAuth.close();
   });
+  const tenantSettings = TenantSettingsCache.forRegistry(registry);
   const presigner = createPresigner(config);
   lifecycle.onShutdown("pools", "presigner", async () => presigner.destroy());
   const uploads = new FileUploadService({
@@ -117,7 +133,40 @@ async function main(): Promise<void> {
     rate: new RedisInitRateLimiter(redis),
     objects: new S3UploadStore(s3, presigner, bucketName(config)),
     statusCache: new RedisFileStatusCache(redis),
-    tenants: new RegistryTenantStatus(TenantSettingsCache.forRegistry(registry)),
+    tenants: new RegistryTenantStatus(tenantSettings),
+    version,
+    logger,
+  });
+  const validation = new FileValidationService({
+    pool: pg,
+    files: new FilesRepository(),
+    outbox,
+    processed: new ProcessedMessagesRepository("files"),
+    objects: new S3ValidationStore(s3, bucketName(config), quarantineBucketName(config)),
+    av: config.FILES_AV_ENABLED ? new ClamdScanner(config.CLAMAV_HOST) : undefined,
+    tenants: new RegistryTenantSlug(tenantSettings),
+    statusCache: new RedisFileStatusCache(redis),
+    version,
+    logger,
+  });
+  consumeFileValidation(amqp, logger, validation);
+  const statusCache = new RedisFileStatusCache(redis);
+  const signer = new S3DownloadSigner(s3, presigner);
+  const queries = new FileQueryService({
+    pool: pg,
+    files: new FilesRepository(),
+    outbox,
+    signer,
+    cache: statusCache,
+    version,
+    logger,
+  });
+  const processing = new FileProcessingService({
+    pool: pg,
+    files: new FilesRepository(),
+    outbox,
+    signer,
+    statusCache,
     version,
     logger,
   });
@@ -125,6 +174,7 @@ async function main(): Promise<void> {
   const app = createHttpServer({ logger });
   registerHealthRoutes(app, health);
   registerUploadRoutes(app, verifier, uploads);
+  registerFileRoutes(app, verifier, queries, processing);
   await app.listen({ host: "0.0.0.0", port: PORT });
   lifecycle
     .onShutdown("http", "fastify", () => app.close())

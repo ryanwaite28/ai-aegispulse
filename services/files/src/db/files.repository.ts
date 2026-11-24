@@ -107,6 +107,47 @@ export interface Transition {
   readonly reason: string | null;
   readonly actor: string;
   readonly eventId: string | null;
+  /** Columns set together with the status (validation results, quarantine move). */
+  readonly patch?: {
+    readonly detectedType?: string | undefined;
+    readonly verifiedSha256?: string | undefined;
+    readonly storageBucket?: string | undefined;
+    readonly storageKey?: string | undefined;
+    readonly extractorVersion?: string | undefined;
+  };
+}
+
+export interface NewArtifact {
+  readonly tenantId: string;
+  readonly fileId: string;
+  readonly extractorVersion: string;
+  readonly resultStatus: "COMPLETED" | "REVIEW_REQUIRED";
+  readonly confidence: number;
+  readonly textKey: string | null;
+  readonly chunksKey: string | null;
+  readonly extractionKey: string;
+  readonly rowErrorsKey: string | null;
+  readonly rowsAccepted: number | null;
+  readonly rowsRejected: number | null;
+  readonly summary: Record<string, unknown>;
+}
+
+export interface ArtifactSummary {
+  readonly extractorVersion: string;
+  readonly resultStatus: "COMPLETED" | "REVIEW_REQUIRED";
+  readonly confidence: number;
+  readonly rowsAccepted: number | null;
+  readonly rowsRejected: number | null;
+  readonly summary: Record<string, unknown>;
+  readonly createdAt: string;
+}
+
+export interface FileListFilter {
+  readonly status?: string | undefined;
+  readonly purpose?: string | undefined;
+  readonly uploadedBy?: string | undefined;
+  readonly from?: string | undefined;
+  readonly to?: string | undefined;
 }
 
 export class FilesRepository {
@@ -175,9 +216,23 @@ export class FilesRepository {
    */
   async transition(tx: SqlExecutor, tenantId: string, t: Transition): Promise<FileRecord | undefined> {
     const r = await tx.query<Row>(
-      `UPDATE files.files SET status = $1, failure_reason = COALESCE($2, failure_reason), version = version + 1
+      `UPDATE files.files SET status = $1, failure_reason = COALESCE($2, failure_reason), version = version + 1,
+              detected_type = COALESCE($6, detected_type), verified_sha256 = COALESCE($7, verified_sha256),
+              storage_bucket = COALESCE($8, storage_bucket), storage_key = COALESCE($9, storage_key),
+              extractor_version = COALESCE($10, extractor_version)
         WHERE id = $3 AND status = $4 AND version = $5 RETURNING *`,
-      [t.to, t.to === "FAILED" ? t.reason : null, t.fileId, t.from, t.expectedVersion],
+      [
+        t.to,
+        t.to === "FAILED" || t.to === "QUARANTINED" ? t.reason : null,
+        t.fileId,
+        t.from,
+        t.expectedVersion,
+        t.patch?.detectedType ?? null,
+        t.patch?.verifiedSha256 ?? null,
+        t.patch?.storageBucket ?? null,
+        t.patch?.storageKey ?? null,
+        t.patch?.extractorVersion ?? null,
+      ],
     );
     const row = r.rows[0];
     if (row === undefined) return undefined;
@@ -191,6 +246,92 @@ export class FilesRepository {
       eventId: t.eventId,
     });
     return map(row);
+  }
+
+  /** Pre-tenant lookup for SERVICE callers that only name a fileId (definer files.file_tenant, ADR-0016). */
+  async fileTenant(db: SqlExecutor, fileId: string): Promise<string | undefined> {
+    const r = await db.query<{ t: string | null }>("SELECT files.file_tenant($1) AS t", [fileId]);
+    return r.rows[0]?.t ?? undefined;
+  }
+
+  /** FR-FILE-06: one artifact per (file, extractor version); false when it already exists (idempotent replay). */
+  async insertArtifact(tx: SqlExecutor, a: NewArtifact): Promise<boolean> {
+    const r = await tx.query(
+      `INSERT INTO files.file_artifacts (tenant_id, file_id, extractor_version, result_status, confidence, text_key,
+                                         chunks_key, extraction_key, row_errors_key, rows_accepted, rows_rejected, summary)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+       ON CONFLICT (file_id, extractor_version) DO NOTHING`,
+      [
+        a.tenantId,
+        a.fileId,
+        a.extractorVersion,
+        a.resultStatus,
+        a.confidence,
+        a.textKey,
+        a.chunksKey,
+        a.extractionKey,
+        a.rowErrorsKey,
+        a.rowsAccepted,
+        a.rowsRejected,
+        JSON.stringify(a.summary),
+      ],
+    );
+    return (r.rowCount ?? 0) === 1;
+  }
+
+  async artifacts(tx: SqlExecutor, fileId: string): Promise<ArtifactSummary[]> {
+    const r = await tx.query<{
+      extractor_version: string;
+      result_status: "COMPLETED" | "REVIEW_REQUIRED";
+      confidence: string;
+      rows_accepted: number | null;
+      rows_rejected: number | null;
+      summary: Record<string, unknown>;
+      created_at: Date;
+    }>(
+      `SELECT extractor_version, result_status, confidence, rows_accepted, rows_rejected, summary, created_at
+         FROM files.file_artifacts WHERE file_id = $1 ORDER BY created_at`,
+      [fileId],
+    );
+    return r.rows.map((x) => ({
+      extractorVersion: x.extractor_version,
+      resultStatus: x.result_status,
+      confidence: Number(x.confidence),
+      rowsAccepted: x.rows_accepted,
+      rowsRejected: x.rows_rejected,
+      summary: x.summary,
+      createdAt: x.created_at.toISOString(),
+    }));
+  }
+
+  /** FR-FILE-09: newest first, keyset (created_at, id); soft-deleted files are excluded. */
+  async list(
+    tx: SqlExecutor,
+    filter: FileListFilter,
+    after: { createdAt: string; id: string } | undefined,
+    limit: number,
+  ): Promise<FileRecord[]> {
+    const where: string[] = ["deleted_at IS NULL"];
+    const args: unknown[] = [];
+    const add = (sql: string, v: unknown): void => {
+      args.push(v);
+      where.push(sql.replace("?", `$${String(args.length)}`));
+    };
+    if (filter.status !== undefined) add("status = ?", filter.status);
+    if (filter.purpose !== undefined) add("purpose = ?", filter.purpose);
+    if (filter.uploadedBy !== undefined) add("uploaded_by = ?", filter.uploadedBy);
+    if (filter.from !== undefined) add("created_at >= ?", filter.from);
+    if (filter.to !== undefined) add("created_at < ?", filter.to);
+    if (after !== undefined) {
+      args.push(after.createdAt, after.id);
+      where.push(`(created_at, id) < ($${String(args.length - 1)}::timestamptz, $${String(args.length)}::uuid)`);
+    }
+    args.push(limit);
+    const r = await tx.query<Row>(
+      `SELECT * FROM files.files WHERE ${where.join(" AND ")} ORDER BY created_at DESC, id DESC LIMIT $${String(args.length)}`,
+      args,
+    );
+    return r.rows.map(map);
   }
 
   private async history(

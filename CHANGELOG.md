@@ -13,6 +13,15 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 5d file lifecycle and reads (FR-FILE-06..09):
+  - **Files:** `V4__file_artifacts` (artifacts under RLS, plus the definer `file_tenant` for SERVICE callers that only know a fileId).
+  - **doc-extraction actions:** `markProcessing`, `recordExtractionResult` (artifact unique per extractor version; emits CONFIDENTIAL `doc.extraction.completed|review_required`), `recordProcessingFailure`, `getInternalDownloadUrl`.
+  - **Reads:** `getFile` (Redis 30 s, invalidated on every transition, tenant-checked on hit), `listFiles` (filters, keyset), `getDownloadUrl` (5 min attachment URL with an RFC 5987 filename, cached 240 s per actor; quarantined files only for TENANT_ADMIN with acknowledgement, audited every time).
+  - **Gateway:** `GET /v1/files`, `/v1/files/{id}`, `/v1/files/{id}/download-url`.
+- Phase 5c file validation (FR-FILE-05):
+  - **Consumer:** `files.validation.q` runs `validateFile`. One streaming pass computes SHA-256 and size, sniffs magic bytes and heuristics, and streams to clamd INSTREAM.
+  - **Outcomes:** VALIDATED (+ `doc.file.ready`); FAILED (checksum, size, missing object); QUARANTINED (malware or type mismatch, with a server-side move to `quarantine/{tenantId}/{fileId}` and `notification.requested` N-03). It is idempotent via `processed_messages` and the status check.
+  - **Compose:** clamd `StreamMaxLength`/`MaxFileSize` raised to 65M, so a 64 MiB upload can be scanned.
 - Phase 5a file uploads (FR-FILE-01..04):
   - **Files:** `V3__files` (files + status history, RLS); `initUpload` (type allowlist, 64 MiB single PUT, tenant status, Idempotency-Key, 60/min token bucket, Redis → DB dedup, 10 GiB storage quota, presigned PUT signing Content-Type/Length against `PUBLIC_OBJECTS_URL`, Redis session); `completeUpload` (session, HEAD, size, optimistic `INITIATED → UPLOADED`, outbox `file.uploaded` + `file.status.changed`); `abortUpload`. The outbox relay now runs in files.
   - **Gateway:** `/v1/files/uploads/init|{id}/complete|{id}/abort` via a typed files client (201 new / 200 dedup).
@@ -191,6 +200,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 5 slice 5d `RUNTIME-VERIFIED` locally: files integration 16/16; E2E 232/232, including validation outcomes polled through the gateway and a real clamd quarantine ([phase-05d](docs/evidence/phase-05d.md)).
+- Phase 5 slice 5c `RUNTIME-VERIFIED` locally: validation integration 4/4; with the real clamd on the compose stack, EICAR → QUARANTINED (`MALWARE:Eicar-Test-Signature`) and PDF-as-CSV → QUARANTINED; E2E 214/214 ([phase-05c](docs/evidence/phase-05c.md)).
 - Phase 5 slice 5a `RUNTIME-VERIFIED` locally: files integration 7/7, E2E 213/213 ([phase-05a](docs/evidence/phase-05a.md)).
 - Phase 4 `RUNTIME-VERIFIED` locally: all §11 exit items captured (demo → 202 → broker, adversarial suite 192/192, rejection metric in OpenObserve); the exit waits on green pipelines ([phase-04](docs/evidence/phase-04.md)).
 - Phase 4 slice 4c `RUNTIME-VERIFIED` locally: `make trigger JOB=ingestion-secret-expiry` exit 0, E2E 192/192 ([phase-04c](docs/evidence/phase-04c.md)).

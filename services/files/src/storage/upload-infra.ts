@@ -3,6 +3,7 @@
 // ≤ 60 s cache (FR-TEN-08).
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3ServiceException,
@@ -12,7 +13,9 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { TenantSettingsCache } from "@aegispulse/ts-platform/tenant-settings";
 import type { Redis } from "ioredis";
 import type { ContentType } from "../domain/file.js";
-import { INITS_PER_MINUTE } from "../domain/file.js";
+import { attachmentDisposition, INITS_PER_MINUTE } from "../domain/file.js";
+import type { DownloadSigner } from "../service/file-processing.service.js";
+import type { DownloadUrl, FileDetail, FileReadCache } from "../service/file-query.service.js";
 import type {
   DedupIndex,
   FileStatusCache,
@@ -124,11 +127,59 @@ export class RedisInitRateLimiter implements InitRateLimiter {
   }
 }
 
-export class RedisFileStatusCache implements FileStatusCache {
+/** §7.7 `file:status:{fileId}` (30 s, invalidated on every transition) and `file:dlurl:{fileId}:{actor}` (240 s). */
+export class RedisFileStatusCache implements FileStatusCache, FileReadCache {
   constructor(private readonly redis: Redis) {}
 
   async invalidate(fileId: string): Promise<void> {
     await this.redis.del(`file:status:${fileId}`);
+  }
+
+  async getDetail(fileId: string): Promise<FileDetail | undefined> {
+    const raw = await this.redis.get(`file:status:${fileId}`);
+    return raw === null ? undefined : (JSON.parse(raw) as FileDetail);
+  }
+
+  async putDetail(fileId: string, detail: FileDetail, ttlSeconds: number): Promise<void> {
+    await this.redis.set(`file:status:${fileId}`, JSON.stringify(detail), "EX", ttlSeconds);
+  }
+
+  async getDownloadUrl(fileId: string, actor: string): Promise<DownloadUrl | undefined> {
+    const raw = await this.redis.get(`file:dlurl:${fileId}:${actor}`);
+    return raw === null ? undefined : (JSON.parse(raw) as DownloadUrl);
+  }
+
+  async putDownloadUrl(fileId: string, actor: string, url: DownloadUrl, ttlSeconds: number): Promise<void> {
+    await this.redis.set(`file:dlurl:${fileId}:${actor}`, JSON.stringify(url), "EX", ttlSeconds);
+  }
+}
+
+/**
+ * Presigned GET (FR-FILE-06/08): `public` signs for PUBLIC_OBJECTS_URL (browsers), `internal` for the in-cluster
+ * endpoint (doc-extraction). Both force `Content-Disposition: attachment` with the sanitized filename.
+ */
+export class S3DownloadSigner implements DownloadSigner {
+  constructor(
+    private readonly internal: S3Client,
+    private readonly presigner: S3Client,
+  ) {}
+
+  async presignGet(args: {
+    bucket: string;
+    key: string;
+    ttlSeconds: number;
+    filename: string;
+    audience: "internal" | "public";
+  }): Promise<string> {
+    return getSignedUrl(
+      args.audience === "public" ? this.presigner : this.internal,
+      new GetObjectCommand({
+        Bucket: args.bucket,
+        Key: args.key,
+        ResponseContentDisposition: attachmentDisposition(args.filename),
+      }),
+      { expiresIn: args.ttlSeconds },
+    );
   }
 }
 

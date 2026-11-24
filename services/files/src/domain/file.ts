@@ -91,3 +91,14 @@ export function checkContentType(contentType: string): asserts contentType is Co
     });
   }
 }
+
+/**
+ * FR-FILE-08 `Content-Disposition: attachment` for a sanitized name: an ASCII fallback (quotes, backslashes and
+ * non-ASCII replaced) plus RFC 6266/5987 `filename*` with the UTF-8 name percent-encoded.
+ */
+export function attachmentDisposition(filename: string): string {
+  const name = sanitizeFilename(filename);
+  const ascii = [...name].map((ch) => (/^[\x20-\x7e]$/.test(ch) && ch !== '"' && ch !== "\\" ? ch : "_")).join("");
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}

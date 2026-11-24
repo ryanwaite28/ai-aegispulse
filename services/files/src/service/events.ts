@@ -19,6 +19,7 @@ function envelope(
   idempotencyKey: string,
   payload: Record<string, unknown>,
   exchange: ExchangeName,
+  sensitivity: "INTERNAL" | "CONFIDENTIAL" = "INTERNAL",
 ): OutboxMessage {
   const eventId = uuidv7();
   const now = new Date().toISOString();
@@ -34,7 +35,7 @@ function envelope(
     occurredAt: now,
     ingestedAt: now,
     idempotencyKey,
-    classification: { sensitivity: "INTERNAL", status: "INGESTED", classification_source: "PRODUCER" },
+    classification: { sensitivity, status: "INGESTED", classification_source: "PRODUCER" },
     payload,
   } as CanonicalEnvelope;
   return { exchange, routingKey: eventType, envelope: env };
@@ -74,5 +75,94 @@ export function fileStatusChanged(
     `file.status.changed:${file.id}:${String(file.version)}`,
     { fileId: file.id, from, to: file.status, reason },
     "aegispulse.enrichment",
+  );
+}
+
+/** doc.file.ready (FR-FILE-05) on aegispulse.enrichment → doc.extraction.q. */
+export function docFileReady(version: string, file: FileRecord): OutboxMessage {
+  return envelope(
+    version,
+    file,
+    "doc.file.ready",
+    `doc.file.ready:${file.id}`,
+    {
+      fileId: file.id,
+      storageKey: file.storageKey,
+      sha256: file.sha256,
+      contentType: file.contentType,
+      purpose: file.purpose,
+    },
+    "aegispulse.enrichment",
+  );
+}
+
+/** notification.requested N-03 "File {fileId} quarantined ({reason}) for tenant {tenantSlug}." (FR-NOTIF-01). */
+export function fileQuarantinedNotice(
+  version: string,
+  file: FileRecord,
+  reason: string,
+  tenantSlug: string,
+): OutboxMessage {
+  return envelope(
+    version,
+    file,
+    "notification.requested",
+    `notification.requested:N-03:${file.id}`,
+    {
+      templateId: "N-03",
+      severity: reason.startsWith("MALWARE") ? "HIGH" : "MEDIUM",
+      notificationKey: `N-03:${file.id}`,
+      vars: { fileId: file.id, reason: reason.slice(0, 200), tenantSlug },
+    },
+    "aegispulse.enrichment",
+  );
+}
+
+export interface ExtractionResultEvent {
+  readonly extractorVersion: string;
+  readonly status: "COMPLETED" | "REVIEW_REQUIRED";
+  readonly confidence: number;
+  readonly eventTypeGuess: string;
+  readonly mentionedEntities: readonly string[];
+  readonly redFlags: readonly unknown[];
+  readonly textExcerpt?: string | undefined;
+  readonly artifactKeys: Readonly<Record<string, string>>;
+}
+
+/**
+ * doc.extraction.completed | doc.extraction.review_required (FR-FILE-06) on aegispulse.enrichment, published by files
+ * on behalf of doc-extraction (§6.7). CONFIDENTIAL; base severity comes from red flags at archive time (§1.4.3).
+ */
+export function docExtraction(version: string, file: FileRecord, r: ExtractionResultEvent): OutboxMessage {
+  const eventType = r.status === "COMPLETED" ? "doc.extraction.completed" : "doc.extraction.review_required";
+  return envelope(
+    version,
+    file,
+    eventType,
+    `${eventType}:${file.id}:${r.extractorVersion}`,
+    {
+      fileId: file.id,
+      extractorVersion: r.extractorVersion,
+      eventTypeGuess: r.eventTypeGuess,
+      mentionedEntities: r.mentionedEntities,
+      redFlags: r.redFlags,
+      confidence: r.confidence,
+      ...(r.textExcerpt === undefined ? {} : { textExcerpt: r.textExcerpt.slice(0, 2000) }),
+      artifactKeys: r.artifactKeys,
+    },
+    "aegispulse.enrichment",
+    "CONFIDENTIAL",
+  );
+}
+
+/** ops.audit.quarantine_download (FR-FILE-08, FR-AUD-02) on aegispulse.intelligence. */
+export function quarantineDownload(version: string, file: FileRecord, actorId: string): OutboxMessage {
+  return envelope(
+    version,
+    file,
+    "ops.audit.quarantine_download",
+    `ops.audit.quarantine_download:${file.id}:${uuidv7()}`,
+    { fileId: file.id, actorId },
+    "aegispulse.intelligence",
   );
 }

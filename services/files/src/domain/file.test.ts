@@ -57,3 +57,14 @@ describe("filename rule (contract InitUploadInput pattern)", () => {
     }
   });
 });
+
+describe("download Content-Disposition (FR-FILE-08)", () => {
+  it("is an attachment with an ASCII fallback and an RFC 5987 UTF-8 name; never breaks out of the quotes", async () => {
+    const { attachmentDisposition } = await import("./file.js");
+    expect(attachmentDisposition("report.pdf")).toBe(`attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`);
+    expect(attachmentDisposition('Résumé "Q3".pdf')).toBe(
+      `attachment; filename="R_sum_ _Q3_.pdf"; filename*=UTF-8''R%C3%A9sum%C3%A9%20%22Q3%22.pdf`,
+    );
+    expect(attachmentDisposition("../../etc/passwd")).toContain('filename="passwd"');
+  });
+});

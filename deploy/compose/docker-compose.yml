@@ -153,6 +153,10 @@ services:
   clamav:
     <<: *restart
     image: clamav/clamav:1.5.5-debian13-slim # multi-arch (amd64+arm64); plain tag is amd64-only
+    environment:
+      # FR-FILE-05: INSTREAM must accept the largest single-PUT file (64 MiB; default StreamMaxLength is 25M).
+      CLAMD_CONF_StreamMaxLength: 65M
+      CLAMD_CONF_MaxFileSize: 65M
     ports: ["3310:3310"]
     volumes:
       - clamdb:/var/lib/clamav

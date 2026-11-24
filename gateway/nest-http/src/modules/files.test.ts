@@ -96,6 +96,12 @@ beforeEach(() => {
   deduplicated = false;
 });
 
+const get = (url: string, headers: Record<string, string> = {}): Promise<{ statusCode: number }> =>
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .inject({ method: "GET", url, headers: { authorization: `Bearer ${token}`, ...headers } });
+
 const post = (
   url: string,
   body?: unknown,
@@ -152,5 +158,21 @@ describe("files upload routes over the gateway (FR-FILE-01..04)", () => {
     ]);
     expect((await post("/v1/files/uploads/not-a-uuid/complete")).statusCode).toBe(404);
     expect(seen).toHaveLength(2);
+  });
+
+  it("GET routes pass filters through, map acknowledgeQuarantine to a boolean, and reject other values locally", async () => {
+    const t = { "x-aegis-tenant": TENANT };
+    expect((await get("/v1/files?status=VALIDATED&limit=5", t)).statusCode).toBe(200);
+    expect((await get(`/v1/files/${FILE_ID}`, t)).statusCode).toBe(200);
+    expect((await get(`/v1/files/${FILE_ID}/download-url?acknowledgeQuarantine=true`, t)).statusCode).toBe(200);
+    expect((await get(`/v1/files/${FILE_ID}/download-url`, t)).statusCode).toBe(200);
+    expect(seen.map((x) => [x.path, x.body, x.tenant])).toEqual([
+      ["/internal/v1/listFiles", { status: "VALIDATED", limit: 5 }, TENANT],
+      ["/internal/v1/getFile", { fileId: FILE_ID }, TENANT],
+      ["/internal/v1/getDownloadUrl", { fileId: FILE_ID, acknowledgeQuarantine: true }, TENANT],
+      ["/internal/v1/getDownloadUrl", { fileId: FILE_ID, acknowledgeQuarantine: false }, TENANT],
+    ]);
+    expect((await get(`/v1/files/${FILE_ID}/download-url?acknowledgeQuarantine=yes`, t)).statusCode).toBe(422);
+    expect(seen).toHaveLength(4);
   });
 });

@@ -27,6 +27,11 @@ export function bucketName(config: Config): string {
   return `${config.S3_BUCKET_PREFIX}-raw`;
 }
 
+/** §7.8 quarantine bucket (30-day lifecycle; admin-only download). */
+export function quarantineBucketName(config: Config): string {
+  return `${config.S3_BUCKET_PREFIX}-quarantine`;
+}
+
 /** Readiness: HEAD a probe key inside this identity's grant. 404 = reachable and authorized; 403/5xx = down. */
 export function objectStoreCheck(s3: S3Client, config: Config): () => Promise<void> {
   return async () => {
