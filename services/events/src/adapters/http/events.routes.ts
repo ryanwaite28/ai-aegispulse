@@ -7,6 +7,7 @@ import { getContext } from "@aegispulse/ts-platform/logging";
 import { z } from "zod";
 import { SEVERITIES } from "../../domain/classification/severity.js";
 import type { EventQueryService, TieredEvent } from "../../service/event-query.service.js";
+import type { OverrideService } from "../../service/override.service.js";
 
 const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 const iso = z.iso.datetime({ offset: true });
@@ -42,6 +43,15 @@ const search = z
   .strict();
 const getOne = z.object({ eventId: uuid, tier: tier.optional() }).strict();
 const chain = z.object({ correlationId: z.string().min(1).max(200) }).strict();
+/** Contract OverrideClassificationInput; the ≥ 20-char justification rule is the service's (422 with its own code). */
+const override = z
+  .object({
+    eventId: uuid,
+    finalSeverity: z.enum(SEVERITIES).optional(),
+    sensitivity: z.enum(["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED", "UNCLASSIFIED"]).optional(),
+    justification: z.string().max(2000),
+  })
+  .strict();
 const forEntities = z
   .object({
     tenantId: uuid,
@@ -144,7 +154,12 @@ export function archivedView(e: TieredEvent): Record<string, unknown> {
   };
 }
 
-export function registerEventRoutes(app: HttpServer, verifier: JwtVerifier, queries: EventQueryService): void {
+export function registerEventRoutes(
+  app: HttpServer,
+  verifier: JwtVerifier,
+  queries: EventQueryService,
+  overrides: OverrideService,
+): void {
   const auth = (headers: Record<string, unknown>, action: string): Promise<Principal> =>
     verifier.authorizeInternal(header(headers, "authorization"), `events.${action}`);
   const tenant = (headers: Record<string, unknown>): string | undefined => header(headers, "x-aegis-tenant");
@@ -177,5 +192,14 @@ export function registerEventRoutes(app: HttpServer, verifier: JwtVerifier, quer
     const principal = await auth(req.headers, "searchEventsForEntities");
     const rows = await queries.searchEventsForEntities(principal, parse(forEntities, req.body));
     return { data: rows.map(summaryView), meta: meta() };
+  });
+
+  app.post("/internal/v1/overrideClassification", async (req) => {
+    const principal = await auth(req.headers, "overrideClassification");
+    const input = parse(override, req.body);
+    return {
+      data: archivedView(await overrides.overrideClassification(principal, tenant(req.headers), input)),
+      meta: meta(),
+    };
   });
 }

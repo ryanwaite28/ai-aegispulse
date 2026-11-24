@@ -143,4 +143,52 @@ describe("events archive over the gateway (FR-EVT-04/05, Phase 6 exit)", () => {
       ).body.data,
     ).toEqual([]);
   });
+
+  it("FR-CLS-07 analyst override: VIEWER 403, short justification 422, ANALYST lowers → OVERRIDDEN; the override joins the chain", async () => {
+    const w = await world();
+    const s = await source(w.a.users.TENANT_ADMIN.token);
+    const corr = `corr-${randomUUID()}`;
+    await webhook(s, corr, alert({ category: "ACQUISITION_ANNOUNCED" })); // rule severity HIGH
+    const analyst = w.a.users.ANALYST.token;
+    const ev = await poll(async () => {
+      const r = await call("GET", `/v1/events?correlationId=${corr}&eventType=external.`, { token: analyst });
+      return (r.body.data as unknown as Record<string, unknown>[] | undefined)?.[0];
+    }, "archived acquisition");
+    const id = String(ev["eventId"]);
+    const justification = "Rumour already priced in; desk reviewed the filing.";
+    const viewer = await call("PATCH", `/v1/events/${id}/classification`, {
+      token: w.a.users.VIEWER.token,
+      body: { finalSeverity: "LOW", justification },
+    });
+    expect(viewer.status).toBe(403);
+    const short = await call("PATCH", `/v1/events/${id}/classification`, {
+      token: analyst,
+      body: { finalSeverity: "LOW", justification: "too short" },
+    });
+    expect({ status: short.status, code: short.body.error?.code }).toEqual({
+      status: 422,
+      code: "CLASSIFICATION_JUSTIFICATION_REQUIRED",
+    });
+    const done = await call("PATCH", `/v1/events/${id}/classification`, {
+      token: analyst,
+      body: { finalSeverity: "LOW", justification },
+    });
+    expect(done.status).toBe(200);
+    expect(done.body.data).toMatchObject({
+      status: "OVERRIDDEN",
+      pendingAiScan: false,
+      classification: {
+        algorithm_severity: "HIGH",
+        final_severity: "LOW",
+        classification_source: "ANALYST",
+        revision: 2,
+      },
+    });
+    const chain = await poll(async () => {
+      const r = await call("GET", `/v1/events/correlation/${corr}`, { token: analyst });
+      const types = (r.body.data as unknown as { eventType: string }[]).map((e) => e.eventType);
+      return types.includes("classification.overridden") ? types : undefined;
+    }, "classification.overridden archived");
+    expect(chain[0]).toBe("external.acquisition.announced");
+  });
 });

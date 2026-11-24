@@ -103,6 +103,27 @@ export class ArchiveRepository {
     return false;
   }
 
+  /** Optimistic write (FR-CLS-05/07): replaces the record only while its classification revision is unchanged. */
+  async replaceIfRevision(session: ClientSession, tier: Tier, revision: number, next: ArchivedEvent): Promise<boolean> {
+    const r = await this.col(tier).replaceOne(
+      { tenantId: next.tenantId, eventId: next.eventId, "classification.revision": revision },
+      next,
+      { session },
+    );
+    return r.matchedCount === 1;
+  }
+
+  /** Standard → restricted in one transaction (sensitivity raised to RESTRICTED); revision-guarded like replace. */
+  async moveToRestricted(session: ClientSession, revision: number, next: ArchivedEvent): Promise<boolean> {
+    const removed = await this.standard.deleteOne(
+      { tenantId: next.tenantId, eventId: next.eventId, "classification.revision": revision },
+      { session },
+    );
+    if (removed.deletedCount !== 1) return false;
+    await this.restricted.insertOne(next, { session });
+    return true;
+  }
+
   async find(tier: Tier, tenantId: string | null, eventId: string): Promise<ArchivedEvent | null> {
     return this.col(tier).findOne({ tenantId, eventId }, { projection: { _id: 0 } });
   }

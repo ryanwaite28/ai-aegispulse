@@ -64,3 +64,23 @@ export function scanRequested(version: string, e: ArchivedEvent): OutboxMessage 
     revision: e.classification.revision,
   });
 }
+
+/** FR-CLS-07: classification.overridden (Cases records the audit entry, FR-AUD-02). Values only, never payloads. */
+export function classificationOverridden(
+  version: string,
+  e: ArchivedEvent,
+  o: {
+    before: { sensitivity: string; final_severity: string };
+    after: { sensitivity: string; final_severity: string };
+    actorId: string;
+    justification: string;
+  },
+): OutboxMessage {
+  return envelope(version, e, "classification.overridden", {
+    eventId: e.eventId,
+    before: o.before,
+    after: o.after,
+    actorId: o.actorId,
+    justification: o.justification,
+  });
+}

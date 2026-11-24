@@ -4,7 +4,7 @@
 |---|---|
 | Phase | 06 — Events Archive & Stage-1 Classification (`PROJECT.md` §11). FR-CLS-03..06 (scanner, Stage 2) are Phase 12 |
 | Owner runtime(s) | `services/events` (TS/Fastify, MongoDB); gateway `/v1/events*` |
-| Status | 6a, 6b RUNTIME-VERIFIED locally (2026-11-24); 6c, 6d pending |
+| Status | 6a–6d RUNTIME-VERIFIED locally (2026-11-24); Phase 6 exit captured |
 | Slices | **6a** archive consumer + Stage 1 + finalization + Mongo outbox + source-trust amendment (FR-EVT-01..03, FR-CLS-01/02) · **6b** query APIs (FR-EVT-04..06) · **6c** analyst override (FR-CLS-07) · **6d** retention TTL (FR-EVT-07 part 1) |
 | Related | ADR-0004 (outbox), ADR-0008 (elevate-only), ADR-0009; §1.4.2, §1.4.3, §7.6; NFR-02 |
 
@@ -61,6 +61,28 @@
 - **Views:** the contract classification includes `source_trust_level` (`EventClassification` extended with the amendment); null `algorithm_confidence` and `classifier_version` are omitted.
 - **Gateway:** `GET /v1/events`, `GET /v1/events/{eventId}?tier=`, `GET /v1/events/correlation/{correlationId}` via a typed `EventsClient`. A malformed path id → local 404; a bad `tier` → 422.
 
+### Analyst override (6c; FR-CLS-07)
+- **Who:** `tenantAccess` with the contract roles (ANALYST, TENANT_ADMIN, PLATFORM_ADMIN via `X-Aegis-Tenant`); a person only (`userId`).
+- **Validation:**
+  - A trimmed justification under 20 characters → `422 CLASSIFICATION_JUSTIFICATION_REQUIRED`.
+  - Neither `finalSeverity` nor `sensitivity` → `422 VALIDATION_ERROR`.
+  - Standard tier only: a restricted event (invisible to these roles) or another tenant's → `404 EVENT_NOT_FOUND`.
+- **The write:** one Mongo transaction, conditional on `classification.revision` (retried up to 3 times on a concurrent change, then `409 CONFLICT`).
+  - Sets `final_severity` and/or `sensitivity`, `classification_source ANALYST`, `revision + 1`, status `OVERRIDDEN`.
+  - Appends `statusHistory {OVERRIDDEN, at, by user:{id}}` and `classificationHistory {stage ANALYST, version analyst-override, actor, justification}`.
+  - Sets `pendingAiScan false`: an override is final (§1.4.3); the Phase 12 AI patch must leave OVERRIDDEN events' `final_severity` alone.
+  - Enqueues `classification.overridden {eventId, before, after, actorId, justification}` on enrichment (cases records the audit entry; FR-AUD-02).
+- **Lowering is allowed:** this is the only path that may lower severity (ADR-0008).
+- **Raising sensitivity to RESTRICTED** moves the record to `events_restricted_audit` in the same transaction, with `expireAt` recomputed to 7 years (as FR-CLS-05 will).
+- **Repeats:** the same override again (same values, actor and justification) returns the record unchanged. §7.6 defines no Idempotency-Key store for events, so this natural idempotency stands in for it.
+- **Gateway:** `PATCH /v1/events/{eventId}/classification` (forwards `Idempotency-Key`).
+
+### Retention (6d; FR-EVT-07 part 1)
+- `expireAt` is computed at archive time (tenant `retentionDays`; restricted: 7 years; tenantless/platform/unknown: 400 days) and recomputed when a record moves to the restricted tier.
+- The baseline TTL indexes (`ttl_expire_at`, `expireAfterSeconds 0`) on both tiers do the deletion.
+- **Clarification:** §11 says "`purgeRetention` for restricted moves", but the contract defines `events.purgeRetention` as the Phase 15 cold-tier export (Parquet, then `ARCHIVED`). In part 1 the restricted-move duty is the `expireAt` recomputation above; the action itself ships with FR-EVT-07 part 2.
+- A change to a tenant's `retentionDays` applies to newly archived events only (no back-fill), the same snapshot rule as source trust.
+
 ### Mongo outbox (6a; `outbox` collection, §7.6)
 `MongoOutboxRelay` atomically claims one due entry at a time with `findOneAndUpdate`: PENDING and due, or SENDING with a lapsed 30 s lease. It publishes through the kit `AmqpPublisher` (publisher confirms) and then marks SENT (TTL 7 d). A failure → PENDING with backoff `min(60 s, 2^attempts s)`, and the pass stops. Gauge `aegispulse_outbox_lag_seconds{store="mongo"}`.
 
@@ -72,5 +94,7 @@
 | Unit | `retention.test.ts`, `tenant-retention.test.ts` | 400/30-day and 7-year expiry; platform/tenantless/unknown → default without failing; registry outage propagates |
 | Unit | `correlation.test.ts` (6b) | cause before effects (depth-first, siblings by time); a cause outside the set → root; cycles; deterministic ties |
 | Integration (Mongo 8 replica set) | `query.integration.test.ts` (6b) | filters (correlation, prefix, severity ≥, source, time) + keyset pages + bad cursor 422; restricted tier: VIEWER/ANALYST/TENANT_ADMIN never see it (search excludes, `tier=restricted` 403, get 404), CA sees it masked; full lineage on get; other tenant 404; PA needs `X-Aegis-Tenant`; causal chain even when an effect's `occurredAt` is earlier than its cause; entity search (wildcard + exact types, other tenant empty, user 403); tenantless query refused |
-| E2E | `tests/e2e/events.e2e.test.ts` + role matrix Phase 6 (6b) | signed webhook → `GET /v1/events?correlationId=` with lineage (publisher HIGH, UNTRUSTED, algorithm/final MEDIUM) → `GET /v1/events/{id}` with status history → correlation chain webhook → `classification.scan.requested`; synthetic card → restricted tier, masked for CA, hidden from VIEWER (search empty, tier 403, get 404), tenant B empty |
+| E2E | `tests/e2e/events.e2e.test.ts` + role matrix Phase 6 (6b/6c; 6c: VIEWER 403, short justification 422, ANALYST lowers → OVERRIDDEN, `classification.overridden` joins the correlation chain) | signed webhook → `GET /v1/events?correlationId=` with lineage (publisher HIGH, UNTRUSTED, algorithm/final MEDIUM) → `GET /v1/events/{id}` with status history → correlation chain webhook → `classification.scan.requested`; synthetic card → restricted tier, masked for CA, hidden from VIEWER (search empty, tier 403, get 404), tenant B empty |
+| Integration (Mongo 8 replica set) | `override.integration.test.ts` (6c) | ANALYST lowers HIGH → LOW (OVERRIDDEN, ANALYST, revision 2, histories with actor + trimmed justification, pendingAiScan off, exactly one `classification.overridden` with before/after); repeat → no-op; short justification 422; VIEWER 403; nothing to change 422; restricted event and other tenant 404 (no event); RESTRICTED override moves tiers with a 7-year expiry; two concurrent overrides → revisions 2 and 3, two events |
+| Integration (Mongo 8 replica set) | `retention.integration.test.ts` (6d) | both tiers: TTL `ttl_expire_at` (0 s), unique `ux_tenant_event`, the full §7.6 index set; expireAt 30 / 3650 days per tenant, 7 years restricted; Mongo's TTL monitor deletes expired records in both tiers and keeps live ones |
 | Integration (Testcontainers Mongo 8 replica set + RabbitMQ 4, contract topology) | `archive.integration.test.ts` | 3× redelivery → 1 document; Stage 2 path + scan.requested relayed once; trusted vs untrusted publisher; terminal type emits nothing; RESTRICTED → restricted tier with masked payload, redactions, pre-redaction sha256, 7-year expiry; tenant retention; replay header updates only (never creates); non-JSON and schema-invalid → DLQ `ENVELOPE_INVALID`, retry count 0 |

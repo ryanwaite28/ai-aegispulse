@@ -8,6 +8,7 @@ import { consumeArchive } from "./adapters/amqp/archive.consumer.js";
 import { registerEventRoutes } from "./adapters/http/events.routes.js";
 import { EventQueryRepository } from "./db/event-query.repository.js";
 import { EventQueryService } from "./service/event-query.service.js";
+import { OverrideService } from "./service/override.service.js";
 import { ArchiveRepository } from "./db/archive.repository.js";
 import { MongoOutboxRepository } from "./db/outbox.repository.js";
 import { ArchiveService } from "./service/archive.service.js";
@@ -102,7 +103,12 @@ async function main(): Promise<void> {
     issuer: config.JWT_ISSUER,
     audience: config.JWT_AUDIENCE,
   });
-  registerEventRoutes(app, verifier, new EventQueryService(new EventQueryRepository(db)));
+  registerEventRoutes(
+    app,
+    verifier,
+    new EventQueryService(new EventQueryRepository(db)),
+    new OverrideService({ client: mongo, archive: new ArchiveRepository(db), outbox, version, logger }),
+  );
   await app.listen({ host: "0.0.0.0", port: PORT });
   lifecycle
     .onShutdown("http", "fastify", () => app.close())

@@ -13,6 +13,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 6c analyst override (FR-CLS-07):
+  - **Behaviour:** `overrideClassification` (ANALYST+, justification ≥ 20 chars) in a revision-guarded Mongo transaction sets OVERRIDDEN, the ANALYST source and histories, clears pendingAiScan, and emits `classification.overridden`. Raising to RESTRICTED moves tiers (7-year expiry). An identical repeat is a no-op.
+  - **Gateway:** `PATCH /v1/events/{id}/classification`.
+- Phase 6d retention (FR-EVT-07 part 1): `expireAt` per tenant / restricted / move; TTL deletion verified against real Mongo. `events.purgeRetention` (cold-tier export) remains part 2.
 - Phase 6b event queries (FR-EVT-04..06):
   - **Actions:** `searchEvents` (filters, keyset pages, summaries without payloads), `getEvent` (redacted payload + full lineage), `getCorrelationChain` (causal order), `searchEventsForEntities` (orchestrator).
   - **Access:** a mandatory tenant filter in the repository; the restricted tier is COMPLIANCE_AUDITOR-only (others never see it, even by id).
@@ -229,6 +233,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 6 `RUNTIME-VERIFIED` locally: slices 6a–6d; events integration 17/17, E2E 267/267; exit items captured (webhook lineage by correlationId, synthetic-PAN masking, Mongo index listing) ([phase-06](docs/evidence/phase-06.md)); the pipeline is pending.
 - Phase 6 slice 6b `RUNTIME-VERIFIED` locally: events unit 34/34, integration 10/10, E2E 260/260 including the Phase 6 exit flows (webhook lineage by correlationId, synthetic-PAN masking) ([phase-06b](docs/evidence/phase-06b.md)).
 - Phase 6 slice 6a `RUNTIME-VERIFIED` locally: events unit 32/32, archive integration 5/5, the compose backlog of 1,229 messages archived in < 10 s, a demo webhook archived with trust and lineage, E2E 240/240 ([phase-06a](docs/evidence/phase-06a.md)).
 - Phase 5 `RUNTIME-VERIFIED` locally: slices 5a–5e, E2E 240/240 incl. the 200 MiB multipart upload; exit items captured ([phase-05](docs/evidence/phase-05.md)); the pipeline is pending.

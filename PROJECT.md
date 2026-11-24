@@ -2876,7 +2876,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 3 | Entities & Watchlists | IN PROGRESS (RUNTIME-VERIFIED locally; pipeline pending) | [phase-03](docs/evidence/phase-03.md) |
 | 4 | Webhook Ingestion | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-04](docs/evidence/phase-04.md) ([4a](docs/evidence/phase-04a.md), [4b](docs/evidence/phase-04b.md), [4c](docs/evidence/phase-04c.md)) |
 | 5 | Files Subsystem | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-05](docs/evidence/phase-05.md) ([5a](docs/evidence/phase-05a.md), [5b](docs/evidence/phase-05b.md), [5c](docs/evidence/phase-05c.md), [5d](docs/evidence/phase-05d.md), [5e](docs/evidence/phase-05e.md)) |
-| 6 | Events Archive & Stage-1 Classification | IN PROGRESS (6a, 6b RUNTIME-VERIFIED locally) | [phase-06a](docs/evidence/phase-06a.md), [phase-06b](docs/evidence/phase-06b.md) |
+| 6 | Events Archive & Stage-1 Classification | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-06](docs/evidence/phase-06.md) ([6a](docs/evidence/phase-06a.md), [6b](docs/evidence/phase-06b.md), [6c+6d](docs/evidence/phase-06c.md)) |
 | 7 | Messaging Resilience & Dead Letters | PENDING | — |
 | 8 | Transactions, Scoring & Risk Cases (MVP slice) | PENDING | — |
 | 9 | Kubernetes, IaC & Secrets (homelab dev + prod) | PENDING | — |
@@ -3141,17 +3141,17 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [x] Tests: VIEWER cannot see restricted; correlation chain ordering by causation
 
 #### FR-CLS-07 — Analyst override
-- [ ] `overrideClassification` with justification rule, `OVERRIDDEN`, history append, `classification.overridden`
-- [ ] Gateway `PATCH /v1/events/{id}/classification`
-- [ ] Tests: lowering severity without ANALYST role → 403; justification < 20 chars → 422
+- [x] `overrideClassification` with justification rule, `OVERRIDDEN`, history append, `classification.overridden`
+- [x] Gateway `PATCH /v1/events/{id}/classification`
+- [x] Tests: lowering severity without ANALYST role → 403; justification < 20 chars → 422
 
 #### FR-EVT-07 (part 1) — Retention TTL
-- [ ] `expireAt` computation from tenant settings; TTL indexes; `purgeRetention` for restricted moves
-- [ ] Tests: TTL index present and `expireAt` correct per tenant
+- [x] `expireAt` computation from tenant settings; TTL indexes; `purgeRetention` for restricted moves (part 1 = `expireAt` recomputed on a move to the restricted tier; the `events.purgeRetention` action is the cold-tier export, part 2)
+- [x] Tests: TTL index present and `expireAt` correct per tenant
 
 **Phase 6 exit evidence:** webhook from Phase 4 visible via `GET /v1/events?correlationId=` with lineage; masking demo with synthetic PAN; Mongo index listing.
 **Phase note:** slices 6a archive + Stage 1 + finalization + Mongo outbox + source-trust amendment; 6b queries; 6c override; 6d retention TTL. Spec `FR-EVT-CLS-events-archive-classification`.
-**Phase note:** status **`IN PROGRESS`**: slice 6a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06a](docs/evidence/phase-06a.md)); slice 6b `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06b](docs/evidence/phase-06b.md); E2E 260/260 incl. the webhook-lineage and synthetic-PAN masking exit items).
+**Phase note:** status **`IN PROGRESS`**: slice 6a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06a](docs/evidence/phase-06a.md)); slice 6b `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06b](docs/evidence/phase-06b.md); E2E 260/260 incl. the webhook-lineage and synthetic-PAN masking exit items); slices 6c + 6d `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06c](docs/evidence/phase-06c.md)). Phase exit captured in [phase-06](docs/evidence/phase-06.md); the pipeline is pending.
 
 ---
 
