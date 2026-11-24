@@ -55,5 +55,5 @@ aegispulse_consumer_processed_total by queue/outcome: files.validation.q success
 
 ## Pending
 - ~~Green pipelines~~ green (owner-reported 2026-11-24).
-- Gate 1: merge `feature/project` to `main`. Gate 2: clean-state run (`make reset && make up && make migrate`).
+- Gate 1: merge `feature/project` to `main`. Gate 2 passed 2026-11-24 ([clean-state-2026-11-24](clean-state-2026-11-24.md)).
 - Phase 9: k8s CronJobs `aegispulse-cron-file-sweep` / `aegispulse-cron-retention`, and clamd StreamMaxLength/MaxFileSize/MaxScanSize 520M in the cluster config.

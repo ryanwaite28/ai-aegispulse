@@ -66,7 +66,7 @@ services/events test:integration → 17/17 · make test-e2e → 267/267
 
 ## Notes
 - Stage 2 (scanner, `events.classification.q`, the pending-scan sweep) is Phase 12. Until then, Stage-2 events stay `RULE_SCANNED` with `pendingAiScan`, and `final_severity` = the rule resolution (FR-CLS-06 "never blocked").
-- One historical platform-tenant event sits in `events.archive.q.dlq` (dead-lettered before the 6a fix); the Phase 7 dead-letter tooling will replay it.
+- The one historical platform-tenant event that sat in `events.archive.q.dlq` (dead-lettered before the 6a fix) was removed with the broker volume by the clean-state `make reset`; every DLQ is empty since.
 
 
 ## Operations: OpenObserve (gate item 6; queried 2026-11-24 over the last 6 h, through the ingestion container's own OTLP credentials)
@@ -80,4 +80,4 @@ aegispulse_consumer_processed_total by queue/outcome: files.validation.q success
 
 ## Pending
 - ~~Green pipelines~~ green (owner-reported 2026-11-24).
-- Gate 1: merge `feature/project` to `main`. Gate 2: clean-state run (`make reset && make up && make migrate`).
+- Gate 1: merge `feature/project` to `main`. Gate 2 passed 2026-11-24 ([clean-state-2026-11-24](clean-state-2026-11-24.md)).
