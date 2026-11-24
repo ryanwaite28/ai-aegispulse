@@ -26,7 +26,7 @@ DLQ spike, outbox lag, consumer error rate, webhook rejection rate, API p95, arc
 
 ## Capacity (NFR-03, NFR-15)
 - Requests and limits on every container (§5.4). Keep `ci/check-resource-budget.sh` green.
-- JVM `-XX:MaxRAMPercentage=70`. Node `--max-old-space-size` ≤ 75% of limit. Prefetch bounds memory.
+- JVM `-XX:MaxRAMPercentage=50` (non-heap ≈ 290 MiB; 70% crash-looped the 768Mi registry). Node `--max-old-space-size` ≤ 75% of limit. Prefetch bounds memory.
 - Watch for OOMKilled and CPU throttling. Raise limits only for the specific workload, and only with evidence.
 
 ## Chaos & soak (Phase 18)

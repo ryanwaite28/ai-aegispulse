@@ -2,10 +2,13 @@ package io.aegispulse.platform.security;
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import io.aegispulse.platform.config.AegisPlatformProperties;
+import java.net.MalformedURLException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import org.jspecify.annotations.Nullable;
@@ -16,7 +19,6 @@ import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
-import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
@@ -33,16 +35,29 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 public final class AegisJwt {
   private AegisJwt() {}
 
+  /** FR-AUTH-05: the JWKS is cached 10 min and refetched at once for an unknown kid. */
+  static final long JWKS_TTL_MS = 10 * 60_000L;
+
+  /** Minimum spacing between refetches, so tokens with bogus kids can't hammer the registry. */
+  static final long JWKS_REFETCH_COOLDOWN_MS = 5_000L;
+
   public static JwtDecoder decoder(AegisPlatformProperties.Security config) {
-    NimbusJwtDecoder decoder =
-        NimbusJwtDecoder.withJwkSetUri(config.jwkSetUri().toString())
-            .jwsAlgorithm(SignatureAlgorithm.RS256)
-            .build();
-    decoder.setJwtValidator(validator(config));
-    return decoder;
+    return decoder(config, remoteJwks(config.jwkSetUri()));
   }
 
-  /** Test/registry hook: decode against an in-process key source. */
+  /** Remote registry JWKS with the FR-AUTH-05 cache rules (refresh on a cache miss). */
+  public static JWKSource<SecurityContext> remoteJwks(URI jwkSetUri) {
+    try {
+      return JWKSourceBuilder.create(jwkSetUri.toURL())
+          .cache(JWKS_TTL_MS, 15_000L)
+          .rateLimited(JWKS_REFETCH_COOLDOWN_MS)
+          .build();
+    } catch (MalformedURLException e) {
+      throw new IllegalArgumentException("invalid JWKS URI " + jwkSetUri, e);
+    }
+  }
+
+  /** Decode against a given key source (remote JWKS, or the registry's in-process keys). */
   public static JwtDecoder decoder(
       AegisPlatformProperties.Security config, JWKSource<SecurityContext> keys) {
     DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();

@@ -107,6 +107,55 @@ writeFileSync(
   ].join("\n"),
 );
 
+// 3b. Public route table (gateway.public.yaml): method, path, roles, backing actions. The gateway's route guard and the
+// FR-AUTH-06 role-matrix tests read roles from here instead of copying them (contracts first).
+{
+  const pub = parseYaml(readFileSync(join(contractsRoot, "openapi", "gateway.public.yaml"), "utf8")) as {
+    paths: Record<
+      string,
+      Record<string, { operationId?: string; "x-aegis-roles"?: string[]; "x-aegis-backing-action"?: string[] }>
+    >;
+  };
+  const rows: string[] = [];
+  const table: Record<string, { method: string; path: string; roles: string[]; backing: string[] }> = {};
+  for (const [path, ops] of Object.entries(pub.paths)) {
+    for (const [method, op] of Object.entries(ops)) {
+      if (op.operationId === undefined) continue;
+      table[op.operationId] = {
+        method: method.toUpperCase(),
+        path,
+        roles: op["x-aegis-roles"] ?? [],
+        backing: op["x-aegis-backing-action"] ?? [],
+      };
+      rows.push(
+        `  ${JSON.stringify(op.operationId)}: { method: "${method.toUpperCase()}", path: ${JSON.stringify(path)}, roles: ${JSON.stringify(op["x-aegis-roles"] ?? [])}, backing: ${JSON.stringify(op["x-aegis-backing-action"] ?? [])} },`,
+      );
+    }
+  }
+  writeFileSync(
+    join(tsOut, "gateway-routes.ts"),
+    [
+      BANNER,
+      "/** A public route (PROJECT.md §8.3). Empty `roles` means unauthenticated. */",
+      "export interface GatewayRoute {",
+      "  readonly method: string;",
+      "  readonly path: string;",
+      "  readonly roles: readonly string[];",
+      "  readonly backing: readonly string[];",
+      "}",
+      "",
+      "export const GATEWAY_ROUTES = {",
+      ...rows,
+      "} as const satisfies Record<string, GatewayRoute>;",
+      "",
+      "export type GatewayOperationId = keyof typeof GATEWAY_ROUTES;",
+      "",
+    ].join("\n"),
+  );
+  // Runtime copy (Node loads JSON resources from the package, as it does topology and the envelope schema).
+  writeFileSync(join(out, "gateway-routes.json"), JSON.stringify(table, null, 2) + "\n");
+}
+
 // 4. OpenAPI types + ServiceAction union
 const services: Array<[string, string]> = [
   ["registry", "registry"],

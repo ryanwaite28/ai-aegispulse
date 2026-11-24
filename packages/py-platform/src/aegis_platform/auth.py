@@ -88,7 +88,7 @@ class JwtVerifier:
         if key_resolver is None:
             if jwks_url is None:
                 raise ValueError("jwks_url or key_resolver is required")
-            client = PyJWKClient(jwks_url, cache_jwk_set=True, lifespan=600, timeout=1)
+            client = PyJWKClient(jwks_url, cache_jwk_set=True, lifespan=600, timeout=1, cooldown_duration=5)
             key_resolver = lambda token: client.get_signing_key_from_jwt(token).key  # noqa: E731
         self._keys = key_resolver
         self._issuer = issuer

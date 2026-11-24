@@ -41,4 +41,35 @@ class Idempotency {
     store.complete(tenantId, scope, key, status, json.writeValueAsString(result));
     return result;
   }
+
+  /**
+   * For responses carrying one-time secrets (FR-TEN-06): the key de-duplicates but is never
+   * replayed, and only {@code storedId} is persisted, never the response.
+   */
+  <T> T runOnce(
+      java.util.UUID tenantId,
+      String scope,
+      @Nullable String key,
+      Object fingerprint,
+      int status,
+      java.util.function.Function<T, String> storedId,
+      Supplier<T> work) {
+    if (key == null) {
+      return work.get();
+    }
+    String sha = IdempotencyRepository.sha256Hex(json.writeValueAsString(fingerprint));
+    if (store.begin(tenantId, scope, key, sha) instanceof IdempotencyRepository.Decision.Replay) {
+      throw new io.aegispulse.platform.errors.DomainException.Conflict(
+          "IDEMPOTENCY_KEY_REUSED",
+          "the secret was already issued for this key; rotate to get a new one");
+    }
+    T result = work.get();
+    store.complete(
+        tenantId,
+        scope,
+        key,
+        status,
+        json.writeValueAsString(java.util.Map.of("id", storedId.apply(result))));
+    return result;
+  }
 }

@@ -9,4 +9,4 @@ user healthcheck on >healthcheck +ping
 user ingestion on >__REDIS_PASSWORD_INGESTION__ ~whk:* ~idem:ingestion:* +@read +@write +@string +@keyspace -@dangerous
 user files on >__REDIS_PASSWORD_FILES__ ~upload:* ~file:* ~quota:files:* +@read +@write +@string +@hash +@keyspace +@scripting -@dangerous
 user risk_scoring on >__REDIS_PASSWORD_RISK_SCORING__ ~feat:* +@read +@write +@sortedset +@hash +@string +@keyspace -@dangerous
-user registry on >__REDIS_PASSWORD_REGISTRY__ ~auth:* ~ratelimit:auth:* +@read +@write +@string +@keyspace -@dangerous
+user registry on >__REDIS_PASSWORD_REGISTRY__ ~auth:* ~ratelimit:auth:* ~ratelimit:cc:* +@read +@write +@string +@keyspace -@dangerous

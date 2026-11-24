@@ -40,6 +40,8 @@ final class Infra {
   static final Network NETWORK = Network.newNetwork();
   static final PostgreSQLContainer POSTGRES;
   static final RabbitMQContainer RABBIT;
+  static final GenericContainer<?> REDIS;
+  static final String REDIS_REGISTRY_PASSWORD = secret();
   static final String RUNTIME_USER = "svc_registry";
   static final String RUNTIME_PASSWORD = secret();
 
@@ -70,8 +72,16 @@ final class Infra {
                     REPO.resolve("deploy/compose/init/postgres/01-roles-schemas.sh"), 0755),
                 "/docker-entrypoint-initdb.d/01-roles-schemas.sh");
     RABBIT = new RabbitMQContainer("rabbitmq:4.4.1-management-alpine");
+    REDIS =
+        new GenericContainer<>("redis:8.10.3-alpine")
+            .withCopyToContainer(
+                org.testcontainers.images.builder.Transferable.of(renderRedisConf()),
+                "/etc/redis/redis.conf")
+            .withCommand("redis-server", "/etc/redis/redis.conf")
+            .withExposedPorts(6379);
     POSTGRES.start();
     RABBIT.start();
+    REDIS.start();
     migrate();
     try {
       declareTopology();
@@ -87,6 +97,31 @@ final class Infra {
     } catch (IOException | TimeoutException | InterruptedException e) {
       throw new IllegalStateException(e);
     }
+  }
+
+  /**
+   * The compose ACL template (deploy/compose/init/redis/redis.conf.tmpl) with fresh passwords, so
+   * the registry runs as its real ACL user (§5.7.3) and a key outside its prefixes would fail.
+   */
+  private static String renderRedisConf() {
+    try {
+      String tpl =
+          Files.readString(REPO.resolve("deploy/compose/init/redis/redis.conf.tmpl"))
+              .replace("__REDIS_PASSWORD_REGISTRY__", REDIS_REGISTRY_PASSWORD);
+      return tpl.replaceAll("__[A-Z0-9_]+__", secret()).replace("appendonly yes", "appendonly no");
+    } catch (IOException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  static String redisUrl() {
+    return "redis://registry:"
+        + REDIS_REGISTRY_PASSWORD
+        + "@"
+        + REDIS.getHost()
+        + ":"
+        + REDIS.getMappedPort(6379)
+        + "/0";
   }
 
   static String svcPassword() {

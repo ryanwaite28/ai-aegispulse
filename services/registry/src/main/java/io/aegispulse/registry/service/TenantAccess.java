@@ -2,8 +2,10 @@ package io.aegispulse.registry.service;
 
 import io.aegispulse.platform.errors.DomainException;
 import io.aegispulse.platform.security.AegisPrincipal;
+import io.aegispulse.registry.domain.AccessPolicy;
 import io.aegispulse.registry.domain.PlatformTenant;
 import io.aegispulse.registry.domain.Role;
+import java.util.List;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 
@@ -21,9 +23,10 @@ public record TenantAccess(UUID tenantId, UUID actorId, boolean actingAsPlatform
     throw new DomainException.Forbidden("FORBIDDEN", "this action requires a user token");
   }
 
-  static void requirePlatformAdmin(AegisPrincipal.User user) {
-    if (!user.hasAnyRole(Role.PLATFORM_ADMIN.name())) {
-      throw new DomainException.Forbidden("FORBIDDEN", "PLATFORM_ADMIN role required");
+  /** FR-AUTH-06: the caller's roles must be allowed for {@code action} (AccessPolicy). */
+  static void requireRole(String action, List<String> roles) {
+    if (!AccessPolicy.allows(action, roles)) {
+      throw new DomainException.Forbidden("FORBIDDEN", "role not allowed for " + action);
     }
   }
 
@@ -32,11 +35,13 @@ public record TenantAccess(UUID tenantId, UUID actorId, boolean actingAsPlatform
   }
 
   /**
-   * Resolves the effective tenant for a TENANT_ADMIN-level action. Existence of the acting tenant
-   * is checked by the caller (unknown → 404).
+   * Resolves the effective tenant for a tenant-scoped action: own tenant for tenant roles, or the
+   * X-Aegis-Tenant target for PLATFORM_ADMIN (§6.2). Existence is checked by the caller (404).
    */
-  static TenantAccess forTenantAdminAction(AegisPrincipal principal, @Nullable UUID actingTenant) {
+  static TenantAccess forTenantAction(
+      String action, AegisPrincipal principal, @Nullable UUID actingTenant) {
     AegisPrincipal.User user = requireUser(principal);
+    requireRole(action, user.roles());
     UUID actor = uuid(user.userId());
     if (user.hasAnyRole(Role.PLATFORM_ADMIN.name())) {
       if (actingTenant == null) {
@@ -50,9 +55,6 @@ public record TenantAccess(UUID tenantId, UUID actorId, boolean actingAsPlatform
     }
     if (actingTenant != null) {
       throw new DomainException.Forbidden("FORBIDDEN", "X-Aegis-Tenant is for PLATFORM_ADMIN only");
-    }
-    if (!user.hasAnyRole(Role.TENANT_ADMIN.name())) {
-      throw new DomainException.Forbidden("FORBIDDEN", "TENANT_ADMIN role required");
     }
     return new TenantAccess(uuid(user.tenantId()), actor, false);
   }

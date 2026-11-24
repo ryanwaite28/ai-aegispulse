@@ -19,5 +19,6 @@ RUN groupadd --system --gid 10001 aegis && useradd --system --uid 10001 --gid ae
 WORKDIR /app
 COPY --from=build /out/ /app/
 USER 10001:10001
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError -Djava.io.tmpdir=/tmp -javaagent:/app/opentelemetry-javaagent.jar"
+# Heap 50% of the container limit: ~290 MiB non-heap (Spring, OTel agent, metaspace) must fit too (PROJECT.md §3).
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=50 -XX:+ExitOnOutOfMemoryError -Djava.io.tmpdir=/tmp -javaagent:/app/opentelemetry-javaagent.jar"
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

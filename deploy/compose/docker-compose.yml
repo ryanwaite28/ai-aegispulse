@@ -244,6 +244,9 @@ services:
       REGISTRY_URL: http://registry:8084
       JWT_ISSUER: aegispulse-registry
       JWT_AUDIENCE: aegispulse
+      # svc-gateway SERVICE credentials (§5.7.4): the same .env value the registry reconciles (ADR-0017)
+      SERVICE_CLIENT_ID: svc-gateway
+      SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET_GATEWAY:-}
     ports: ["127.0.0.1:8080:8080"]
     read_only: true
     tmpfs: ["/tmp"]
@@ -395,6 +398,19 @@ services:
       REGISTRY_URL: http://registry:8084
       JWT_ISSUER: aegispulse-registry
       JWT_AUDIENCE: aegispulse
+      # FR-AUTH-05 signing key (empty → registry refuses to start, naming the variable); scripts/dev/ensure-local-vars.sh
+      JWT_SIGNING_KEY_CURRENT_PEM: ${JWT_SIGNING_KEY_CURRENT_PEM:-}
+      JWT_SIGNING_KEY_CURRENT_KID: local-2026-11
+      # ADR-0017: one secret per SERVICE account; the same .env value is given to that runtime (Phase 2c wiring)
+      SERVICE_CLIENT_SECRET_GATEWAY: ${SERVICE_CLIENT_SECRET_GATEWAY:-}
+      SERVICE_CLIENT_SECRET_INGESTION: ${SERVICE_CLIENT_SECRET_INGESTION:-}
+      SERVICE_CLIENT_SECRET_FILES: ${SERVICE_CLIENT_SECRET_FILES:-}
+      SERVICE_CLIENT_SECRET_EVENTS: ${SERVICE_CLIENT_SECRET_EVENTS:-}
+      SERVICE_CLIENT_SECRET_ORCHESTRATOR: ${SERVICE_CLIENT_SECRET_ORCHESTRATOR:-}
+      SERVICE_CLIENT_SECRET_DOC_EXTRACTION: ${SERVICE_CLIENT_SECRET_DOC_EXTRACTION:-}
+      SERVICE_CLIENT_SECRET_RISK_SCORING: ${SERVICE_CLIENT_SECRET_RISK_SCORING:-}
+      SERVICE_CLIENT_SECRET_DATA_INTEL: ${SERVICE_CLIENT_SECRET_DATA_INTEL:-}
+      SERVICE_CLIENT_SECRET_SCHEDULER_TRIGGER: ${SERVICE_CLIENT_SECRET_SCHEDULER_TRIGGER:-}
     ports: ["127.0.0.1:8084:8084"]
     read_only: true
     tmpfs: ["/tmp"]

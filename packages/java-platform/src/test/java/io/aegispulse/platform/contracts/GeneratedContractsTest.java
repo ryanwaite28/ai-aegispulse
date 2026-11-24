@@ -41,8 +41,16 @@ class GeneratedContractsTest {
     ClassificationFinalizedPayload payload =
         json.convertValue(envelope.payload(), ClassificationFinalizedPayload.class);
     assertThat(payload.eventId()).isNotBlank();
-    assertThat(EventTypes.PAYLOADS)
-        .hasSize(38)
+    long schemas;
+    try (var files = java.nio.file.Files.list(java.nio.file.Path.of("../contracts/events"))) {
+      schemas =
+          files
+              .filter(f -> f.getFileName().toString().matches("^[a-z].*\\.v1\\.schema\\.json$"))
+              .count();
+    }
+    assertThat(
+            EventTypes.PAYLOADS) // one payload record per event schema in packages/contracts/events
+        .hasSize((int) schemas)
         .containsEntry("classification.finalized", ClassificationFinalizedPayload.class);
   }
 

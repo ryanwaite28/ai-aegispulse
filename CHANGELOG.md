@@ -13,6 +13,24 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 2c:
+  - **Registry:** `getTenantSettings`/`updateTenantSettings` + `registry.tenant.settings_changed` (FR-TEN-08), and the role matrix as data (`AccessPolicy`, FR-AUTH-06), table-tested against the contract.
+  - **Gateway:** `/v1/auth/*`, `/v1/tenants*`, `/v1/users*`, `/v1/service-accounts*` and a `/.well-known/jwks.json` proxy, through a typed registry client. The gateway uses its own SERVICE token for login/refresh and forwards `X-Aegis-Tenant` / `Idempotency-Key` only where routes declare them. Route roles come from the new generated contract table (`generated/gateway-routes.json`).
+  - **Kits:** `TenantSettingsCache` (TS + Python, ≤ 60 s).
+  - **Tests:** `make test-e2e` with the auth-flow E2E, the generated role matrix (13 routes × 6 roles) and `tests/security/cross-tenant.spec.ts`.
+  - **Scripts:** `scripts/dev/jwks-rotation-drill.sh` (operator-run).
+- Phase 2b registry authentication (FR-AUTH-01/02/03/04/05/07, FR-TEN-06/07; ADR-0017):
+  - migrations `V5__service_accounts`, `V6__auth` and `R__seed_service_accounts` (§5.7.4 allowlists), with SECURITY DEFINER lookups for refresh tokens and client credentials;
+  - signing-key registration and the `/.well-known/jwks.json` endpoint (current + previous for 24 h, Redis-cached), with in-process verification in the registry;
+  - RS256 user, integration and service tokens;
+  - login with a uniform 401 and 5/15 min throttling, refresh rotation with reuse detection (family revoke + `registry.auth.refresh_reuse_detected`), logout, `/me`, and a password change that keeps only the named session;
+  - client credentials with 10/5 min throttling;
+  - INTEGRATION accounts: create, rotate (24 h grace), revoke and list. One-time secrets are never stored or replayed;
+  - SERVICE secret reconciliation at startup;
+  - role change or disable now revokes refresh tokens.
+  28 unit + 29 Testcontainers tests (real Redis with the compose ACL).
+- Kits: the Java JWKS source is explicitly cached 10 min with refetch on an unknown kid; rotation tests in all three kits.
+- `docs/runbooks/key-rotation.md` (signing key, SERVICE and INTEGRATION secrets).
 - Phase 2a registry tenants, users and platform bootstrap (FR-TEN-01/02/03/04/05/09):
   - migrations `V3__tenants` (platform table, no RLS), `V4__users_roles` (RLS, `ck_user_roles_platform`) and `R__platform_tenant`;
   - internal actions `createTenant`, `updateTenantStatus`, `createUser`, `listUsers`, `updateUser`;
@@ -75,6 +93,12 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Model routing policy in `CLAUDE.md`; review agents pinned to models (architecture-reviewer → sonnet, security-reviewer → opus, spec-tracer → haiku).
 
 ### Fixed
+- CI `lint-node` typecheck failed in a clean checkout: the gateway resolves `@aegispulse/ts-platform` types from `dist/`, which only existed locally. The root `typecheck` script now builds ts-platform first.
+- JWKS refetch cooldown 30 s → 5 s in all kits. The local rotation drill showed the gateway rejecting new-kid tokens for up to 30 s after a rotation.
+- ts-platform http-client: 429 answers no longer count toward the circuit breaker. A throttled login storm could otherwise open the gateway→registry breaker for everyone. Upstream error codes, messages and validation details now pass through to the caller.
+- registry: Argon2id hashing/verification is bounded to 2 concurrent operations (fair queue, 10 s wait, then 429 `RATE_LIMITED`). Before, a burst on the unauthenticated client-credentials action exhausted the heap (8 concurrent verifies → OOM exit).
+- java-platform `GeneratedContractsTest` hard-coded the event count (38). It failed after `registry.tenant.deactivated` was added, and that failure is in pushed commit `5f71541`. It now compares against the event schemas present.
+- `scripts/dev/ensure-local-vars.sh` treated `.env.example` placeholder or empty lines as present and skipped them. It now replaces them.
 - java-platform: servlet-only auto-configuration (correlation filter, error advice, security filter chain) is `@ConditionalOnWebApplication`, so non-web one-shot commands start without a web server.
 - java-platform: idle outbox-relay polling (every 250 ms) flooded traces, about 240 spans per 30 s from registry and cases. Polls now run under an unsampled parent context, giving 0 spans when idle; request traces are unchanged (NFR-07).
 - `ci/check-layer-sizes.sh` measured uncompressed layer size, which no Node or JVM base layer can meet. It now measures the gzip-compressed size that registry pushes actually upload (the Cloudflare 100 MB cap), with the same 95 MB limit.
@@ -88,6 +112,14 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- PROJECT.md §3 amendment (approved): JVM `-XX:MaxRAMPercentage` 70 → 50 for all Java runtimes (Dockerfile + sre skill). Measured on the local stack: at 70% the 768Mi registry crash-looped (non-heap ≈ 290 MiB); at 50% it peaked at 667 MiB under 80×16 concurrent token requests.
+- ADR-0017 + PROJECT.md amendment for slice 2b:
+  - the registry reconciles SERVICE account secret verifiers at startup from `SERVICE_CLIENT_SECRET_{RUNTIME}` (Infisical references; catalog `/registry` keys);
+  - client-credentials throttling (10 failures per clientId per 5 min, `ratelimit:cc:*`, registry Redis ACL);
+  - JWKS sourced from `registry.signing_keys`, with `JWT_SIGNING_KEY_PREVIOUS_PEM` as the operator's rollback copy;
+  - `changePassword` accepts an optional `refreshToken` to keep the current session;
+  - `Principal.typ` gains `integration`;
+  - new audit events `registry.service_account.changed` (FR-TEN-06) and `registry.auth.refresh_reuse_detected` (FR-AUTH-02).
 - PROJECT.md amendment: FR-TEN-03 emits the new `registry.tenant.deactivated` event (§6.7; contract schema, example and AsyncAPI channel; cases audit via the `registry.#` binding). Owning services apply their suspension gate permanently for deactivated tenants.
 - §6.2 clarification: the gateway forwards `X-Aegis-Tenant` unchanged to tenant-scoped internal actions. It is honored only for `PLATFORM_ADMIN` (otherwise 403), and the platform tenant can never be the acting tenant (404). §8.3 `/v1/users*` now allow PA via `X-Aegis-Tenant`, and the registry event base (`registryChange`) gains optional `actingAs` (additive). Spec `FR-TEN-01-05-09-tenants-users-bootstrap`.
 - PROJECT.md amendment FR-TEN-09 (platform bootstrap): reserved `platform` tenant (fixed id, repeatable migration) hosts `PLATFORM_ADMIN` users; one-shot registry command `bootstrap-platform-admin` creates the first PA from `PLATFORM_ADMIN_BOOTSTRAP_*` (idempotent, audited, forced password change). §10.4 env vars, §11 checklist block, Phase 2 migrations renumbered V3–V6 (V2 is ADR-0016), pre-tenant auth lookups as SECURITY DEFINER functions, secrets catalog `/registry` keys, manual step MB-15.

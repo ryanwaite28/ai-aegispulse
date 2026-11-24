@@ -2,11 +2,12 @@
   "name": "@aegispulse/system-tests",
   "version": "0.0.0",
   "private": true,
-  "description": "Cross-service system tests (PROJECT.md §14): migrations, contract conformance, E2E, security, chaos.",
+  "description": "Cross-service system tests (PROJECT.md \u00a714): migrations, contract conformance, E2E, security, chaos.",
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:integration": "vitest run --dir . .integration.test"
+    "test:integration": "vitest run --dir . .integration.test",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "devDependencies": {
     "@testcontainers/mongodb": "12.2.2",

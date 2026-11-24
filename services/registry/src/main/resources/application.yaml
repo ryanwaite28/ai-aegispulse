@@ -35,9 +35,12 @@ aegis:
     jwk-set-uri: ${REGISTRY_URL}/.well-known/jwks.json
     issuer: ${JWT_ISSUER}
     audience: ${JWT_AUDIENCE}
+    public-paths: # FR-AUTH-05 JWKS and the unauthenticated client-credentials action (FR-AUTH-04)
+      - /.well-known/jwks.json
+      - /internal/v1/issueClientCredentialsToken
   readiness:
     schema: registry
-    min-flyway-version: "4"
+    min-flyway-version: "6"
   outbox:
     schema: registry
 

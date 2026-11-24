@@ -2015,6 +2015,10 @@ components:
           minLength: 14
           maxLength: 256
           description: "Policy: >= 14 chars and zxcvbn score >= 3 (FR-TEN-04); violations return 422 AUTH_PASSWORD_POLICY."
+        refreshToken:
+          type: string
+          minLength: 1
+          description: Optional current refresh token; its family survives the change, all others are revoked (FR-AUTH-07).
       required:
         - currentPassword
         - newPassword
@@ -2065,6 +2069,7 @@ components:
           type: string
           enum:
             - user
+            - integration
             - service
         id:
           $ref: ./components/common.yaml#/components/schemas/Uuid

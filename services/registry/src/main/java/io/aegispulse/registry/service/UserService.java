@@ -3,6 +3,7 @@ package io.aegispulse.registry.service;
 import io.aegispulse.platform.db.TenantScope;
 import io.aegispulse.platform.errors.DomainException;
 import io.aegispulse.platform.security.AegisPrincipal;
+import io.aegispulse.registry.db.RefreshTokenRepository;
 import io.aegispulse.registry.db.TenantRepository;
 import io.aegispulse.registry.db.UserRepository;
 import io.aegispulse.registry.domain.EmailAddress;
@@ -38,6 +39,7 @@ public class UserService {
 
   private final TenantRepository tenants;
   private final UserRepository users;
+  private final RefreshTokenRepository refreshTokens;
   private final TenantScope scope;
   private final Idempotency idempotency;
   private final PasswordHasher hasher;
@@ -46,12 +48,14 @@ public class UserService {
   public UserService(
       TenantRepository tenants,
       UserRepository users,
+      RefreshTokenRepository refreshTokens,
       TenantScope scope,
       Idempotency idempotency,
       PasswordHasher hasher,
       RegistryEvents events) {
     this.tenants = tenants;
     this.users = users;
+    this.refreshTokens = refreshTokens;
     this.scope = scope;
     this.idempotency = idempotency;
     this.hasher = hasher;
@@ -64,7 +68,7 @@ public class UserService {
       @Nullable UUID actingTenant,
       @Nullable String idempotencyKey,
       Commands.CreateUser cmd) {
-    TenantAccess access = TenantAccess.forTenantAdminAction(principal, actingTenant);
+    TenantAccess access = TenantAccess.forTenantAction("createUser", principal, actingTenant);
     Tenant tenant = enter(access);
     Set<Role> roles = Role.tenantRoles(cmd.roles());
     EmailAddress email = EmailAddress.parse(cmd.email());
@@ -106,7 +110,7 @@ public class UserService {
   @Transactional(readOnly = true)
   public Page<User> list(
       AegisPrincipal principal, @Nullable UUID actingTenant, Commands.ListUsers query) {
-    TenantAccess access = TenantAccess.forTenantAdminAction(principal, actingTenant);
+    TenantAccess access = TenantAccess.forTenantAction("listUsers", principal, actingTenant);
     enter(access);
     Role role =
         query.role() == null ? null : Role.tenantRoles(List.of(query.role())).iterator().next();
@@ -127,7 +131,7 @@ public class UserService {
       @Nullable UUID actingTenant,
       @Nullable String idempotencyKey,
       Commands.UpdateUser cmd) {
-    TenantAccess access = TenantAccess.forTenantAdminAction(principal, actingTenant);
+    TenantAccess access = TenantAccess.forTenantAction("updateUser", principal, actingTenant);
     Tenant tenant = enter(access);
     if (tenants.lockById(access.tenantId()).isEmpty()) { // serializes admin-affecting changes
       throw new DomainException.NotFound("NOT_FOUND", "tenant not found");
@@ -182,8 +186,9 @@ public class UserService {
           if (changed.contains("status")) {
             users.updateStatus(current.id(), status);
           }
-          // Refresh-token revocation on role change / disable is wired in slice 2b
-          // (refresh_tokens).
+          if (changed.contains("roles") || changed.contains("status")) {
+            refreshTokens.revokeUser(current.id(), null); // FR-TEN-05: tokens carry the old roles
+          }
           events.userChanged(
               access.tenantId(),
               tenant.slug(),

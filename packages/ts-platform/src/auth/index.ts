@@ -86,7 +86,7 @@ export class JwtVerifier {
       options.jwks instanceof URL
         ? createRemoteJWKSet(options.jwks, {
             cacheMaxAge: 10 * 60_000,
-            cooldownDuration: 30_000,
+            cooldownDuration: 5_000, // FR-AUTH-05: a rotated-in kid is picked up within 5 s (rotation drill 2026-11-23)
             timeoutDuration: 1_000,
           })
         : options.jwks;

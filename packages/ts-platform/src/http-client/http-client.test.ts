@@ -4,7 +4,8 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { TransientError } from "../errors/index.js";
 import { runWithContext } from "../logging/context.js";
-import { HttpClient, HttpStatusError, InternalServiceClient } from "./index.js";
+import { HttpClient, HttpRateLimitedError, HttpStatusError, InternalServiceClient } from "./index.js";
+import { toErrorResponse } from "../http/index.js";
 
 type Handler = (req: IncomingMessage, res: ServerResponse, body: string) => void;
 let handler: Handler = (_req, res) => res.end();
@@ -85,6 +86,43 @@ describe("HttpClient (PROJECT.md §6.5, NFR-10)", () => {
     const error = await client.request({ method: "GET", path: "/x" }).catch((e: unknown) => e);
     expect(error).toMatchObject({ name: "TransientError", code: "CIRCUIT_OPEN" });
     expect(hits).toBe(0); // short-circuited, the dependency is not called
+    await client.close();
+  });
+
+  it("keeps the upstream message and validation details (Java `issue` or TS `message`) for pass-through", async () => {
+    handler = (_req, res) =>
+      json(res, 422, {
+        error: {
+          code: "AUTH_PASSWORD_POLICY",
+          message: "password does not meet the policy",
+          details: [{ field: "password", issue: "is too easy to guess" }],
+        },
+        meta: {},
+      });
+    const client = new HttpClient({ name: "registry", baseUrl, timeoutMs: 1000 });
+    const error = await client.request({ method: "POST", path: "/x", body: {} }).catch((e: unknown) => e);
+    expect(toErrorResponse(error)).toMatchObject({
+      status: 422,
+      body: {
+        error: {
+          code: "AUTH_PASSWORD_POLICY",
+          message: "password does not meet the policy",
+          details: [{ field: "password", message: "is too easy to guess" }],
+        },
+      },
+    });
+    await client.close();
+  });
+
+  it("FR-AUTH-01 429 throttling keeps its code and never opens the breaker", async () => {
+    handler = (_req, res) => json(res, 429, { error: { code: "AUTH_RATE_LIMITED", message: "too many attempts" } });
+    const client = new HttpClient({ name: "registry", baseUrl, timeoutMs: 1000, maxRetries: 0 });
+    let last: unknown;
+    for (let i = 0; i < 25; i++)
+      last = await client.request({ method: "POST", path: "/x", body: {} }).catch((e: unknown) => e);
+    expect(last).toBeInstanceOf(HttpRateLimitedError);
+    expect(client.breakerState).toBe("closed");
+    expect(toErrorResponse(last)).toMatchObject({ status: 429, body: { error: { code: "AUTH_RATE_LIMITED" } } });
     await client.close();
   });
 

@@ -44,4 +44,25 @@ class TenantController {
     AegisPrincipal principal = authorizer.requireAction(auth, "registry.updateTenantStatus");
     return Success.of(TenantView.of(tenants.updateStatus(principal, key, body)));
   }
+
+  @PostMapping("/getTenantSettings")
+  Success<TenantView> getTenantSettings(
+      @Nullable Authentication auth,
+      @RequestHeader(value = Headers.ACTING_TENANT, required = false) @Nullable String acting,
+      @Valid @RequestBody Commands.GetTenantSettings body) {
+    AegisPrincipal principal = authorizer.requireAction(auth, "registry.getTenantSettings");
+    return Success.of(
+        TenantView.of(tenants.settings(principal, Headers.actingTenant(acting), body.tenantId())));
+  }
+
+  @PostMapping("/updateTenantSettings")
+  Success<TenantView> updateTenantSettings(
+      @Nullable Authentication auth,
+      @RequestHeader(value = Headers.ACTING_TENANT, required = false) @Nullable String acting,
+      @RequestHeader(value = Headers.IDEMPOTENCY_KEY, required = false) @Nullable String key,
+      @Valid @RequestBody Commands.UpdateTenantSettings body) {
+    AegisPrincipal principal = authorizer.requireAction(auth, "registry.updateTenantSettings");
+    return Success.of(
+        TenantView.of(tenants.updateSettings(principal, Headers.actingTenant(acting), key, body)));
+  }
 }

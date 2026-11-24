@@ -1,0 +1,889 @@
+{
+  "login": {
+    "method": "POST",
+    "path": "/v1/auth/login",
+    "roles": [],
+    "backing": [
+      "registry.login"
+    ]
+  },
+  "refreshToken": {
+    "method": "POST",
+    "path": "/v1/auth/refresh",
+    "roles": [],
+    "backing": [
+      "registry.refreshToken"
+    ]
+  },
+  "logout": {
+    "method": "POST",
+    "path": "/v1/auth/logout",
+    "roles": [
+      "PLATFORM_ADMIN",
+      "TENANT_ADMIN",
+      "ANALYST",
+      "VIEWER",
+      "COMPLIANCE_AUDITOR",
+      "INTEGRATION"
+    ],
+    "backing": [
+      "registry.logout"
+    ]
+  },
+  "changePassword": {
+    "method": "POST",
+    "path": "/v1/auth/password",
+    "roles": [
+      "PLATFORM_ADMIN",
+      "TENANT_ADMIN",
+      "ANALYST",
+      "VIEWER",
+      "COMPLIANCE_AUDITOR"
+    ],
+    "backing": [
+      "registry.changePassword"
+    ]
+  },
+  "getCurrentPrincipal": {
+    "method": "GET",
+    "path": "/v1/auth/me",
+    "roles": [
+      "PLATFORM_ADMIN",
+      "TENANT_ADMIN",
+      "ANALYST",
+      "VIEWER",
+      "COMPLIANCE_AUDITOR",
+      "INTEGRATION"
+    ],
+    "backing": [
+      "registry.getCurrentPrincipal"
+    ]
+  },
+  "issueClientCredentialsToken": {
+    "method": "POST",
+    "path": "/v1/auth/token",
+    "roles": [
+      "INTEGRATION"
+    ],
+    "backing": [
+      "registry.issueClientCredentialsToken"
+    ]
+  },
+  "getJwks": {
+    "method": "GET",
+    "path": "/.well-known/jwks.json",
+    "roles": [],
+    "backing": [
+      "registry (non-action endpoint /.well-known/jwks.json)"
+    ]
+  },
+  "getOpenApiDocument": {
+    "method": "GET",
+    "path": "/v1/openapi.json",
+    "roles": [],
+    "backing": []
+  },
+  "createTenant": {
+    "method": "POST",
+    "path": "/v1/tenants",
+    "roles": [
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.createTenant"
+    ]
+  },
+  "getTenant": {
+    "method": "GET",
+    "path": "/v1/tenants/{tenantId}",
+    "roles": [
+      "PLATFORM_ADMIN",
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "registry.getTenantSettings"
+    ]
+  },
+  "updateTenant": {
+    "method": "PATCH",
+    "path": "/v1/tenants/{tenantId}",
+    "roles": [
+      "PLATFORM_ADMIN",
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "registry.updateTenantSettings",
+      "registry.updateTenantStatus"
+    ]
+  },
+  "listUsers": {
+    "method": "GET",
+    "path": "/v1/users",
+    "roles": [
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.listUsers"
+    ]
+  },
+  "createUser": {
+    "method": "POST",
+    "path": "/v1/users",
+    "roles": [
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.createUser"
+    ]
+  },
+  "updateUser": {
+    "method": "PATCH",
+    "path": "/v1/users/{userId}",
+    "roles": [
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.updateUser"
+    ]
+  },
+  "listServiceAccounts": {
+    "method": "GET",
+    "path": "/v1/service-accounts",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "registry.listServiceAccounts"
+    ]
+  },
+  "createServiceAccount": {
+    "method": "POST",
+    "path": "/v1/service-accounts",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "registry.createServiceAccount"
+    ]
+  },
+  "rotateServiceAccountSecret": {
+    "method": "POST",
+    "path": "/v1/service-accounts/{id}/rotate-secret",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "registry.rotateServiceAccountSecret"
+    ]
+  },
+  "revokeServiceAccount": {
+    "method": "DELETE",
+    "path": "/v1/service-accounts/{id}",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "registry.revokeServiceAccount"
+    ]
+  },
+  "listEntities": {
+    "method": "GET",
+    "path": "/v1/entities",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.listEntities"
+    ]
+  },
+  "createEntity": {
+    "method": "POST",
+    "path": "/v1/entities",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.createEntity"
+    ]
+  },
+  "getEntity": {
+    "method": "GET",
+    "path": "/v1/entities/{id}",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.getEntity"
+    ]
+  },
+  "updateEntity": {
+    "method": "PATCH",
+    "path": "/v1/entities/{id}",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.updateEntity"
+    ]
+  },
+  "archiveEntity": {
+    "method": "DELETE",
+    "path": "/v1/entities/{id}",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "registry.archiveEntity"
+    ]
+  },
+  "listWatchlists": {
+    "method": "GET",
+    "path": "/v1/watchlists",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.listWatchlists"
+    ]
+  },
+  "createWatchlist": {
+    "method": "POST",
+    "path": "/v1/watchlists",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.createWatchlist"
+    ]
+  },
+  "updateWatchlist": {
+    "method": "PATCH",
+    "path": "/v1/watchlists/{id}",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.updateWatchlist"
+    ]
+  },
+  "deleteWatchlist": {
+    "method": "DELETE",
+    "path": "/v1/watchlists/{id}",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "registry.deleteWatchlist"
+    ]
+  },
+  "addWatchlistEntry": {
+    "method": "POST",
+    "path": "/v1/watchlists/{id}/entries",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.addWatchlistEntry"
+    ]
+  },
+  "removeWatchlistEntry": {
+    "method": "DELETE",
+    "path": "/v1/watchlists/{id}/entries/{entityId}",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "registry.removeWatchlistEntry"
+    ]
+  },
+  "submitWebhook": {
+    "method": "POST",
+    "path": "/webhooks/{sourceKey}",
+    "roles": [],
+    "backing": [
+      "ingestion.ingestWebhookDelivery"
+    ]
+  },
+  "listWebhookSources": {
+    "method": "GET",
+    "path": "/v1/webhook-sources",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.listWebhookSources"
+    ]
+  },
+  "createWebhookSource": {
+    "method": "POST",
+    "path": "/v1/webhook-sources",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.createWebhookSource"
+    ]
+  },
+  "updateWebhookSource": {
+    "method": "PATCH",
+    "path": "/v1/webhook-sources/{id}",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.updateWebhookSource"
+    ]
+  },
+  "deleteWebhookSource": {
+    "method": "DELETE",
+    "path": "/v1/webhook-sources/{id}",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.deleteWebhookSource"
+    ]
+  },
+  "rotateWebhookSecret": {
+    "method": "POST",
+    "path": "/v1/webhook-sources/{id}/rotate-secret",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.rotateWebhookSecret"
+    ]
+  },
+  "listWebhookDeliveries": {
+    "method": "GET",
+    "path": "/v1/webhook-sources/{id}/deliveries",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.listWebhookDeliveries"
+    ]
+  },
+  "listConnectors": {
+    "method": "GET",
+    "path": "/v1/connectors",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.listConnectors"
+    ]
+  },
+  "createConnector": {
+    "method": "POST",
+    "path": "/v1/connectors",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.createConnector"
+    ]
+  },
+  "updateConnector": {
+    "method": "PATCH",
+    "path": "/v1/connectors/{id}",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.updateConnector"
+    ]
+  },
+  "deleteConnector": {
+    "method": "DELETE",
+    "path": "/v1/connectors/{id}",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.deleteConnector"
+    ]
+  },
+  "runConnectorNow": {
+    "method": "POST",
+    "path": "/v1/connectors/{id}/run",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "ingestion.runConnectorNow"
+    ]
+  },
+  "submitTransaction": {
+    "method": "POST",
+    "path": "/v1/transactions",
+    "roles": [
+      "INTEGRATION",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "ingestion.submitTransaction"
+    ]
+  },
+  "getTransaction": {
+    "method": "GET",
+    "path": "/v1/transactions/{id}",
+    "roles": [
+      "INTEGRATION",
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "ingestion.getTransaction",
+      "cases.getTransactionEvaluation"
+    ]
+  },
+  "initUpload": {
+    "method": "POST",
+    "path": "/v1/files/uploads/init",
+    "roles": [
+      "INTEGRATION",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "files.initUpload"
+    ]
+  },
+  "completeUpload": {
+    "method": "POST",
+    "path": "/v1/files/uploads/{fileId}/complete",
+    "roles": [
+      "INTEGRATION",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "files.completeUpload"
+    ]
+  },
+  "abortUpload": {
+    "method": "POST",
+    "path": "/v1/files/uploads/{fileId}/abort",
+    "roles": [
+      "INTEGRATION",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "files.abortUpload"
+    ]
+  },
+  "listFiles": {
+    "method": "GET",
+    "path": "/v1/files",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "files.listFiles"
+    ]
+  },
+  "getFile": {
+    "method": "GET",
+    "path": "/v1/files/{fileId}",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "files.getFile"
+    ]
+  },
+  "deleteFile": {
+    "method": "DELETE",
+    "path": "/v1/files/{fileId}",
+    "roles": [
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "files.deleteFile"
+    ]
+  },
+  "getFileDownloadUrl": {
+    "method": "GET",
+    "path": "/v1/files/{fileId}/download-url",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "files.getDownloadUrl"
+    ]
+  },
+  "searchEvents": {
+    "method": "GET",
+    "path": "/v1/events",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN",
+      "COMPLIANCE_AUDITOR"
+    ],
+    "backing": [
+      "events.searchEvents"
+    ]
+  },
+  "getEventCorrelationChain": {
+    "method": "GET",
+    "path": "/v1/events/correlation/{correlationId}",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "events.getCorrelationChain"
+    ]
+  },
+  "getEvent": {
+    "method": "GET",
+    "path": "/v1/events/{eventId}",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN",
+      "COMPLIANCE_AUDITOR"
+    ],
+    "backing": [
+      "events.getEvent"
+    ]
+  },
+  "overrideEventClassification": {
+    "method": "PATCH",
+    "path": "/v1/events/{eventId}/classification",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "events.overrideClassification"
+    ]
+  },
+  "createReplayJob": {
+    "method": "POST",
+    "path": "/v1/events/replay",
+    "roles": [
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "events.createReplayJob"
+    ]
+  },
+  "getReplayJob": {
+    "method": "GET",
+    "path": "/v1/events/replay/{jobId}",
+    "roles": [
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "events.getReplayJob"
+    ]
+  },
+  "cancelReplayJob": {
+    "method": "POST",
+    "path": "/v1/events/replay/{jobId}/cancel",
+    "roles": [
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "events.cancelReplayJob"
+    ]
+  },
+  "listCases": {
+    "method": "GET",
+    "path": "/v1/cases",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "cases.listCases"
+    ]
+  },
+  "getCase": {
+    "method": "GET",
+    "path": "/v1/cases/{caseId}",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "cases.getCase"
+    ]
+  },
+  "getCaseTimeline": {
+    "method": "GET",
+    "path": "/v1/cases/{caseId}/timeline",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "cases.getCaseTimeline"
+    ]
+  },
+  "assignCase": {
+    "method": "POST",
+    "path": "/v1/cases/{caseId}/assign",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "cases.assignCase"
+    ]
+  },
+  "addCaseNote": {
+    "method": "POST",
+    "path": "/v1/cases/{caseId}/notes",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "cases.addCaseNote"
+    ]
+  },
+  "recordDisposition": {
+    "method": "POST",
+    "path": "/v1/cases/{caseId}/dispositions",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "cases.recordDisposition"
+    ]
+  },
+  "requestCaseReevaluation": {
+    "method": "POST",
+    "path": "/v1/cases/{caseId}/reevaluate",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "cases.requestReevaluation"
+    ]
+  },
+  "listAuditEntries": {
+    "method": "GET",
+    "path": "/v1/audit",
+    "roles": [
+      "COMPLIANCE_AUDITOR",
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "cases.listAuditEntries"
+    ]
+  },
+  "verifyAuditChain": {
+    "method": "GET",
+    "path": "/v1/audit/verify",
+    "roles": [
+      "COMPLIANCE_AUDITOR"
+    ],
+    "backing": [
+      "cases.verifyAuditChain"
+    ]
+  },
+  "getIntelSummary": {
+    "method": "GET",
+    "path": "/v1/intel/summary",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "dataIntel.getIntelSummary"
+    ]
+  },
+  "getIntelDrift": {
+    "method": "GET",
+    "path": "/v1/intel/drift",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "dataIntel.getDrift"
+    ]
+  },
+  "getIntelDisagreement": {
+    "method": "GET",
+    "path": "/v1/intel/disagreement",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "dataIntel.getDisagreement"
+    ]
+  },
+  "getIntelLatency": {
+    "method": "GET",
+    "path": "/v1/intel/latency",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "dataIntel.getLatency"
+    ]
+  },
+  "getIntelPrecision": {
+    "method": "GET",
+    "path": "/v1/intel/precision",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "dataIntel.getPrecision"
+    ]
+  },
+  "listEvalRuns": {
+    "method": "GET",
+    "path": "/v1/intel/eval-runs",
+    "roles": [
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": [
+      "dataIntel.listEvalRuns"
+    ]
+  },
+  "listDeadLetters": {
+    "method": "GET",
+    "path": "/v1/ops/dead-letters",
+    "roles": [
+      "PLATFORM_ADMIN",
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "events.listDeadLetters"
+    ]
+  },
+  "getDeadLetter": {
+    "method": "GET",
+    "path": "/v1/ops/dead-letters/{id}",
+    "roles": [
+      "PLATFORM_ADMIN",
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "events.getDeadLetter"
+    ]
+  },
+  "replayDeadLetter": {
+    "method": "POST",
+    "path": "/v1/ops/dead-letters/{id}/replay",
+    "roles": [
+      "PLATFORM_ADMIN",
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "events.replayDeadLetter"
+    ]
+  },
+  "discardDeadLetter": {
+    "method": "POST",
+    "path": "/v1/ops/dead-letters/{id}/discard",
+    "roles": [
+      "PLATFORM_ADMIN",
+      "TENANT_ADMIN"
+    ],
+    "backing": [
+      "events.discardDeadLetter"
+    ]
+  },
+  "getStream": {
+    "method": "GET",
+    "path": "/v1/stream",
+    "roles": [
+      "VIEWER",
+      "ANALYST",
+      "TENANT_ADMIN",
+      "PLATFORM_ADMIN"
+    ],
+    "backing": []
+  },
+  "getLiveness": {
+    "method": "GET",
+    "path": "/livez",
+    "roles": [],
+    "backing": []
+  },
+  "getReadiness": {
+    "method": "GET",
+    "path": "/readyz",
+    "roles": [],
+    "backing": []
+  }
+}

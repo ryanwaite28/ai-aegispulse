@@ -4,22 +4,21 @@ import com.networknt.schema.Schema;
 import com.networknt.schema.SchemaLocation;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
-import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
-import com.nimbusds.jose.proc.SecurityContext;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.GetResponse;
 import io.aegispulse.contracts.envelope.CanonicalEnvelope;
 import io.aegispulse.platform.amqp.EnvelopeCodec;
-import io.aegispulse.platform.config.AegisPlatformProperties;
-import io.aegispulse.platform.security.AegisJwt;
 import io.aegispulse.registry.domain.PlatformTenant;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,7 +32,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.JsonNode;
@@ -44,7 +43,7 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = "AEGIS_ENV=local") // read by the JSON log formatter before dynamic properties
-@Import(RegistryIt.TestKeys.class)
+@Import(RegistryIt.TestBeans.class)
 abstract class RegistryIt {
   static final JsonMapper JSON = JsonMapper.builder().build();
   static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -53,13 +52,45 @@ abstract class RegistryIt {
   @LocalServerPort int port;
   @Autowired EnvelopeCodec codec;
 
-  /** In-process JWKS instead of fetching the (slice 2b) registry endpoint. */
+  /**
+   * Controllable clock (expiry, grace windows, key retirement); reset by each test that moves it.
+   */
+  static final class TestClock extends Clock {
+    private volatile Duration offset = Duration.ZERO;
+
+    void advance(Duration d) {
+      offset = offset.plus(d);
+    }
+
+    void reset() {
+      offset = Duration.ZERO;
+    }
+
+    @Override
+    public ZoneId getZone() {
+      return ZoneOffset.UTC;
+    }
+
+    @Override
+    public Clock withZone(ZoneId zone) {
+      return this;
+    }
+
+    @Override
+    public Instant instant() {
+      return Instant.now().plus(offset);
+    }
+  }
+
+  static final TestClock CLOCK = new TestClock();
+  static final String GATEWAY_SECRET = Infra.secret();
+
   @TestConfiguration
-  static class TestKeys {
+  static class TestBeans {
     @Bean
-    JwtDecoder jwtDecoder(AegisPlatformProperties properties) {
-      return AegisJwt.decoder(
-          properties.security(), new ImmutableJWKSet<SecurityContext>(Tokens.publicJwks()));
+    @Primary
+    Clock testClock() {
+      return CLOCK;
     }
   }
 
@@ -82,8 +113,12 @@ abstract class RegistryIt {
                 + Infra.RABBIT.getHost()
                 + ":"
                 + Infra.RABBIT.getAmqpPort());
-    r.add("REDIS_URL", () -> "redis://127.0.0.1:1"); // not used by slice 2a
-    r.add("REGISTRY_URL", () -> "http://127.0.0.1:1"); // JWKS replaced by TestKeys
+    r.add("REDIS_URL", Infra::redisUrl);
+    r.add("REGISTRY_URL", () -> "http://127.0.0.1:1"); // the registry verifies in-process
+    // Registered at startup exactly as in production; Tokens signs test tokens with the same key.
+    r.add("JWT_SIGNING_KEY_CURRENT_PEM", Tokens::privatePem);
+    r.add("JWT_SIGNING_KEY_CURRENT_KID", Tokens.KEY::getKeyID);
+    r.add("SERVICE_CLIENT_SECRET_GATEWAY", () -> GATEWAY_SECRET);
     r.add("JWT_ISSUER", () -> Tokens.ISSUER);
     r.add("JWT_AUDIENCE", () -> "aegispulse");
   }
@@ -120,6 +155,45 @@ abstract class RegistryIt {
       throw new IllegalStateException(e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
+      throw new IllegalStateException(e);
+    }
+  }
+
+  static final String STRONG = "violet-Harbor-71-quartz!";
+
+  /** The gateway's real SERVICE token, obtained through client credentials (FR-AUTH-04). */
+  String gatewayToken() {
+    Reply r =
+        post(
+            "issueClientCredentialsToken",
+            null,
+            Map.of(
+                "clientId", "svc-gateway",
+                "clientSecret", GATEWAY_SECRET,
+                "audience", "aegispulse-internal"));
+    if (r.status() != 200) {
+      throw new IllegalStateException("gateway token " + r);
+    }
+    return r.data().get("accessToken").asString();
+  }
+
+  Reply login(String slug, String email, String password) {
+    return post(
+        "login", gatewayToken(), Map.of("tenantSlug", slug, "email", email, "password", password));
+  }
+
+  static com.nimbusds.jwt.SignedJWT jwt(String token) {
+    try {
+      return com.nimbusds.jwt.SignedJWT.parse(token);
+    } catch (java.text.ParseException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  static Map<String, Object> claims(String token) {
+    try {
+      return jwt(token).getJWTClaimsSet().getClaims();
+    } catch (java.text.ParseException e) {
       throw new IllegalStateException(e);
     }
   }

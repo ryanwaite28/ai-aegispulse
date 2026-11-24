@@ -651,6 +651,8 @@ export type components = {
             currentPassword: string;
             /** @description Policy: >= 14 chars and zxcvbn score >= 3 (FR-TEN-04); violations return 422 AUTH_PASSWORD_POLICY. */
             newPassword: string;
+            /** @description Optional current refresh token; its family survives the change, all others are revoked (FR-AUTH-07). */
+            refreshToken?: string;
         };
         /** @description Provide entityIds and/or counterpartyRefs. */
         CheckWatchlistsInput: {
@@ -846,7 +848,7 @@ export type components = {
                 status?: components["schemas"]["TenantStatus"];
             } | null;
             /** @enum {string} */
-            typ: "user" | "service";
+            typ: "user" | "integration" | "service";
         };
         RefreshTokenInput: {
             refreshToken: string;

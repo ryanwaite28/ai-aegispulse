@@ -500,6 +500,40 @@ channels:
           autoDelete: false
           vhost: /
         bindingVersion: 0.3.0
+  registry.service_account.changed:
+    address: registry.service_account.changed
+    title: registry.service_account.changed
+    description: INTEGRATION service account created/rotated/revoked; audited. Ids and changed field names only; no secrets or password data. Primary exchange aegispulse.domain.
+    messages:
+      registry.service_account.changed:
+        $ref: "#/components/messages/registry.service_account.changed"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+  registry.auth.refresh_reuse_detected:
+    address: registry.auth.refresh_reuse_detected
+    title: registry.auth.refresh_reuse_detected
+    description: "Security audit AUTH_REFRESH_REUSE: an invalidated refresh token was presented, so its whole family was revoked. Ids only; no secrets or password data. Primary exchange aegispulse.domain."
+    messages:
+      registry.auth.refresh_reuse_detected:
+        $ref: "#/components/messages/registry.auth.refresh_reuse_detected"
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: aegispulse.domain
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
   registry.entity.changed:
     address: registry.entity.changed
     title: registry.entity.changed
@@ -784,6 +818,10 @@ channels:
         $ref: "#/components/messages/registry.tenant.settings_changed"
       registry.user.changed:
         $ref: "#/components/messages/registry.user.changed"
+      registry.service_account.changed:
+        $ref: "#/components/messages/registry.service_account.changed"
+      registry.auth.refresh_reuse_detected:
+        $ref: "#/components/messages/registry.auth.refresh_reuse_detected"
       registry.entity.changed:
         $ref: "#/components/messages/registry.entity.changed"
       registry.watchlist.changed:
@@ -1226,6 +1264,34 @@ operations:
         timestamp: true
         bindingVersion: 0.3.0
     x-aegis-producer: registry
+  send.registry.registry.service_account.changed:
+    action: send
+    channel:
+      $ref: "#/channels/registry.service_account.changed"
+    title: registry publishes registry.service_account.changed
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/registry.service_account.changed/messages/registry.service_account.changed"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: registry
+  send.registry.registry.auth.refresh_reuse_detected:
+    action: send
+    channel:
+      $ref: "#/channels/registry.auth.refresh_reuse_detected"
+    title: registry publishes registry.auth.refresh_reuse_detected
+    summary: Published through the transactional outbox with publisher confirms (§6.6).
+    messages:
+      - $ref: "#/channels/registry.auth.refresh_reuse_detected/messages/registry.auth.refresh_reuse_detected"
+    bindings:
+      amqp:
+        deliveryMode: 2
+        timestamp: true
+        bindingVersion: 0.3.0
+    x-aegis-producer: registry
   send.registry.registry.entity.changed:
     action: send
     channel:
@@ -1651,6 +1717,38 @@ operations:
     title: cases.audit-ingest.q consumes registry.user.changed
     messages:
       - $ref: "#/channels/registry.user.changed/messages/registry.user.changed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.registry.service_account.changed:
+    action: receive
+    channel:
+      $ref: "#/channels/registry.service_account.changed"
+    title: cases.audit-ingest.q consumes registry.service_account.changed
+    messages:
+      - $ref: "#/channels/registry.service_account.changed/messages/registry.service_account.changed"
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: 0.3.0
+    x-aegis-consumer: cases
+    x-aegis-queue: cases.audit-ingest.q
+    x-aegis-prefetch: 20
+    x-aegis-retry-tiers: 1s/5s/30s
+    x-aegis-dlq: cases.audit-ingest.q.dlq
+  cases.audit-ingest.q.registry.auth.refresh_reuse_detected:
+    action: receive
+    channel:
+      $ref: "#/channels/registry.auth.refresh_reuse_detected"
+    title: cases.audit-ingest.q consumes registry.auth.refresh_reuse_detected
+    messages:
+      - $ref: "#/channels/registry.auth.refresh_reuse_detected/messages/registry.auth.refresh_reuse_detected"
     bindings:
       amqp:
         ack: true
@@ -2236,6 +2334,8 @@ operations:
       - $ref: "#/channels/archive_all_domain/messages/registry.tenant.deactivated"
       - $ref: "#/channels/archive_all_domain/messages/registry.tenant.settings_changed"
       - $ref: "#/channels/archive_all_domain/messages/registry.user.changed"
+      - $ref: "#/channels/archive_all_domain/messages/registry.service_account.changed"
+      - $ref: "#/channels/archive_all_domain/messages/registry.auth.refresh_reuse_detected"
       - $ref: "#/channels/archive_all_domain/messages/registry.entity.changed"
       - $ref: "#/channels/archive_all_domain/messages/registry.watchlist.changed"
       - $ref: "#/channels/archive_all_domain/messages/notification.requested"
@@ -2893,6 +2993,50 @@ components:
         amqp:
           contentEncoding: utf-8
           messageType: registry.user.changed
+          bindingVersion: 0.3.0
+    registry.service_account.changed:
+      name: registry.service_account.changed
+      title: registry.service_account.changed
+      summary: Service account changed
+      description: "FRs: FR-TEN-06, FR-AUD-02. Payload schema: events/registry.service_account.changed.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/registry.service_account.changed.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: registry.service_account.changed
+          bindingVersion: 0.3.0
+    registry.auth.refresh_reuse_detected:
+      name: registry.auth.refresh_reuse_detected
+      title: registry.auth.refresh_reuse_detected
+      summary: Refresh-token reuse detected
+      description: "FRs: FR-AUTH-02, FR-AUD-02. Payload schema: events/registry.auth.refresh_reuse_detected.v1.schema.json."
+      contentType: application/json
+      headers:
+        $ref: "#/components/schemas/AmqpHeaders"
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: ../envelope/canonical-envelope.v1.schema.json
+          - type: object
+            properties:
+              payload:
+                $ref: ../events/registry.auth.refresh_reuse_detected.v1.schema.json
+      bindings:
+        amqp:
+          contentEncoding: utf-8
+          messageType: registry.auth.refresh_reuse_detected
           bindingVersion: 0.3.0
     registry.entity.changed:
       name: registry.entity.changed

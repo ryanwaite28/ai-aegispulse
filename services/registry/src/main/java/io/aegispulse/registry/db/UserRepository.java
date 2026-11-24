@@ -37,6 +37,69 @@ public class UserRepository {
     this.jdbc = jdbc;
   }
 
+  /** Login/password material for one user: only the service layer's hasher reads the hash. */
+  public record Credentials(
+      UUID id,
+      String email,
+      String displayName,
+      String passwordHash,
+      UserStatus status,
+      boolean mustChangePassword,
+      Set<Role> roles) {
+    @Override
+    public String toString() {
+      return "Credentials[id=" + id + ", status=" + status + "]";
+    }
+  }
+
+  private static final String CREDENTIALS =
+      "SELECT u.id, u.email::text AS email, u.display_name, u.password_hash, u.status, u.must_change_password,"
+          + " ARRAY(SELECT r.role FROM registry.user_roles r WHERE r.user_id = u.id ORDER BY r.role) AS roles"
+          + " FROM registry.users u";
+
+  public Optional<Credentials> credentialsByEmail(String email) {
+    return jdbc.sql(CREDENTIALS + " WHERE u.email = ?")
+        .param(email)
+        .query(UserRepository::credentials)
+        .optional();
+  }
+
+  public Optional<Credentials> credentialsById(UUID id) {
+    return jdbc.sql(CREDENTIALS + " WHERE u.id = ?")
+        .param(id)
+        .query(UserRepository::credentials)
+        .optional();
+  }
+
+  public void recordLogin(UUID id, java.time.Instant at) {
+    jdbc.sql("UPDATE registry.users SET last_login_at = ? WHERE id = ?")
+        .params(at.atOffset(java.time.ZoneOffset.UTC), id)
+        .update();
+  }
+
+  /** Stores a new password hash and clears the first-login flag (FR-AUTH-07). */
+  public void updatePassword(UUID id, String passwordHash) {
+    jdbc.sql(
+            "UPDATE registry.users SET password_hash = ?, must_change_password = FALSE WHERE id = ?")
+        .params(passwordHash, id)
+        .update();
+  }
+
+  private static Credentials credentials(ResultSet rs, int row) throws SQLException {
+    Set<Role> roles = EnumSet.noneOf(Role.class);
+    for (String r : TenantRepository.textArray(rs.getArray("roles"))) {
+      roles.add(Role.valueOf(r));
+    }
+    return new Credentials(
+        rs.getObject("id", UUID.class),
+        rs.getString("email"),
+        rs.getString("display_name"),
+        rs.getString("password_hash"),
+        UserStatus.valueOf(rs.getString("status")),
+        rs.getBoolean("must_change_password"),
+        roles);
+  }
+
   /** Keyset position for listUsers: (created_at, id). */
   public record Position(OffsetDateTime createdAt, UUID id) {}
 

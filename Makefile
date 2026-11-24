@@ -92,8 +92,8 @@ test-integration: ## Testcontainers suites (requires Docker; no compose stack ne
 	./gradlew --no-daemon integrationTest
 	uv run pytest -q -m integration packages/py-platform/tests/integration
 
-test-e2e: ## E2E against the compose stack
-	$(call not_yet,Phase 8 (MVP slice))
+test-e2e: ## E2E + security suites against the compose stack (make up first; grows per phase)
+	@scripts/dev/test-e2e.sh
 
 build: ## Build all workspaces
 	pnpm run build

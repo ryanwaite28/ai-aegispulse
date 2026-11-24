@@ -6,7 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import CircuitBreaker from "opossum";
 import { Pool, type Dispatcher } from "undici";
 import type { ServiceAction } from "@aegispulse/contracts/generated/ts/service-actions.ts";
-import { PermanentError, TransientError, type ErrorCode } from "../errors/index.js";
+import { PermanentError, TransientError, type ErrorCode, type ErrorDetail } from "../errors/index.js";
 import { getContext } from "../logging/context.js";
 
 export type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -58,14 +58,40 @@ export interface HttpResponse<T> {
   readonly headers: Readonly<Record<string, string | string[] | undefined>>;
 }
 
-/** A non-retryable 4xx answer. `code` is the §8.2 error envelope code when the body carries one. */
+/**
+ * A non-retryable 4xx answer. `code`, `message` and `details` come from the §8.2 error envelope when the body carries
+ * one, so the gateway can pass a service's error through unchanged.
+ */
 export class HttpStatusError extends PermanentError {
   override readonly name = "HttpStatusError";
   readonly status: number;
   readonly dependency: string;
-  constructor(dependency: string, status: number, code: ErrorCode, message: string) {
+  readonly details: readonly ErrorDetail[];
+  constructor(
+    dependency: string,
+    status: number,
+    code: ErrorCode,
+    message: string,
+    details: readonly ErrorDetail[] = [],
+  ) {
     super(code, message);
     this.status = status;
+    this.dependency = dependency;
+    this.details = details;
+  }
+}
+
+/**
+ * A 429 answer: the dependency is healthy and deliberately throttling (e.g. AUTH_RATE_LIMITED). It is retryable later,
+ * never counted by the circuit breaker (a throttled caller must not open the breaker for everyone), and keeps the
+ * upstream code and message for pass-through.
+ */
+export class HttpRateLimitedError extends TransientError {
+  override readonly name = "HttpRateLimitedError";
+  readonly status = 429;
+  readonly dependency: string;
+  constructor(dependency: string, code: ErrorCode, message: string) {
+    super(code, message);
     this.dependency = dependency;
   }
 }
@@ -80,15 +106,29 @@ export class HttpUpstreamError extends TransientError {
   }
 }
 
-function envelopeErrorCode(body: unknown, status: number): ErrorCode {
-  if (typeof body === "object" && body !== null && "error" in body) {
-    const error = (body as { error: unknown }).error;
-    if (typeof error === "object" && error !== null && "code" in error) {
-      const code = (error as { code: unknown }).code;
-      if (typeof code === "string" && /^[A-Z][A-Z0-9_]*$/.test(code)) return code;
+interface EnvelopeError {
+  readonly code: ErrorCode;
+  readonly message: string | undefined;
+  readonly details: readonly ErrorDetail[];
+}
+
+/** Reads a §8.2 error envelope; details accept `message` (TS/Python kits) or `issue` (Java kit). */
+function envelopeError(body: unknown, status: number): EnvelopeError {
+  const error =
+    typeof body === "object" && body !== null && "error" in body ? (body as { error: unknown }).error : undefined;
+  if (typeof error !== "object" || error === null) return { code: `HTTP_${status}`, message: undefined, details: [] };
+  const e = error as { code?: unknown; message?: unknown; details?: unknown };
+  const code = typeof e.code === "string" && /^[A-Z][A-Z0-9_]*$/.test(e.code) ? e.code : `HTTP_${status}`;
+  const details: ErrorDetail[] = [];
+  if (Array.isArray(e.details)) {
+    for (const d of e.details as unknown[]) {
+      if (typeof d !== "object" || d === null) continue;
+      const item = d as { field?: unknown; message?: unknown; issue?: unknown };
+      const text = typeof item.message === "string" ? item.message : typeof item.issue === "string" ? item.issue : "";
+      details.push(typeof item.field === "string" ? { field: item.field, message: text } : { message: text });
     }
   }
-  return `HTTP_${status}`;
+  return { code, message: typeof e.message === "string" ? e.message : undefined, details };
 }
 
 function isTransientStatus(status: number): boolean {
@@ -129,7 +169,7 @@ export class HttpClient {
       rollingCountTimeout: b.rollingWindowMs,
       rollingCountBuckets: 10,
       // A 4xx means the dependency is healthy; it must not open the breaker.
-      errorFilter: (error: unknown) => error instanceof HttpStatusError,
+      errorFilter: (error: unknown) => error instanceof HttpStatusError || error instanceof HttpRateLimitedError,
     });
   }
 
@@ -192,20 +232,26 @@ export class HttpClient {
         parsed = text;
       }
     }
+    if (res.statusCode === 429) {
+      const e = envelopeError(parsed, 429);
+      throw new HttpRateLimitedError(this.name, e.code, e.message ?? `${this.name} answered 429`);
+    }
     if (isTransientStatus(res.statusCode)) throw new HttpUpstreamError(this.name, res.statusCode);
     if (res.statusCode >= 400) {
+      const e = envelopeError(parsed, res.statusCode);
       throw new HttpStatusError(
         this.name,
         res.statusCode,
-        envelopeErrorCode(parsed, res.statusCode),
-        `${this.name} answered ${res.statusCode}`,
+        e.code,
+        e.message ?? `${this.name} answered ${res.statusCode}`,
+        e.details,
       );
     }
     return { status: res.statusCode, body: parsed, headers: res.headers };
   }
 
   private toFailure(error: unknown): Error {
-    if (error instanceof HttpStatusError || error instanceof TransientError) return error;
+    if (error instanceof HttpStatusError || error instanceof TransientError) return error; // incl. HttpRateLimitedError
     const code = (error as { code?: unknown }).code;
     if (code === "EOPENBREAKER") {
       return new TransientError("CIRCUIT_OPEN", `${this.name} circuit open`, { cause: error });
@@ -247,6 +293,12 @@ export interface InternalClientOptions extends HttpClientOptions {
   readonly serviceToken?: () => Promise<string>;
 }
 
+/** §8.2 success envelope as returned by internal actions. */
+export interface SuccessEnvelope<R> {
+  readonly data: R;
+  readonly meta: { readonly requestId?: string; readonly correlationId?: string; readonly nextCursor?: string };
+}
+
 /** Typed client for one service's internal actions. Returns the §8.2 `data` member. */
 export class InternalServiceClient<S extends ServiceName> {
   private readonly http: HttpClient;
@@ -258,6 +310,26 @@ export class InternalServiceClient<S extends ServiceName> {
   ) {
     this.http = new HttpClient(options);
     this.serviceToken = options.serviceToken;
+  }
+
+  /** The whole §8.2 success envelope (the gateway needs `meta.nextCursor` from list actions). */
+  async invokeEnvelope<A extends ActionOf<S>, R = unknown>(
+    action: A,
+    payload: PayloadOf<S, A>,
+    options: InvokeOptions = {},
+  ): Promise<SuccessEnvelope<R>> {
+    let authorization = options.authorization;
+    if (authorization === undefined && this.serviceToken !== undefined) {
+      authorization = `Bearer ${await this.serviceToken()}`;
+    }
+    const res = await this.http.request<SuccessEnvelope<R>>({
+      method: "POST",
+      path: `/internal/v1/${action}`,
+      body: payload,
+      headers: { ...options.headers, ...(authorization === undefined ? {} : { authorization }) },
+      ...(options.idempotent === undefined ? {} : { idempotent: options.idempotent }),
+    });
+    return res.body;
   }
 
   async invoke<A extends ActionOf<S>, R = unknown>(

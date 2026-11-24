@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply } from "fastify";
-import { HttpStatusError } from "../http-client/index.js";
+import { HttpRateLimitedError, HttpStatusError } from "../http-client/index.js";
 import { DomainError, PermanentError, PoisonMessageError, TransientError, describeError } from "../errors/index.js";
 import type { HealthRegistry } from "../health/index.js";
 import { getContext, runWithContext, type Logger } from "../logging/index.js";
@@ -50,7 +50,9 @@ export function toErrorResponse(error: unknown): { status: number; body: ErrorEn
   if (error instanceof DomainError) {
     return { status: STATUS_BY_CODE[error.code] ?? 409, body: envelope(error.code, error.message, error.details) };
   }
-  if (error instanceof HttpStatusError) return { status: error.status, body: envelope(error.code, error.message) };
+  if (error instanceof HttpStatusError)
+    return { status: error.status, body: envelope(error.code, error.message, error.details) };
+  if (error instanceof HttpRateLimitedError) return { status: 429, body: envelope(error.code, error.message) };
   if (error instanceof TransientError)
     return { status: 503, body: envelope("DEPENDENCY_UNAVAILABLE", "dependency unavailable") };
   if (error instanceof PermanentError || error instanceof PoisonMessageError) {

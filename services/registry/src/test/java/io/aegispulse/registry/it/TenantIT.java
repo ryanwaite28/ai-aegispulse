@@ -188,4 +188,63 @@ class TenantIT extends RegistryIt {
             Map.of("tenantId", UUID.randomUUID(), "status", "SUSPENDED", "reason", "x"));
     assertThat(unknown.status()).isEqualTo(404);
   }
+
+  @Test
+  void FR_TEN_08_settingsReadAndUpdateWithOwnershipAndEvent() {
+    UUID tenant = createTenant("settings-it");
+    UUID admin = createFirstAdmin(tenant, "admin@settings-it.example");
+    String ta = Tokens.user(admin, tenant, "settings-it", "TENANT_ADMIN");
+    Reply read = post("getTenantSettings", ta, Map.of("tenantId", tenant));
+    assertThat(read.status()).isEqualTo(200);
+    assertThat(read.data().get("highValueThresholdUsd").asString()).isEqualTo("50000");
+
+    Reply updated =
+        post(
+            "updateTenantSettings",
+            ta,
+            Map.of(
+                "tenantId",
+                tenant,
+                "highValueThresholdUsd",
+                "75000.50",
+                "highRiskCountries",
+                List.of("KP", "IR"),
+                "retentionDays",
+                400));
+    assertThat(updated.status()).isEqualTo(200);
+    assertThat(updated.data().get("highValueThresholdUsd").asString()).isEqualTo("75000.5");
+    assertThat(updated.data().get("highRiskCountries").toString()).isEqualTo("[\"IR\",\"KP\"]");
+    String tid = tenant.toString();
+    assertThat(
+            awaitEvents(
+                e ->
+                    e.eventType().equals("registry.tenant.settings_changed")
+                        && tid.equals(e.tenantId()),
+                1))
+        .singleElement()
+        .satisfies(e ->
+            assertThat(e.payload().get("changedFields"))
+                .isEqualTo(List.of("highValueThresholdUsd", "highRiskCountries")));
+
+    // Service callers with the act[] entry read any tenant (FR-TEN-08); others are denied.
+    String svc = Tokens.service("svc-files", "registry.getTenantSettings");
+    assertThat(post("getTenantSettings", svc, Map.of("tenantId", tenant)).status()).isEqualTo(200);
+    assertThat(
+            post("updateTenantSettings", svc, Map.of("tenantId", tenant, "demoMode", true))
+                .status())
+        .isEqualTo(403);
+    // Another tenant's admin sees 404; an analyst is forbidden; the platform tenant is invisible.
+    UUID other = createTenant("settings-other-it");
+    UUID otherAdmin = createFirstAdmin(other, "admin@settings-other-it.example");
+    String taOther = Tokens.user(otherAdmin, other, "settings-other-it", "TENANT_ADMIN");
+    assertThat(post("getTenantSettings", taOther, Map.of("tenantId", tenant)).status())
+        .isEqualTo(404);
+    String analyst = Tokens.user(UUID.randomUUID(), tenant, "settings-it", "ANALYST");
+    assertThat(post("getTenantSettings", analyst, Map.of("tenantId", tenant)).status())
+        .isEqualTo(403);
+    assertThat(post("getTenantSettings", paToken(), Map.of("tenantId", PlatformTenant.ID)).status())
+        .isEqualTo(404);
+    assertThat(post("updateTenantSettings", ta, Map.of("tenantId", tenant)).status())
+        .isEqualTo(422);
+  }
 }

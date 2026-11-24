@@ -31,6 +31,15 @@ final class Tokens {
 
   private Tokens() {}
 
+  /** The test key as the PKCS#8 PEM the registry reads from JWT_SIGNING_KEY_CURRENT_PEM. */
+  static String privatePem() {
+    try {
+      return io.aegispulse.registry.Pem.pkcs8(KEY.toRSAPrivateKey().getEncoded());
+    } catch (JOSEException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
   static JWKSet publicJwks() {
     return new JWKSet(KEY.toPublicJWK());
   }

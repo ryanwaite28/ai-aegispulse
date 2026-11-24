@@ -66,12 +66,30 @@ public class TenantRepository {
         .optional();
   }
 
+  public Optional<Tenant> findBySlug(String slug) {
+    return jdbc.sql("SELECT " + COLUMNS + " FROM registry.tenants WHERE slug = ?")
+        .param(slug)
+        .query(TenantRepository::map)
+        .optional();
+  }
+
   /** Row lock that serializes admin-affecting changes within one tenant (FR-TEN-05, FR-TEN-09). */
   public Optional<Tenant> lockById(UUID id) {
     return jdbc.sql("SELECT " + COLUMNS + " FROM registry.tenants WHERE id = ? FOR UPDATE")
         .param(id)
         .query(TenantRepository::map)
         .optional();
+  }
+
+  public Tenant updateSettings(
+      UUID id, BigDecimal threshold, List<String> countries, int retentionDays, boolean demoMode) {
+    return jdbc.sql(
+            "UPDATE registry.tenants SET high_value_threshold_usd = ?, high_risk_countries = string_to_array(?, ','),"
+                + " retention_days = ?, demo_mode = ? WHERE id = ? RETURNING "
+                + COLUMNS)
+        .params(threshold, String.join(",", countries), retentionDays, demoMode, id)
+        .query(TenantRepository::map)
+        .single();
   }
 
   public Tenant updateStatus(UUID id, TenantStatus status, String reason) {

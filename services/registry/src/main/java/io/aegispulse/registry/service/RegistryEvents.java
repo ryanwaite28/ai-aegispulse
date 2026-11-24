@@ -4,9 +4,12 @@ import io.aegispulse.contracts.envelope.CanonicalEnvelope;
 import io.aegispulse.contracts.envelope.Classification;
 import io.aegispulse.contracts.envelope.ClassificationStatus;
 import io.aegispulse.contracts.envelope.Sensitivity;
+import io.aegispulse.contracts.events.RegistryAuthRefreshReuseDetectedPayload;
+import io.aegispulse.contracts.events.RegistryServiceAccountChangedPayload;
 import io.aegispulse.contracts.events.RegistryTenantCreatedPayload;
 import io.aegispulse.contracts.events.RegistryTenantDeactivatedPayload;
 import io.aegispulse.contracts.events.RegistryTenantRestoredPayload;
+import io.aegispulse.contracts.events.RegistryTenantSettingsChangedPayload;
 import io.aegispulse.contracts.events.RegistryTenantSuspendedPayload;
 import io.aegispulse.contracts.events.RegistryUserChangedPayload;
 import io.aegispulse.contracts.topology.ExchangeName;
@@ -127,6 +130,54 @@ public class RegistryEvents {
             actorId == null ? null : actorId.toString(),
             changedFields,
             userId.toString()));
+  }
+
+  /** FR-TEN-08: setting names that changed (values are read through getTenantSettings). */
+  public void tenantSettingsChanged(
+      Tenant t, List<String> changedFields, UUID actorId, boolean actingAsPlatformAdmin) {
+    publish(
+        "registry.tenant.settings_changed",
+        t,
+        new RegistryTenantSettingsChangedPayload(
+            actingAsPlatformAdmin
+                ? RegistryTenantSettingsChangedPayload.ActingAs.PLATFORM_ADMIN
+                : null,
+            actorId.toString(),
+            changedFields,
+            t.id().toString()));
+  }
+
+  /** FR-TEN-06 audit: INTEGRATION account created / secret rotated / revoked. */
+  public void serviceAccountChanged(
+      UUID tenantId,
+      String tenantSlug,
+      UUID serviceAccountId,
+      String clientId,
+      List<String> changedFields,
+      UUID actorId,
+      boolean actingAsPlatformAdmin) {
+    publish(
+        "registry.service_account.changed",
+        tenantId,
+        tenantSlug,
+        new RegistryServiceAccountChangedPayload(
+            actingAsPlatformAdmin
+                ? RegistryServiceAccountChangedPayload.ActingAs.PLATFORM_ADMIN
+                : null,
+            actorId.toString(),
+            changedFields,
+            clientId,
+            serviceAccountId.toString()));
+  }
+
+  /** FR-AUTH-02 security audit AUTH_REFRESH_REUSE. */
+  public void refreshReuseDetected(UUID tenantId, String tenantSlug, UUID userId, UUID familyId) {
+    publish(
+        "registry.auth.refresh_reuse_detected",
+        tenantId,
+        tenantSlug,
+        new RegistryAuthRefreshReuseDetectedPayload(
+            null, null, null, familyId.toString(), userId.toString()));
   }
 
   /**

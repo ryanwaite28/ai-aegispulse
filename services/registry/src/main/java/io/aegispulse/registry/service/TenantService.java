@@ -42,7 +42,7 @@ public class TenantService {
   public Tenant create(
       AegisPrincipal principal, @Nullable String idempotencyKey, Commands.CreateTenant cmd) {
     AegisPrincipal.User user = TenantAccess.requireUser(principal);
-    TenantAccess.requirePlatformAdmin(user);
+    TenantAccess.requireRole("createTenant", user.roles());
     if (idempotencyKey == null) {
       throw new DomainException.Validation(
           "VALIDATION_ERROR",
@@ -83,7 +83,7 @@ public class TenantService {
   public Tenant updateStatus(
       AegisPrincipal principal, @Nullable String idempotencyKey, Commands.UpdateTenantStatus cmd) {
     AegisPrincipal.User user = TenantAccess.requireUser(principal);
-    TenantAccess.requirePlatformAdmin(user);
+    TenantAccess.requireRole("updateTenantStatus", user.roles());
     if (PlatformTenant.is(cmd.tenantId())) {
       throw notFound();
     }
@@ -110,6 +110,123 @@ public class TenantService {
               actor);
           return updated;
         });
+  }
+
+  /**
+   * FR-TEN-08 read (callers cache ≤ 60 s): PLATFORM_ADMIN any tenant, TENANT_ADMIN its own (other
+   * tenants read as 404), SERVICE callers per their act[] allowlist.
+   */
+  @Transactional(readOnly = true)
+  public Tenant settings(AegisPrincipal principal, @Nullable UUID actingTenant, UUID tenantId) {
+    authorizeTenantRead("getTenantSettings", principal, actingTenant, tenantId);
+    if (PlatformTenant.is(tenantId)) {
+      throw notFound();
+    }
+    return tenants.findById(tenantId).orElseThrow(TenantService::notFound);
+  }
+
+  /** FR-TEN-08 update: TENANT_ADMIN of the tenant or PLATFORM_ADMIN; emits settings_changed. */
+  @Transactional
+  public Tenant updateSettings(
+      AegisPrincipal principal,
+      @Nullable UUID actingTenant,
+      @Nullable String idempotencyKey,
+      Commands.UpdateTenantSettings cmd) {
+    boolean actingAsPa =
+        authorizeTenantRead("updateTenantSettings", principal, actingTenant, cmd.tenantId());
+    if (PlatformTenant.is(cmd.tenantId())) {
+      throw notFound();
+    }
+    if (cmd.highValueThresholdUsd() == null
+        && cmd.highRiskCountries() == null
+        && cmd.retentionDays() == null
+        && cmd.demoMode() == null) {
+      throw new DomainException.Validation(
+          "VALIDATION_ERROR",
+          "request failed validation",
+          List.of(new DomainException.ErrorDetail("body", "at least one setting is required")));
+    }
+    AegisPrincipal.User user = TenantAccess.requireUser(principal);
+    UUID actor = TenantAccess.uuid(user.userId());
+    UUID home = TenantAccess.uuid(user.tenantId());
+    scope.apply(home);
+    return idempotency.run(
+        home,
+        "updateTenantSettings",
+        idempotencyKey,
+        cmd,
+        200,
+        Tenant.class,
+        () -> {
+          Tenant current = tenants.lockById(cmd.tenantId()).orElseThrow(TenantService::notFound);
+          BigDecimal threshold =
+              cmd.highValueThresholdUsd() == null
+                  ? current.highValueThresholdUsd()
+                  : new BigDecimal(cmd.highValueThresholdUsd());
+          List<String> countries =
+              cmd.highRiskCountries() == null
+                  ? current.highRiskCountries()
+                  : cmd.highRiskCountries().stream().distinct().sorted().toList();
+          int retention =
+              cmd.retentionDays() == null ? current.retentionDays() : cmd.retentionDays();
+          boolean demo = cmd.demoMode() == null ? current.demoMode() : cmd.demoMode();
+          List<String> changed = new java.util.ArrayList<>();
+          if (threshold.compareTo(current.highValueThresholdUsd()) != 0) {
+            changed.add("highValueThresholdUsd");
+          }
+          if (!countries.equals(current.highRiskCountries())) {
+            changed.add("highRiskCountries");
+          }
+          if (retention != current.retentionDays()) {
+            changed.add("retentionDays");
+          }
+          if (demo != current.demoMode()) {
+            changed.add("demoMode");
+          }
+          if (changed.isEmpty()) {
+            return current;
+          }
+          Tenant updated =
+              tenants.updateSettings(current.id(), threshold, countries, retention, demo);
+          events.tenantSettingsChanged(updated, List.copyOf(changed), actor, actingAsPa);
+          log.info(
+              "tenant.settings_changed tenantId={} changed={} actorId={}",
+              updated.id(),
+              changed,
+              actor);
+          return updated;
+        });
+  }
+
+  /**
+   * Tenant-detail authorization: SERVICE by act[] (checked by the adapter), PLATFORM_ADMIN any
+   * tenant, tenant roles only their own (otherwise 404, FR-AUTH-06). Returns whether a
+   * PLATFORM_ADMIN acted on another tenant.
+   */
+  private static boolean authorizeTenantRead(
+      String action, AegisPrincipal principal, @Nullable UUID actingTenant, UUID tenantId) {
+    if (principal instanceof AegisPrincipal.Service) {
+      if (actingTenant != null) {
+        throw new DomainException.Forbidden(
+            "FORBIDDEN", "X-Aegis-Tenant is for PLATFORM_ADMIN only");
+      }
+      if (action.equals("getTenantSettings")) {
+        return false;
+      }
+      throw new DomainException.Forbidden("FORBIDDEN", "this action requires a user token");
+    }
+    AegisPrincipal.User user = TenantAccess.requireUser(principal);
+    TenantAccess.requireRole(action, user.roles());
+    if (user.hasAnyRole(io.aegispulse.registry.domain.Role.PLATFORM_ADMIN.name())) {
+      return true;
+    }
+    if (actingTenant != null) {
+      throw new DomainException.Forbidden("FORBIDDEN", "X-Aegis-Tenant is for PLATFORM_ADMIN only");
+    }
+    if (!TenantAccess.uuid(user.tenantId()).equals(tenantId)) {
+      throw notFound();
+    }
+    return false;
   }
 
   static DomainException notFound() {

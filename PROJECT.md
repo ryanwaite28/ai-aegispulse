@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-23 (`registry.tenant.deactivated` event; FR-TEN-09 platform bootstrap; Infisical context + manual bootstrap register, ADR-0012 amended; ADR-0015/0016; token `typ` rules) |
+| **Last updated** | 2026-11-23 (JVM heap 50%; ADR-0017 SERVICE secret reconciliation; client-credentials rate limit; JWKS source; changePassword session keep; `registry.tenant.deactivated`; FR-TEN-09) |
 
 ---
 
@@ -299,20 +299,20 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 - **FR-TEN-03**: `PLATFORM_ADMIN` deactivates a tenant (`DEACTIVATED`, terminal): all credentials revoked, sources disabled, data retained until retention purge (FR-EVT-07, FR-FILE-12). Emits `registry.tenant.deactivated` (audited per FR-AUD-02); owning services apply the same tenant-status gate as for suspension, permanently. Hard delete is out of scope.
 - **FR-TEN-04**: `TENANT_ADMIN` invites/creates users with `email` (RFC 5322, unique per tenant, stored lower-case), `displayName`, `roles[]` (non-empty subset of §1.4.6 tenant roles), and an initial password (≥ 14 chars, zxcvbn score ≥ 3) that must be changed at first login (`mustChangePassword`). Passwords hashed with Argon2id (m=64 MiB, t=3, p=1).
 - **FR-TEN-05**: `TENANT_ADMIN` lists (filter by role, status; paginated), updates roles, disables, and re-enables users. A tenant must always retain ≥ 1 active `TENANT_ADMIN` (`409 LAST_TENANT_ADMIN`). Role changes revoke the user's refresh tokens and emit `registry.user.changed`; audited.
-- **FR-TEN-06**: `TENANT_ADMIN` creates service accounts (role `INTEGRATION`) returning `clientId` and a one-time-displayed `clientSecret` (32 random bytes, base64url; stored as Argon2id hash). Supports rotate (new secret; previous valid for 24 h grace) and revoke. Audited.
-- **FR-TEN-07**: Internal `SERVICE` accounts (one per runtime, §5.7) are provisioned by migration seed + Infisical secret; their allowed internal actions are an explicit allowlist claim `act[]` in the token. SERVICE token claims: `sub` (`svc-<runtime>`), `typ=service`, `act[]`, `iss=aegispulse-registry`, `aud=aegispulse-internal`, `jti`, `iat`, `exp`, `kid` header; no `tid`/`roles` (ADR-0010).
+- **FR-TEN-06**: `TENANT_ADMIN` creates service accounts (role `INTEGRATION`) returning `clientId` and a one-time-displayed `clientSecret` (32 random bytes, base64url; stored as Argon2id hash). Supports rotate (new secret; previous valid for 24 h grace) and revoke. Audited via `registry.service_account.changed`.
+- **FR-TEN-07**: Internal `SERVICE` accounts (one per runtime, §5.7) are provisioned by migration seed + Infisical secret; their allowed internal actions are an explicit allowlist claim `act[]` in the token. SERVICE token claims: `sub` (`svc-<runtime>`), `typ=service`, `act[]`, `iss=aegispulse-registry`, `aud=aegispulse-internal`, `jti`, `iat`, `exp`, `kid` header; no `tid`/`roles` (ADR-0010). Accounts and `allowed_actions` are seeded by `R__seed_service_accounts.sql` from §5.7.4; the registry reconciles each account's Argon2id secret verifier at startup from `SERVICE_CLIENT_SECRET_{RUNTIME}` (Infisical references to each runtime's own secret; changed secret → new verifier, previous valid 24 h) (ADR-0017).
 - **FR-TEN-08**: Tenant settings (`highValueThresholdUsd`, `highRiskCountries`, `retentionDays`, `demoMode`) are readable by internal services via `getTenantSettings` and cached ≤ 60 s by callers; changes emit `registry.tenant.settings_changed`.
 - **FR-TEN-09**: Platform bootstrap. A reserved tenant (`slug = platform`, fixed id `00000000-0000-0000-0000-000000000001`, seeded by a repeatable migration, not creatable/suspendable via the API) hosts `PLATFORM_ADMIN` users only. The registry one-shot command `bootstrap-platform-admin` (Kubernetes Job / compose `tools` profile) creates the first `PLATFORM_ADMIN` from `PLATFORM_ADMIN_BOOTSTRAP_EMAIL` + `PLATFORM_ADMIN_BOOTSTRAP_PASSWORD` when no active `PLATFORM_ADMIN` exists (no-op otherwise), with `mustChangePassword = true`, and writes an audit entry. A `PLATFORM_ADMIN` creates every other tenant's first `TENANT_ADMIN` by acting on that tenant via `X-Aegis-Tenant` (FR-AUTH-06).
 
 ### 2.2 Authentication & Authorization (Owner: `services/registry`; enforced in every service)
 
 - **FR-AUTH-01**: `POST /v1/auth/login` with tenant slug, email, password returns an RS256 access JWT (TTL 15 min) and a rotating opaque refresh token (TTL 7 d, stored hashed). Claims: `sub`, `tid` (tenant UUID), `tslug`, `roles[]`, `typ=user`, `iss=aegispulse-registry`, `aud=aegispulse`, `jti`, `iat`, `exp`, `kid` header. Failed attempts are rate limited per (tenant, email): 5 per 15 min → `429 AUTH_RATE_LIMITED`; responses never reveal whether the email exists.
-- **FR-AUTH-02**: `POST /v1/auth/refresh` rotates the refresh token (old one invalidated; reuse of an invalidated token revokes the whole token family and emits a security audit entry `AUTH_REFRESH_REUSE`).
+- **FR-AUTH-02**: `POST /v1/auth/refresh` rotates the refresh token (old one invalidated; reuse of an invalidated token revokes the whole token family and emits a security audit entry `AUTH_REFRESH_REUSE` as `registry.auth.refresh_reuse_detected`).
 - **FR-AUTH-03**: `POST /v1/auth/logout` revokes the current refresh-token family. `GET /v1/auth/me` returns profile, tenant, roles.
-- **FR-AUTH-04**: `POST /v1/auth/token` (client credentials) issues access tokens for `INTEGRATION` service accounts (TTL 15 min, no refresh) with claims `sub` (clientId), `tid`, `tslug`, `roles=["INTEGRATION"]`, `typ=integration`, `iss=aegispulse-registry`, `aud=aegispulse`, `jti`, `iat`, `exp`, `kid` header. Internal `SERVICE` accounts call `issueClientCredentialsToken` (`POST /internal/v1/issueClientCredentialsToken`, the only unauthenticated internal operation: client credentials in the body, rate limited per `clientId`) with `audience=aegispulse-internal`.
-- **FR-AUTH-05**: Registry publishes a JWKS at `/.well-known/jwks.json` with current and previous signing keys (kid rotation every 90 days, previous key retained 24 h after rotation). Every service validates JWTs locally against the cached JWKS (refresh every 10 min or on unknown `kid`) — no service trusts the gateway's validation alone.
+- **FR-AUTH-04**: `POST /v1/auth/token` (client credentials) issues access tokens for `INTEGRATION` service accounts (TTL 15 min, no refresh) with claims `sub` (clientId), `tid`, `tslug`, `roles=["INTEGRATION"]`, `typ=integration`, `iss=aegispulse-registry`, `aud=aegispulse`, `jti`, `iat`, `exp`, `kid` header. Internal `SERVICE` accounts call `issueClientCredentialsToken` (`POST /internal/v1/issueClientCredentialsToken`, the only unauthenticated internal operation: client credentials in the body, rate limited per `clientId`) with `audience=aegispulse-internal`. Both paths allow 10 failed attempts per `clientId` per 5 min, then `429 AUTH_RATE_LIMITED`; a failure never reveals whether the client exists.
+- **FR-AUTH-05**: Registry publishes a JWKS at `/.well-known/jwks.json` with current and previous signing keys (kid rotation every 90 days, previous key retained 24 h after rotation). The JWKS comes from `registry.signing_keys`: at startup the registry registers the public half of `JWT_SIGNING_KEY_CURRENT_PEM` under `JWT_SIGNING_KEY_CURRENT_KID` as `CURRENT` and demotes the former current key to `PREVIOUS` (published for 24 h, then `RETIRED`). Every service validates JWTs locally against the cached JWKS (refresh every 10 min or on unknown `kid`) — no service trusts the gateway's validation alone.
 - **FR-AUTH-06**: Authorization is enforced in the owning service's service layer by role + tenant: the tenant in the token must equal the tenant of every resource read or mutated; cross-tenant access returns `404` (not `403`) to avoid resource enumeration. `PLATFORM_ADMIN` may pass `X-Aegis-Tenant` to act on a specific tenant; every such action is audited with `actingAs`.
-- **FR-AUTH-07**: Password change endpoint `POST /v1/auth/password` (current + new; same policy as FR-TEN-04) revokes all other refresh-token families.
+- **FR-AUTH-07**: Password change endpoint `POST /v1/auth/password` (current + new; same policy as FR-TEN-04) revokes all other refresh-token families. The caller may pass its current `refreshToken` to keep that session; without it, every family is revoked. Clears `mustChangePassword`.
 
 ### 2.3 Tracked Entities & Watchlists (Owner: `services/registry`)
 
@@ -426,7 +426,7 @@ Demonstrate principal-level systems architecture and engineering by delivering a
 ### 2.13 Immutable Compliance Audit Log (Owner: `services/cases`)
 
 - **FR-AUD-01**: Append-only `audit_log` entries: `actorType` (`USER|SERVICE|SYSTEM`), `actorId`, `actingAs?`, `action`, `subjectType`, `subjectId`, `triggerEventId?`, `triggerFileId?`, `modelVersion?`, `ruleVersion?`, `before`, `after`, `occurredAt`, per-tenant `seq`, `prevHash`, `hash = SHA-256(canonicalJSON(entry without hash) ‖ prevHash)`. Insert serialized per tenant via `pg_advisory_xact_lock`. The DB role has no `UPDATE`/`DELETE`/`TRUNCATE` grants and a trigger rejects them.
-- **FR-AUD-02**: Cases consumes audit-worthy events from other services (`registry.user.changed`, `registry.tenant.*`, `registry.watchlist.changed`, `classification.overridden`, webhook source trust changes, quarantine downloads, replay jobs) into the same chain, idempotent by source `eventId`.
+- **FR-AUD-02**: Cases consumes audit-worthy events from other services (`registry.user.changed`, `registry.tenant.*`, `registry.service_account.changed`, `registry.auth.refresh_reuse_detected`, `registry.watchlist.changed`, `classification.overridden`, webhook source trust changes, quarantine downloads, replay jobs) into the same chain, idempotent by source `eventId`.
 - **FR-AUD-03**: `GET /v1/audit` (`COMPLIANCE_AUDITOR`, `TENANT_ADMIN`) filters by subject, actor, action, date; paginated. `GET /v1/audit/verify?fromSeq&toSeq` recomputes the chain and returns `{valid, checked, firstBrokenSeq?}`; a nightly job verifies the last 24 h and emits `notification.requested` (N-06) on failure.
 
 ### 2.14 Cross-Domain Correlation (Owners: `services/orchestrator`, `services/cases`)
@@ -585,7 +585,7 @@ Each NFR is a measurable policy. "Evidence" names the automated or runtime check
 - Evidence: lint/type jobs in CI.
 
 ### NFR-15 — Capacity & Resource Limits
-- Every container declares CPU/memory requests and limits (§5.4); JVM `-XX:MaxRAMPercentage=70`; Node `--max-old-space-size` ≤ 75% of limit; Python workers single-process with bounded thread pools.
+- Every container declares CPU/memory requests and limits (§5.4); JVM `-XX:MaxRAMPercentage=50` (measured 2026-11-23: Spring + OTel agent + metaspace ≈ 290 MiB outside the heap, so 70% of a 768Mi limit crash-loops; 50% peaks at 667/768 MiB under Argon2id load); Node `--max-old-space-size` ≤ 75% of limit; Python workers single-process with bounded thread pools.
 - Consumer prefetch bounds in-flight memory (§5.5). Body size limits per NFR-08.
 - Image layers < 95 MB each (Cloudflare 100 MB edge cap on registry pushes) — `ci/check-layer-sizes.sh`.
 - Evidence: CI checks; OOMKilled count = 0 over a 24 h soak.
@@ -1381,7 +1381,7 @@ outbox_events(id, tenant_id, event_id UNIQUE, exchange, routing_key, envelope JS
 | `risk.evaluation.recorded` | domain | cases | `evaluationId, transactionEventId, score, band, factors, modelVersion, caseId?` |
 | `case.opened` · `case.transitioned` · `case.escalated` · `case.resolved` · `case.disposition.recorded` · `case.evidence.attached` | domain | cases | `caseId, caseNumber, type, from, to, severity, policyScore, policyVersion, entityIds, disposition?` |
 | `correlation.requested` | domain | cases | `caseId, entityIds, lookbackDays` |
-| `registry.tenant.created|suspended|restored|deactivated|settings_changed` · `registry.user.changed` · `registry.entity.changed` · `registry.watchlist.changed` | domain | registry | ids + changed fields (no secrets/password data) |
+| `registry.tenant.created|suspended|restored|deactivated|settings_changed` · `registry.user.changed` · `registry.service_account.changed` · `registry.auth.refresh_reuse_detected` · `registry.entity.changed` · `registry.watchlist.changed` | domain | registry | ids + changed fields (no secrets/password data) |
 | `notification.requested` | domain/enrichment/intelligence | cases, events, files, ingestion, data-intel | `templateId, severity, notificationKey, vars` |
 | `intel.rollup.completed` · `intel.drift.detected` · `intel.eval.completed` | intelligence | data-intel | `metric, scope, value, threshold, window` |
 | `ops.dead_letter.recorded` · `ops.replay.started|completed` · `ops.audit.quarantine_download` · `ops.audit.source_trust_changed` | intelligence | events / files / ingestion | operational ids + actor |
@@ -1559,10 +1559,12 @@ CREATE TABLE registry.service_accounts (
   status        TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','REVOKED')),
   created_by    UUID REFERENCES registry.users(id),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT ck_service_accounts_tenant CHECK ((kind = 'SERVICE') = (tenant_id IS NULL))
 );
 CREATE UNIQUE INDEX ux_service_accounts_client_id ON registry.service_accounts (client_id);
 CREATE INDEX ix_service_accounts_tenant ON registry.service_accounts (tenant_id);
+CREATE INDEX ix_service_accounts_tenant_created ON registry.service_accounts (tenant_id, created_at, id);  -- keyset list
 ```
 
 #### registry.service_account_secrets
@@ -1588,6 +1590,7 @@ CREATE TABLE registry.signing_keys (               -- public halves only; privat
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX ix_signing_keys_status ON registry.signing_keys (status);
+CREATE UNIQUE INDEX ux_signing_keys_one_current ON registry.signing_keys ((status)) WHERE status = 'CURRENT';
 ```
 
 #### registry.entities
@@ -2285,7 +2288,8 @@ Collections use `$jsonSchema` validators (`validationLevel: strict`) generated f
 | `feat:txn1h:{tenantId}:{accountId}` | risk-scoring | zset, 2 h | velocity window |
 | `feat:cp:{tenantId}:{accountId}` | risk-scoring | hash(counterpartyId→lastSeen), 30 d | new-counterparty feature |
 | `feat:seen:{tenantId}:{eventId}` | risk-scoring | string, 48 h | feature-update idempotency |
-| `ratelimit:auth:{tenantId}:{emailHash}` | registry | counter, 900 s | login throttling |
+| `ratelimit:auth:{tenantId}:{emailHash}` | registry | counter, 900 s | login throttling (unknown tenant → nil UUID) |
+| `ratelimit:cc:{clientIdHash}` | registry | counter, 300 s | client-credentials throttling (FR-AUTH-04) |
 | `auth:jwks:cache` | registry | string, 600 s | serialized JWKS |
 
 ### 7.8 Object Storage Layout
@@ -2641,7 +2645,7 @@ Scripted in `deploy/bootstrap/*.sh`; each script is idempotent and re-read befor
 | `make seed` | seed tenants, users, entities, watchlists, sources, connectors |
 | `make dev SERVICE=<name>` | run one service natively with hot reload against compose deps |
 | `make build` | build all workspaces (tsc/vite, Gradle, uv build) |
-| `make test` / `make test-unit` / `make test-integration` / `make test-e2e` | test suites |
+| `make test` / `make test-unit` / `make test-integration` / `make test-e2e` | test suites (`test-e2e`: `tests/e2e` + `tests/security` against the running compose stack through the gateway, from Phase 2) |
 | `make lint` / `make typecheck` / `make format` | quality |
 | `make contracts` | validate + regenerate contract types (`packages/contracts/generated`) |
 | `make eval` | golden-dataset evaluation |
@@ -2742,11 +2746,12 @@ JWT_ISSUER=aegispulse-registry
 JWT_AUDIENCE=aegispulse                            # aegispulse-dev in dev, aegispulse in prod
 JWT_SIGNING_KEY_CURRENT_PEM=<pem>                  # [secret] Infisical (dev/prod envs)
 JWT_SIGNING_KEY_CURRENT_KID=local-2026-11
-JWT_SIGNING_KEY_PREVIOUS_PEM=                      # [secret] optional during rotation
+JWT_SIGNING_KEY_PREVIOUS_PEM=                      # [secret] operator's rollback copy during a rotation window; not read by registry (JWKS comes from registry.signing_keys)
 SERVICE_CLIENT_ID=svc-<runtime>                    # per runtime
 SERVICE_CLIENT_SECRET=<secret>                     # [secret] per runtime
 PLATFORM_ADMIN_BOOTSTRAP_EMAIL=admin@aegispulse.local  # registry bootstrap command only (FR-TEN-09)
 PLATFORM_ADMIN_BOOTSTRAP_PASSWORD=<secret>         # [secret] registry bootstrap command only; must satisfy FR-TEN-04 policy
+SERVICE_CLIENT_SECRET_{RUNTIME}=<secret>           # [secret] registry only, one per §5.7.4 runtime (GATEWAY, INGESTION, FILES, EVENTS, ORCHESTRATOR, DOC_EXTRACTION, RISK_SCORING, DATA_INTEL, SCHEDULER_TRIGGER); Infisical references (ADR-0017)
 
 # ── postgres (per owning service) ─────────────────────────────────────
 PG_HOST=postgres
@@ -2865,7 +2870,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 |---|---|---|---|
 | 0 | Project Scaffold & Toolchain | SOURCE-IMPLEMENTED (local runtime verified; CI pipeline pending) | [phase-00](docs/evidence/phase-00.md) |
 | 1 | Contracts, Platform Kits & Data Foundations | IN PROGRESS: slice 1a INTEGRATION-VERIFIED (contracts + data foundations); slices 1a–1e INTEGRATION-VERIFIED; all 12 runtimes `/readyz` 200 locally; health-request traces in OpenObserve; remaining exit evidence: commit + green first GitLab pipeline | [phase-01a](docs/evidence/phase-01a.md), [phase-01b](docs/evidence/phase-01b.md), [phase-01c](docs/evidence/phase-01c.md), [phase-01d](docs/evidence/phase-01d.md), [phase-01e](docs/evidence/phase-01e.md) |
-| 2 | Registry: Tenancy, Identity & RBAC | IN PROGRESS (2a INTEGRATION-VERIFIED) | [phase-02a](docs/evidence/phase-02a.md) |
+| 2 | Registry: Tenancy, Identity & RBAC | IN PROGRESS (2a, 2b INTEGRATION-VERIFIED; 2c RUNTIME-VERIFIED locally; drill + pipeline pending) | [phase-02a](docs/evidence/phase-02a.md), [phase-02b](docs/evidence/phase-02b.md), [phase-02c](docs/evidence/phase-02c.md) |
 | 3 | Entities & Watchlists | PENDING | — |
 | 4 | Webhook Ingestion | PENDING | — |
 | 5 | Files Subsystem | PENDING | — |
@@ -2961,22 +2966,22 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 #### FR-TEN-01 / FR-TEN-02 / FR-TEN-03 — Tenant lifecycle
 - [x] Migration `V3__tenants.sql` (`registry.tenants`, RLS exempt for platform table, indexes §7.1)
 - [x] `TenantService.create/updateStatus/deactivate` with state rules (`DEACTIVATED` terminal), idempotency via `idempotency_records`
-- [ ] Internal API `createTenant`, `updateTenantStatus` ✅ (2a); gateway handlers `POST /v1/tenants`, `PATCH /v1/tenants/{id}` (2c)
+- [x] Internal API `createTenant`, `updateTenantStatus`; gateway handlers `POST /v1/tenants`, `PATCH /v1/tenants/{id}`
 - [x] Outbox `registry.tenant.created|suspended|restored|deactivated`; PA-only authorization; audit consumed later by cases (Phase 8)
-- [ ] Tests: unit (state machine) ✅, integration (duplicate slug 409, idempotent retry) ✅, E2E (suspended tenant login → 403; needs login, 2b/2c)
+- [x] Tests: unit (state machine), integration (duplicate slug 409, idempotent retry), suspended tenant login → 403 (`AuthIT`, registry integration)
 
 #### FR-TEN-04 / FR-TEN-05 — Users and roles
 - [x] Migration `V4__users_roles.sql` (`users`, `user_roles`, RLS)
 - [x] `UserService` create/list/update/disable with Argon2id hashing, password policy (length + zxcvbn-equivalent `nbvcxz`), last-admin invariant
-- [ ] Internal + gateway routes `GET/POST /v1/users`, `PATCH /v1/users/{id}`; pagination (internal ✅ 2a; gateway 2c)
-- [ ] Role change → refresh-token revocation (2b, needs `refresh_tokens`) + `registry.user.changed` ✅
+- [x] Internal + gateway routes `GET/POST /v1/users`, `PATCH /v1/users/{id}`; pagination
+- [x] Role change → refresh-token revocation + `registry.user.changed`
 - [x] Tests: last-admin 409, email uniqueness per tenant (citext), cross-tenant 404
 
 #### FR-TEN-06 / FR-TEN-07 — Service accounts
-- [ ] Migration `V5__service_accounts.sql` (`service_accounts`, `service_account_secrets`)
-- [ ] `ServiceAccountService` create/rotate (24 h grace)/revoke; internal SERVICE accounts seeded by `R__seed_service_accounts.sql` with `allowed_actions` (§5.7.4); secrets from Infisical
-- [ ] Routes `/v1/service-accounts*`; secret displayed once
-- [ ] Tests: rotated secret valid for 24 h then rejected (clock-controlled test)
+- [x] Migration `V5__service_accounts.sql` (`service_accounts`, `service_account_secrets`)
+- [x] `ServiceAccountService` create/rotate (24 h grace)/revoke; internal SERVICE accounts seeded by `R__seed_service_accounts.sql` with `allowed_actions` (§5.7.4); secret verifiers reconciled at startup from `SERVICE_CLIENT_SECRET_{RUNTIME}` (ADR-0017)
+- [x] Routes `/v1/service-accounts*`; secret displayed once
+- [x] Tests: rotated secret valid for 24 h then rejected (clock-controlled test)
 
 #### FR-TEN-09 — Platform bootstrap
 - [x] `R__platform_tenant.sql` (reserved `platform` tenant, fixed id); API rejects creating/suspending slug `platform`
@@ -2985,29 +2990,29 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [x] Tests: second run is a no-op; generated password passes FR-TEN-04 policy; PA can create a tenant and its first TENANT_ADMIN
 
 #### FR-TEN-08 — Tenant settings
-- [ ] `getTenantSettings`/`updateTenantSettings` + `registry.tenant.settings_changed`; caller-side 60 s cache in kits
-- [ ] Tests: settings change propagates to scoring threshold within 60 s (integration)
+- [x] `getTenantSettings`/`updateTenantSettings` + `registry.tenant.settings_changed`; caller-side 60 s cache in kits (TS `TenantSettingsCache`, Python `aegis_platform.tenant_settings`)
+- [ ] Tests: settings change propagates to scoring threshold within 60 s (integration). Cache TTL/invalidation unit-tested in both kits; the scoring propagation test needs risk-scoring (Phase 5) and moves there
 
 #### FR-AUTH-01 / FR-AUTH-02 / FR-AUTH-03 / FR-AUTH-07 — User authentication
-- [ ] Migration `V6__auth.sql` (`refresh_tokens`, `signing_keys`)
-- [ ] `AuthService.login/refresh/logout/changePassword` with RS256 signing (Nimbus), refresh rotation families, reuse detection → family revoke + security audit event, Redis login rate limit
-- [ ] Gateway routes `/v1/auth/*`; uniform error messages; no user enumeration
-- [ ] Tests: refresh reuse revokes family; 6th failed login → 429; token claims match §2.2
+- [x] Migration `V6__auth.sql` (`refresh_tokens`, `signing_keys`)
+- [x] `AuthService.login/refresh/logout/changePassword` with RS256 signing (Nimbus), refresh rotation families, reuse detection → family revoke + security audit event, Redis login rate limit
+- [x] Gateway routes `/v1/auth/*`; uniform error messages; no user enumeration
+- [x] Tests: refresh reuse revokes family; 6th failed login → 429; token claims match §2.2
 
 #### FR-AUTH-04 / FR-AUTH-05 — Client credentials & JWKS
-- [ ] `/v1/auth/token` (INTEGRATION) and `issueClientCredentialsToken` (`POST /internal/v1/issueClientCredentialsToken`, unauthenticated; SERVICE, `aud=aegispulse-internal`, `act[]`)
-- [ ] `/.well-known/jwks.json` with current + previous keys; key rotation runbook `docs/runbooks/key-rotation.md`
-- [ ] Kits: JWKS cache refresh on unknown `kid`
-- [ ] Tests: rotation drill — tokens signed by previous key accepted ≤ 24 h
+- [x] `/v1/auth/token` (INTEGRATION) and `issueClientCredentialsToken` (`POST /internal/v1/issueClientCredentialsToken`, unauthenticated; SERVICE, `aud=aegispulse-internal`, `act[]`)
+- [x] `/.well-known/jwks.json` with current + previous keys; key rotation runbook `docs/runbooks/key-rotation.md`
+- [x] Kits: JWKS cache refresh on unknown `kid`
+- [ ] Tests: rotation drill — tokens signed by previous key accepted ≤ 24 h (integration ✅ `JwksIT`; environment drill on dev for the phase exit)
 
 #### FR-AUTH-06 — Authorization enforcement
-- [ ] Authorization policy module in every service (role matrix §1.4.6 as data), tenant-ownership checks in service layer, `X-Aegis-Tenant` for PA with `actingAs` audit
-- [ ] Cross-tenant test harness (`tests/security/cross-tenant.spec.ts`) seeded with two tenants; grows with each phase
-- [ ] Tests: every Phase-2 route × every role matrix (generated table test)
+- [x] Authorization policy module in every service (role matrix §1.4.6 as data), tenant-ownership checks in service layer, `X-Aegis-Tenant` for PA with `actingAs` audit (registry `AccessPolicy`; gateway edge check from the generated contract route table; later services add theirs with their FRs)
+- [x] Cross-tenant test harness (`tests/security/cross-tenant.spec.ts`) seeded with two tenants; grows with each phase
+- [x] Tests: every Phase-2 route × every role matrix (generated table test): `AccessPolicyTest` (registry) + `tests/e2e/role-matrix.e2e.test.ts` (gateway, 13 routes × 6 roles)
 
 **Phase 2 exit evidence:** E2E auth flows over the gateway (login, refresh, rotate, logout); cross-tenant suite green; JWKS rotation drill log.
 **Phase note:** migrations are V3–V6 (V2 is ADR-0016's `enforced_rls_bypass`). Auth lookups that precede tenant context (refresh token by hash, service account by client id) are `SECURITY DEFINER` functions per ADR-0016. Delivered in slices: 2a tenants + users + platform bootstrap; 2b signing keys/JWKS, auth flows, service accounts, client credentials; 2c settings, gateway routes, role matrix, cross-tenant suite, E2E + rotation drill.
-**Phase note:** status **`IN PROGRESS`**. Slice 2a (tenants, users, platform bootstrap) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-02a](docs/evidence/phase-02a.md)): 24 unit + 13 Testcontainers tests, migrations applied locally, registry `/readyz` 200 at schema 4. Local bootstrap runtime-verified (create, then no-op; event relayed `SENT`). `registry.tenant.deactivated` added by amendment (2026-11-23).
+**Phase note:** status **`IN PROGRESS`**. Slice 2c (settings, gateway routes, role matrix, cross-tenant suite, E2E) is `RUNTIME-VERIFIED` locally (2026-11-23, [phase-02c](docs/evidence/phase-02c.md)): `make test-e2e` 85/85 over the gateway. JWKS rotation drill run 2026-11-24: mechanics verified, and its finding (a 30 s post-rotation 401 window) was fixed with a 5 s refetch cooldown; a confirming rerun is pending. Exit items still open: the green pipeline and the FR-TEN-08 scoring propagation test (moves to Phase 5). Slice 2b (auth flows, JWKS, client credentials, service accounts; ADR-0017) is `INTEGRATION-VERIFIED` and runtime-verified locally (2026-11-23, [phase-02b](docs/evidence/phase-02b.md)): 29 unit + 29 Testcontainers tests; JVM heap rule amended to 50%. Slice 2a (tenants, users, platform bootstrap) is `INTEGRATION-VERIFIED` (2026-11-23, [phase-02a](docs/evidence/phase-02a.md)): 24 unit + 13 Testcontainers tests, migrations applied locally, registry `/readyz` 200 at schema 4. Local bootstrap runtime-verified (create, then no-op; event relayed `SENT`). `registry.tenant.deactivated` added by amendment (2026-11-23).
 
 ---
 

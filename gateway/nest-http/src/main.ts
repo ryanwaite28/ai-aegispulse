@@ -11,6 +11,7 @@ import { createHttpServer } from "@aegispulse/ts-platform/http";
 import { createLogger } from "@aegispulse/ts-platform/logging";
 import { startTelemetry } from "@aegispulse/ts-platform/telemetry";
 import { AppModule } from "./app.module.js";
+import { RegistryClient } from "./clients/registry.client.js";
 import { configSchema, JSON_BODY_LIMIT, PORT, SERVICE, type Config } from "./config.js";
 
 export async function createGateway(
@@ -18,10 +19,11 @@ export async function createGateway(
   verifier: JwtVerifier,
   health: HealthRegistry,
   logger: ReturnType<typeof createLogger>,
+  registry: RegistryClient = new RegistryClient(config),
 ): Promise<NestFastifyApplication> {
   const fastify = createHttpServer({ logger, bodyLimit: JSON_BODY_LIMIT, nestManaged: true });
   const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule.register({ config, verifier, health }),
+    AppModule.register({ config, verifier, health, registry }),
     new FastifyAdapter(fastify as never),
     { logger: false, rawBody: true },
   );
@@ -46,9 +48,13 @@ async function main(): Promise<void> {
     issuer: config.JWT_ISSUER,
     audience: config.JWT_AUDIENCE,
   });
-  const app = await createGateway(config, verifier, health, logger);
+  const registry = new RegistryClient(config);
+  const app = await createGateway(config, verifier, health, logger, registry);
   await app.listen({ host: "0.0.0.0", port: PORT });
-  lifecycle.onShutdown("http", "nest", () => app.close()).onShutdown("telemetry", "otel", () => telemetry.shutdown());
+  lifecycle
+    .onShutdown("http", "nest", () => app.close())
+    .onShutdown("pools", "registry", () => registry.close())
+    .onShutdown("telemetry", "otel", () => telemetry.shutdown());
   health.markRunning();
   logger.info({ port: PORT }, "gateway ready");
 }

@@ -10,7 +10,7 @@
   "scripts": {
     "lint": "eslint . --no-error-on-unmatched-pattern && prettier --check .",
     "format": "prettier --write .",
-    "typecheck": "pnpm -r --if-present run typecheck",
+    "typecheck": "pnpm --filter @aegispulse/ts-platform run build && pnpm -r --if-present run typecheck",
     "build": "pnpm -r --if-present run build",
     "test": "pnpm -r --if-present run test",
     "test:integration": "pnpm -r --if-present run test:integration"

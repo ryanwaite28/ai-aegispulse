@@ -64,4 +64,68 @@ public final class Commands {
       @Nullable @Size(min = 1) String displayName,
       @Nullable @Size(min = 1) List<@NotNull String> roles,
       @Nullable UserStatus status) {}
+
+  /** LoginInput (FR-AUTH-01). */
+  public record Login(
+      @NotNull @Pattern(regexp = "^[a-z0-9-]{3,40}$") String tenantSlug,
+      @NotNull @Size(min = 3, max = 320) String email,
+      @NotNull @Size(min = 1, max = 256) String password) {
+    @Override
+    public String toString() {
+      return "Login[tenantSlug=" + tenantSlug + ", <redacted>]";
+    }
+  }
+
+  /** RefreshTokenInput / LogoutInput (FR-AUTH-02/03). */
+  public record RefreshToken(@NotNull @Size(min = 1, max = 512) String refreshToken) {
+    @Override
+    public String toString() {
+      return "RefreshToken[<redacted>]";
+    }
+  }
+
+  /** ChangePasswordInput (FR-AUTH-07); {@code refreshToken} names the session to keep. */
+  public record ChangePassword(
+      @NotNull @Size(min = 1, max = 256) String currentPassword,
+      @NotNull String newPassword,
+      @Nullable @Size(min = 1, max = 512) String refreshToken) {
+    @Override
+    public String toString() {
+      return "ChangePassword[<redacted>]";
+    }
+  }
+
+  /** IssueClientCredentialsTokenInput (FR-AUTH-04). */
+  public record IssueClientCredentials(
+      @NotNull @Size(min = 1, max = 100) String clientId,
+      @NotNull @Size(min = 1, max = 512) String clientSecret,
+      @NotNull @Pattern(regexp = "^(aegispulse|aegispulse-internal)$") String audience) {
+    @Override
+    public String toString() {
+      return "IssueClientCredentials[clientId=" + clientId + ", <redacted>]";
+    }
+  }
+
+  /** CreateServiceAccountInput (FR-TEN-06). */
+  public record CreateServiceAccount(@NotNull @Size(min = 1, max = 200) String name) {}
+
+  /** ListServiceAccountsQuery (FR-TEN-06). */
+  public record ListServiceAccounts(
+      @Nullable @Min(1) @Max(100) Integer limit,
+      @Nullable @Size(max = 1024) @Pattern(regexp = "^[A-Za-z0-9_-]+$") String cursor,
+      io.aegispulse.registry.domain.ServiceAccount.@Nullable Status status) {}
+
+  /** {serviceAccountId} for rotate / revoke (FR-TEN-06). */
+  public record ServiceAccountRef(@NotNull UUID serviceAccountId) {}
+
+  /** GetTenantSettingsInput (FR-TEN-08). */
+  public record GetTenantSettings(@NotNull UUID tenantId) {}
+
+  /** UpdateTenantSettingsInput (FR-TEN-08): at least one setting. */
+  public record UpdateTenantSettings(
+      @NotNull UUID tenantId,
+      @Nullable @Pattern(regexp = DECIMAL) String highValueThresholdUsd,
+      @Nullable List<@NotNull @Pattern(regexp = "^[A-Z]{2}$") String> highRiskCountries,
+      @Nullable @Min(30) @Max(3650) Integer retentionDays,
+      @Nullable Boolean demoMode) {}
 }
