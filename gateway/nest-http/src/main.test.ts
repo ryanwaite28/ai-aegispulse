@@ -26,6 +26,7 @@ const config = {
   JWT_AUDIENCE: "aegispulse",
   INGESTION_URL: "http://ingestion:8081",
   FILES_URL: "http://files:8082",
+  EVENTS_URL: "http://events:8083",
 } as Config;
 
 interface InjectResult {

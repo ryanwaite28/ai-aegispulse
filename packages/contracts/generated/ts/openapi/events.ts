@@ -435,6 +435,11 @@ export type components = {
             revision?: number;
             rule_version?: string;
             sensitivity: components["schemas"]["Sensitivity"];
+            /**
+             * @description Source trust stamped by the producer at ingest; publisher_stated_severity counts toward final_severity only when TRUSTED (§1.4.3).
+             * @enum {string}
+             */
+            source_trust_level?: "TRUSTED" | "UNTRUSTED";
             status: components["schemas"]["ClassificationStatus"];
         };
         EventSummary: {

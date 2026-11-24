@@ -875,6 +875,12 @@ components:
           oneOf:
             - $ref: ./components/common.yaml#/components/schemas/Severity
             - type: "null"
+        source_trust_level:
+          type: string
+          enum:
+            - TRUSTED
+            - UNTRUSTED
+          description: Source trust stamped by the producer at ingest; publisher_stated_severity counts toward final_severity only when TRUSTED (§1.4.3).
         algorithm_severity:
           $ref: ./components/common.yaml#/components/schemas/Severity
         algorithm_confidence:

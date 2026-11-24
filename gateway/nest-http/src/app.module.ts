@@ -3,7 +3,8 @@ import { type DynamicModule, Module } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import type { JwtVerifier } from "@aegispulse/ts-platform/auth";
 import type { HealthRegistry } from "@aegispulse/ts-platform/health";
-import { CONFIG, type Config, FILES, HEALTH, INGESTION, JWT_VERIFIER, REGISTRY } from "./config.js";
+import { CONFIG, type Config, EVENTS, FILES, HEALTH, INGESTION, JWT_VERIFIER, REGISTRY } from "./config.js";
+import type { EventsClient } from "./clients/events.client.js";
 import type { FilesClient } from "./clients/files.client.js";
 import type { IngestionClient } from "./clients/ingestion.client.js";
 import type { RegistryClient } from "./clients/registry.client.js";
@@ -22,6 +23,7 @@ export class AppModule {
     registry: RegistryClient;
     ingestion: IngestionClient;
     files: FilesClient;
+    events: EventsClient;
   }): DynamicModule {
     return {
       module: AppModule,
@@ -34,10 +36,11 @@ export class AppModule {
         { provide: REGISTRY, useValue: deps.registry },
         { provide: INGESTION, useValue: deps.ingestion },
         { provide: FILES, useValue: deps.files },
+        { provide: EVENTS, useValue: deps.events },
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: APP_FILTER, useClass: ErrorEnvelopeFilter },
       ],
-      exports: [CONFIG, JWT_VERIFIER, HEALTH, REGISTRY, INGESTION, FILES],
+      exports: [CONFIG, JWT_VERIFIER, HEALTH, REGISTRY, INGESTION, FILES, EVENTS],
     };
   }
 }

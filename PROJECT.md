@@ -2876,7 +2876,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 3 | Entities & Watchlists | IN PROGRESS (RUNTIME-VERIFIED locally; pipeline pending) | [phase-03](docs/evidence/phase-03.md) |
 | 4 | Webhook Ingestion | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-04](docs/evidence/phase-04.md) ([4a](docs/evidence/phase-04a.md), [4b](docs/evidence/phase-04b.md), [4c](docs/evidence/phase-04c.md)) |
 | 5 | Files Subsystem | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-05](docs/evidence/phase-05.md) ([5a](docs/evidence/phase-05a.md), [5b](docs/evidence/phase-05b.md), [5c](docs/evidence/phase-05c.md), [5d](docs/evidence/phase-05d.md), [5e](docs/evidence/phase-05e.md)) |
-| 6 | Events Archive & Stage-1 Classification | IN PROGRESS (6a RUNTIME-VERIFIED locally) | [phase-06a](docs/evidence/phase-06a.md) |
+| 6 | Events Archive & Stage-1 Classification | IN PROGRESS (6a, 6b RUNTIME-VERIFIED locally) | [phase-06a](docs/evidence/phase-06a.md), [phase-06b](docs/evidence/phase-06b.md) |
 | 7 | Messaging Resilience & Dead Letters | PENDING | — |
 | 8 | Transactions, Scoring & Risk Cases (MVP slice) | PENDING | — |
 | 9 | Kubernetes, IaC & Secrets (homelab dev + prod) | PENDING | — |
@@ -3136,9 +3136,9 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [x] Tests: rule fixtures per event type; PAN/SSN/secret masking golden tests; Stage 1 p95 ≤ 5 ms benchmark
 
 #### FR-EVT-04 / FR-EVT-05 / FR-EVT-06 — Query APIs
-- [ ] `searchEvents`, `getEvent`, `getCorrelationChain`, `searchEventsForEntities` with mandatory tenant filter (repository wrapper rejects tenantless queries), cursor pagination on `(occurredAt, eventId)`
-- [ ] Gateway routes `/v1/events*`; restricted tier only for CA
-- [ ] Tests: VIEWER cannot see restricted; correlation chain ordering by causation
+- [x] `searchEvents`, `getEvent`, `getCorrelationChain`, `searchEventsForEntities` with mandatory tenant filter (repository wrapper rejects tenantless queries), cursor pagination on `(occurredAt, eventId)`
+- [x] Gateway routes `/v1/events*`; restricted tier only for CA
+- [x] Tests: VIEWER cannot see restricted; correlation chain ordering by causation
 
 #### FR-CLS-07 — Analyst override
 - [ ] `overrideClassification` with justification rule, `OVERRIDDEN`, history append, `classification.overridden`
@@ -3151,7 +3151,7 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 
 **Phase 6 exit evidence:** webhook from Phase 4 visible via `GET /v1/events?correlationId=` with lineage; masking demo with synthetic PAN; Mongo index listing.
 **Phase note:** slices 6a archive + Stage 1 + finalization + Mongo outbox + source-trust amendment; 6b queries; 6c override; 6d retention TTL. Spec `FR-EVT-CLS-events-archive-classification`.
-**Phase note:** status **`IN PROGRESS`**: slice 6a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06a](docs/evidence/phase-06a.md)).
+**Phase note:** status **`IN PROGRESS`**: slice 6a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06a](docs/evidence/phase-06a.md)); slice 6b `RUNTIME-VERIFIED` locally (2026-11-24, [phase-06b](docs/evidence/phase-06b.md); E2E 260/260 incl. the webhook-lineage and synthetic-PAN masking exit items).
 
 ---
 

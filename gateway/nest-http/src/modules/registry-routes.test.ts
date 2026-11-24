@@ -80,6 +80,7 @@ beforeAll(async () => {
     JWT_AUDIENCE: "aegispulse",
     INGESTION_URL: "http://ingestion:8081",
     FILES_URL: "http://files:8082",
+    EVENTS_URL: "http://events:8083",
     SERVICE_CLIENT_ID: "svc-gateway",
     SERVICE_CLIENT_SECRET: randomBytes(16).toString("hex"), // generated per run; never a literal
   } as Config;

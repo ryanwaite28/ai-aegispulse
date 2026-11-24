@@ -13,6 +13,7 @@ export const JSON_BODY_LIMIT = 256 * 1024;
 export const configSchema = platformEnvSchema.extend(authEnvSchema.shape).extend({
   INGESTION_URL: z.url().default("http://ingestion:8081"),
   FILES_URL: z.url().default("http://files:8082"),
+  EVENTS_URL: z.url().default("http://events:8083"),
 });
 export type Config = z.output<typeof configSchema>;
 
@@ -22,6 +23,7 @@ export const HEALTH = Symbol("HEALTH");
 export const REGISTRY = Symbol("REGISTRY");
 export const INGESTION = Symbol("INGESTION");
 export const FILES = Symbol("FILES");
+export const EVENTS = Symbol("EVENTS");
 
 /** §6.5 per-call timeouts: registry 1 s is too short for Argon2id actions (queued up to 10 s by the registry). */
 export const REGISTRY_TIMEOUT_MS = 3_000;

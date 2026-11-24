@@ -4,7 +4,7 @@
 |---|---|
 | Phase | 06 — Events Archive & Stage-1 Classification (`PROJECT.md` §11). FR-CLS-03..06 (scanner, Stage 2) are Phase 12 |
 | Owner runtime(s) | `services/events` (TS/Fastify, MongoDB); gateway `/v1/events*` |
-| Status | 6a RUNTIME-VERIFIED locally (2026-11-24); 6b–6d pending |
+| Status | 6a, 6b RUNTIME-VERIFIED locally (2026-11-24); 6c, 6d pending |
 | Slices | **6a** archive consumer + Stage 1 + finalization + Mongo outbox + source-trust amendment (FR-EVT-01..03, FR-CLS-01/02) · **6b** query APIs (FR-EVT-04..06) · **6c** analyst override (FR-CLS-07) · **6d** retention TTL (FR-EVT-07 part 1) |
 | Related | ADR-0004 (outbox), ADR-0008 (elevate-only), ADR-0009; §1.4.2, §1.4.3, §7.6; NFR-02 |
 
@@ -46,6 +46,21 @@
    - A duplicate `{tenantId, eventId}` in either tier aborts the transaction → ack as a duplicate (FR-EVT-02).
 8. **Outbox events** go on `aegispulse.enrichment` with `causationId` = the archived event id and the same correlationId. They carry the classification and entity mentions, never payload bodies.
 
+### Queries (6b; FR-EVT-04..06)
+- **Authorization:**
+  - `tenantAccess` with the contract roles (`searchEvents` and `getEvent` include COMPLIANCE_AUDITOR; the correlation chain does not). PLATFORM_ADMIN needs `X-Aegis-Tenant`.
+  - **Tier:** `restricted` is COMPLIANCE_AUDITOR-only (others → 403); the default and everyone else read `standard`. A restricted event requested in the standard tier → `404 EVENT_NOT_FOUND`, so its existence never leaks.
+- **Mandatory tenant filter:** `EventQueryRepository.scoped` refuses a missing tenant. There is no cross-tenant read path.
+- **`searchEvents`:**
+  - Filters: `correlationId`; `eventType` prefix (escaped regex); `finalSeverity` ≥ (`$in` of that level and above); `status`; `source`; `entity` (in `mentionedEntityIds`); `from` ≤ `occurredAt` < `to`.
+  - Order `occurredAt desc, eventId desc`, keyset cursor (base64url of `occurredAt|eventId`). `limit` 1–100, default 25.
+  - Returns `EventSummary`: no payload.
+- **`getEvent`:** `ArchivedEvent`, the summary plus the redacted payload, `redactions`, `payloadSha256`, `statusHistory`, `classificationHistory`, `replay` and `pendingAiScan`.
+- **`getCorrelationChain`:** the standard tier of one correlation (≤ 500), ordered causally by `domain/correlation.causalOrder`. Each event follows its cause when the cause is in the set; roots and siblings go by `(occurredAt, eventId)`; cycles are tolerated.
+- **`searchEventsForEntities`** (SERVICE, orchestrator `act[]`): tenant given explicitly, `mentionedEntityIds $in`, types exact or `prefix.*`, `occurredAt ≥ since`, newest first, `limit` ≤ 100.
+- **Views:** the contract classification includes `source_trust_level` (`EventClassification` extended with the amendment); null `algorithm_confidence` and `classifier_version` are omitted.
+- **Gateway:** `GET /v1/events`, `GET /v1/events/{eventId}?tier=`, `GET /v1/events/correlation/{correlationId}` via a typed `EventsClient`. A malformed path id → local 404; a bad `tier` → 422.
+
 ### Mongo outbox (6a; `outbox` collection, §7.6)
 `MongoOutboxRelay` atomically claims one due entry at a time with `findOneAndUpdate`: PENDING and due, or SENDING with a lapsed 30 s lease. It publishes through the kit `AmqpPublisher` (publisher confirms) and then marks SENT (TTL 7 d). A failure → PENDING with backoff `min(60 s, 2^attempts s)`, and the pass stops. Gauge `aegispulse_outbox_lag_seconds{store="mongo"}`.
 
@@ -55,4 +70,7 @@
 | Unit | `rules-v1.test.ts` | every baseline row incl. terminal families; secret/card/SSN/PII-key masking goldens with paths; MNPI; no false positives on uuids/hex/dates; p95 ≤ 5 ms over 2,000 runs |
 | Unit | `severity-resolver.test.ts` | exhaustive elevate-only (5×6×4×6×2 = 1,440 combinations): never below rule, final ≥ algorithm, AI only at ≥ 0.60, publisher only when TRUSTED; override wins |
 | Unit | `retention.test.ts`, `tenant-retention.test.ts` | 400/30-day and 7-year expiry; platform/tenantless/unknown → default without failing; registry outage propagates |
+| Unit | `correlation.test.ts` (6b) | cause before effects (depth-first, siblings by time); a cause outside the set → root; cycles; deterministic ties |
+| Integration (Mongo 8 replica set) | `query.integration.test.ts` (6b) | filters (correlation, prefix, severity ≥, source, time) + keyset pages + bad cursor 422; restricted tier: VIEWER/ANALYST/TENANT_ADMIN never see it (search excludes, `tier=restricted` 403, get 404), CA sees it masked; full lineage on get; other tenant 404; PA needs `X-Aegis-Tenant`; causal chain even when an effect's `occurredAt` is earlier than its cause; entity search (wildcard + exact types, other tenant empty, user 403); tenantless query refused |
+| E2E | `tests/e2e/events.e2e.test.ts` + role matrix Phase 6 (6b) | signed webhook → `GET /v1/events?correlationId=` with lineage (publisher HIGH, UNTRUSTED, algorithm/final MEDIUM) → `GET /v1/events/{id}` with status history → correlation chain webhook → `classification.scan.requested`; synthetic card → restricted tier, masked for CA, hidden from VIEWER (search empty, tier 403, get 404), tenant B empty |
 | Integration (Testcontainers Mongo 8 replica set + RabbitMQ 4, contract topology) | `archive.integration.test.ts` | 3× redelivery → 1 document; Stage 2 path + scan.requested relayed once; trusted vs untrusted publisher; terminal type emits nothing; RESTRICTED → restricted tier with masked payload, redactions, pre-redaction sha256, 7-year expiry; tenant retention; replay header updates only (never creates); non-JSON and schema-invalid → DLQ `ENVELOPE_INVALID`, retry count 0 |

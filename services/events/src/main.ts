@@ -1,10 +1,13 @@
 // events composition root: config → telemetry → logs → owned clients → probes → Mongo outbox relay → consumers → HTTP.
 // No business logic here: services own it; adapters only parse and dispatch.
 import { AmqpPublisher, amqpReadyCheck, createAmqpClient } from "@aegispulse/ts-platform/amqp";
-import { ServiceTokenProvider } from "@aegispulse/ts-platform/auth";
+import { JwtVerifier, ServiceTokenProvider } from "@aegispulse/ts-platform/auth";
 import { InternalServiceClient } from "@aegispulse/ts-platform/http-client";
 import { TenantSettingsCache } from "@aegispulse/ts-platform/tenant-settings";
 import { consumeArchive } from "./adapters/amqp/archive.consumer.js";
+import { registerEventRoutes } from "./adapters/http/events.routes.js";
+import { EventQueryRepository } from "./db/event-query.repository.js";
+import { EventQueryService } from "./service/event-query.service.js";
 import { ArchiveRepository } from "./db/archive.repository.js";
 import { MongoOutboxRepository } from "./db/outbox.repository.js";
 import { ArchiveService } from "./service/archive.service.js";
@@ -94,6 +97,12 @@ async function main(): Promise<void> {
 
   const app = createHttpServer({ logger });
   registerHealthRoutes(app, health);
+  const verifier = new JwtVerifier({
+    jwks: new URL("/.well-known/jwks.json", config.REGISTRY_URL),
+    issuer: config.JWT_ISSUER,
+    audience: config.JWT_AUDIENCE,
+  });
+  registerEventRoutes(app, verifier, new EventQueryService(new EventQueryRepository(db)));
   await app.listen({ host: "0.0.0.0", port: PORT });
   lifecycle
     .onShutdown("http", "fastify", () => app.close())

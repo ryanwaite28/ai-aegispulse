@@ -66,6 +66,7 @@ const IMPLEMENTED: Record<string, readonly string[]> = {
     "getFileDownloadUrl",
     "deleteFile",
   ],
+  "Phase 6": ["searchEvents", "getEvent", "getEventCorrelationChain"],
 };
 const implemented = new Set(Object.values(IMPLEMENTED).flat());
 const phase2 = Object.entries(routes).filter(([id]) => implemented.has(id));
@@ -86,7 +87,9 @@ describe("FR-AUTH-06 role matrix over the gateway", () => {
           .replace("{tenantId}", w.a.id)
           .replace("{userId}", RANDOM_ID)
           .replace("{id}", RANDOM_ID)
-          .replace("{fileId}", RANDOM_ID);
+          .replace("{fileId}", RANDOM_ID)
+          .replace("{eventId}", RANDOM_ID)
+          .replace("{correlationId}", "corr-e2e-none");
         const body = route.method === "GET" || route.method === "DELETE" ? undefined : {};
         const headers: Record<string, string> =
           role === ("PLATFORM_ADMIN" satisfies RoleName) ? { "x-aegis-tenant": w.a.id } : {};
