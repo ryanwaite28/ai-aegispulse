@@ -13,6 +13,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 5a file uploads (FR-FILE-01..04):
+  - **Files:** `V3__files` (files + status history, RLS); `initUpload` (type allowlist, 64 MiB single PUT, tenant status, Idempotency-Key, 60/min token bucket, Redis → DB dedup, 10 GiB storage quota, presigned PUT signing Content-Type/Length against `PUBLIC_OBJECTS_URL`, Redis session); `completeUpload` (session, HEAD, size, optimistic `INITIATED → UPLOADED`, outbox `file.uploaded` + `file.status.changed`); `abortUpload`. The outbox relay now runs in files.
+  - **Gateway:** `/v1/files/uploads/init|{id}/complete|{id}/abort` via a typed files client (201 new / 200 dedup).
+  - **Kit:** `tenantAccess` (§6.2 acting-tenant rule, the TS twin of the registry's) and `PLATFORM_TENANT_ID`.
+  - **Tests:** files integration 7/7 against real PostgreSQL, Redis (files ACL) and SeaweedFS (a real presigned PUT); gateway files routes; E2E `files.e2e.test.ts` and the role matrix's Phase 5 routes.
 - Phase 4c webhook maintenance (FR-WHK-08):
   - **Ingestion:** `expirePreviousSecrets` expires PREVIOUS secrets past 72 h and sweeps orphan raw objects. The sweep covers 7 days of per-tenant day prefixes and objects older than 1 h with no delivery row. `V5__webhook_maintenance` adds the definer functions (ADR-0016).
   - **Worker:** new `workers/scheduler-trigger` (Node CLI, SERVICE token, one action per job, exit codes 0/1/2), plus the compose `scheduler-trigger` tool and `make trigger JOB=ingestion-secret-expiry`.
@@ -186,6 +191,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 5 slice 5a `RUNTIME-VERIFIED` locally: files integration 7/7, E2E 213/213 ([phase-05a](docs/evidence/phase-05a.md)).
 - Phase 4 `RUNTIME-VERIFIED` locally: all §11 exit items captured (demo → 202 → broker, adversarial suite 192/192, rejection metric in OpenObserve); the exit waits on green pipelines ([phase-04](docs/evidence/phase-04.md)).
 - Phase 4 slice 4c `RUNTIME-VERIFIED` locally: `make trigger JOB=ingestion-secret-expiry` exit 0, E2E 192/192 ([phase-04c](docs/evidence/phase-04c.md)).
 - Phase 4 slice 4b `RUNTIME-VERIFIED` locally: E2E 192/192 incl. the adversarial webhook suite ([phase-04b](docs/evidence/phase-04b.md)).

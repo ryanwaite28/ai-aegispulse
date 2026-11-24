@@ -224,3 +224,46 @@ export class ServiceTokenProvider {
     return issued.accessToken;
   }
 }
+
+// ── Tenant-scoped authorization (FR-AUTH-06, §6.2) ─────────────────────────────
+
+/** FR-TEN-09 reserved tenant: never an acting tenant. */
+export const PLATFORM_TENANT_ID = "00000000-0000-0000-0000-000000000001";
+
+export interface TenantAccess {
+  /** The tenant the action runs in (own tenant, or the X-Aegis-Tenant target for PLATFORM_ADMIN). */
+  readonly tenantId: string;
+  /** Stable actor reference for audit/history: `user:{uuid}` or `integration:{clientId}`. */
+  readonly actor: string;
+  /** The user id for user principals; null for INTEGRATION accounts. */
+  readonly userId: string | null;
+  readonly roles: readonly string[];
+  readonly actingAsPlatformAdmin: boolean;
+}
+
+/**
+ * Same rule as the registry's TenantAccess (§6.2): the caller's roles must intersect `allowedRoles` (the contract's
+ * x-aegis-roles); PLATFORM_ADMIN must name the tenant with X-Aegis-Tenant (never the platform tenant → 404); any
+ * other principal sending the header → 403. SERVICE principals are refused (they use their own act[] actions).
+ */
+export function tenantAccess(
+  principal: Principal,
+  actingTenant: string | undefined,
+  allowedRoles: readonly string[],
+): TenantAccess {
+  if (principal.kind === "service") throw new DomainError("FORBIDDEN", "this action requires a tenant principal");
+  if (!principal.roles.some((r) => allowedRoles.includes(r))) {
+    throw new DomainError("FORBIDDEN", "role not allowed for this action");
+  }
+  const actor = principal.kind === "user" ? `user:${principal.userId}` : `integration:${principal.clientId}`;
+  const userId = principal.kind === "user" ? principal.userId : null;
+  if (principal.roles.includes("PLATFORM_ADMIN")) {
+    if (actingTenant === undefined) {
+      throw new DomainError("FORBIDDEN", "PLATFORM_ADMIN must name the tenant with X-Aegis-Tenant");
+    }
+    if (actingTenant === PLATFORM_TENANT_ID) throw new DomainError("NOT_FOUND", "tenant not found");
+    return { tenantId: actingTenant, actor, userId, roles: principal.roles, actingAsPlatformAdmin: true };
+  }
+  if (actingTenant !== undefined) throw new DomainError("FORBIDDEN", "X-Aegis-Tenant is for PLATFORM_ADMIN only");
+  return { tenantId: principal.tenantId, actor, userId, roles: principal.roles, actingAsPlatformAdmin: false };
+}

@@ -1,4 +1,4 @@
-// Redis client with the `files` ACL user (§5.7.3: keys `upload:*` only).
+// Redis client with the `files` ACL user (§5.7.3: keys `upload:*`, `file:*`, `quota:files:*`).
 import { Redis } from "ioredis";
 import type { Config } from "../config.js";
 

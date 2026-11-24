@@ -2873,7 +2873,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 2 | Registry: Tenancy, Identity & RBAC | IN PROGRESS (2a, 2b INTEGRATION-VERIFIED; 2c RUNTIME-VERIFIED locally; drill + pipeline pending) | [phase-02a](docs/evidence/phase-02a.md), [phase-02b](docs/evidence/phase-02b.md), [phase-02c](docs/evidence/phase-02c.md) |
 | 3 | Entities & Watchlists | IN PROGRESS (RUNTIME-VERIFIED locally; pipeline pending) | [phase-03](docs/evidence/phase-03.md) |
 | 4 | Webhook Ingestion | RUNTIME-VERIFIED locally (exit items captured; pipeline pending) | [phase-04](docs/evidence/phase-04.md) ([4a](docs/evidence/phase-04a.md), [4b](docs/evidence/phase-04b.md), [4c](docs/evidence/phase-04c.md)) |
-| 5 | Files Subsystem | PENDING | — |
+| 5 | Files Subsystem | IN PROGRESS (5a RUNTIME-VERIFIED locally) | [phase-05a](docs/evidence/phase-05a.md) |
 | 6 | Events Archive & Stage-1 Classification | PENDING | — |
 | 7 | Messaging Resilience & Dead Letters | PENDING | — |
 | 8 | Transactions, Scoring & Risk Cases (MVP slice) | PENDING | — |
@@ -3077,15 +3077,15 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 ### Phase 5 — Files Subsystem
 
 #### FR-FILE-01 / FR-FILE-02 / FR-FILE-03 — Upload initiation, dedup & quotas
-- [ ] Migration `V2__files.sql` (`files`, `file_status_history`, RLS, indexes §7.3)
-- [ ] `FileService.initUpload`: filename sanitizer, type allowlist, size bounds, dedup (Redis then DB), token-bucket quota, storage quota sum, session in Redis, presigned PUT (signed content-type/length) pointing at `PUBLIC_OBJECTS_URL`
-- [ ] Gateway `POST /v1/files/uploads/init`
-- [ ] Tests: dedup hit returns existing id; quota 429/413; filename `../../etc/passwd` sanitized and never used in key
+- [x] Migration `V3__files.sql` (`files`, `file_status_history`, RLS, indexes §7.3; numbered V3 because V2 is ADR-0016's RLS migration)
+- [x] `FileService.initUpload` (`FileUploadService`): filename sanitizer, type allowlist, size bounds, dedup (Redis then DB), token-bucket quota, storage quota sum, session in Redis, presigned PUT (signed content-type/length) pointing at `PUBLIC_OBJECTS_URL`
+- [x] Gateway `POST /v1/files/uploads/init`
+- [x] Tests: dedup hit returns existing id; quota 429/413; filename `../../etc/passwd` rejected by the contract pattern (422), sanitized in depth, and never used in the key
 
 #### FR-FILE-04 — Upload completion
-- [ ] `CompleteUploadUseCase`: session check, HEAD object, size check, transition `INITIATED→UPLOADED` (optimistic `version`), outbox `file.uploaded` + `file.status.changed`, session delete
-- [ ] Gateway `POST /v1/files/uploads/{fileId}/complete` and `/abort`
-- [ ] Tests: complete without PUT → 409; double complete idempotent; concurrent completes → single transition
+- [x] `CompleteUploadUseCase` (`FileUploadService.completeUpload`): session check, HEAD object, size check, transition `INITIATED→UPLOADED` (optimistic `version`), outbox `file.uploaded` + `file.status.changed`, session delete
+- [x] Gateway `POST /v1/files/uploads/{fileId}/complete` and `/abort`
+- [x] Tests: complete without PUT → 409; double complete idempotent; concurrent completes → single transition
 
 #### FR-FILE-05 — Validation consumer
 - [ ] Consumer adapter `files.validation.q` → `validateFile` service action; streaming SHA-256; magic-byte sniffing; ClamAV INSTREAM client behind `FILES_AV_ENABLED`; quarantine move
@@ -3113,7 +3113,8 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [ ] Tests: 200 MiB synthetic file upload through compose; each request < 100 MB
 
 **Phase 5 exit evidence:** `scripts/demo/upload.ts` init→PUT→complete→VALIDATED with `doc.file.ready` on broker; EICAR quarantine evidence; orphan sweep logs.
-**Phase note:** status `PENDING`.
+**Phase note:** migrations V3/V4 (V2 is ADR-0016's). Slices: 5a init/dedup/quotas/complete/abort; 5c validation consumer; 5d lifecycle + reads; 5e sweeps/retention; 5b multipart (§2.7's "Phase 5b") last. Spec `FR-FILE-01-13-files`.
+**Phase note:** status **`IN PROGRESS`**: slice 5a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-05a](docs/evidence/phase-05a.md); E2E 213/213).
 
 ---
 

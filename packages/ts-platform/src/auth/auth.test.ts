@@ -1,7 +1,15 @@
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
 import { DomainError } from "../errors/index.js";
-import { bearerToken, hasRole, JwtVerifier, ServiceTokenProvider } from "./index.js";
+import {
+  bearerToken,
+  hasRole,
+  JwtVerifier,
+  PLATFORM_TENANT_ID,
+  ServiceTokenProvider,
+  tenantAccess,
+  type Principal,
+} from "./index.js";
 
 const ISS = "aegispulse-registry";
 let privateKey: CryptoKey;
@@ -177,5 +185,57 @@ describe("ServiceTokenProvider (FR-TEN-07)", () => {
     expect(await provider.token()).toBe("t1");
     now = 841_000; // within 60 s of expiry
     expect(await provider.token()).toBe("t2");
+  });
+});
+
+describe("tenantAccess (FR-AUTH-06, §6.2 X-Aegis-Tenant)", () => {
+  const T = "8a92269a-91aa-4d80-b6fd-093a350304fe";
+  const user = (roles: string[], tenantId = T): Principal => ({
+    kind: "user",
+    userId: "11111111-1111-4111-8111-111111111111",
+    tenantId,
+    tenantSlug: "t",
+    roles,
+    tokenId: "x",
+  });
+  const allowed = ["INTEGRATION", "ANALYST", "TENANT_ADMIN", "PLATFORM_ADMIN"];
+  const code = (f: () => unknown): string => {
+    try {
+      f();
+      return "ok";
+    } catch (e: unknown) {
+      return (e as { code: string }).code;
+    }
+  };
+
+  it("tenant roles act on their own tenant; the header is PLATFORM_ADMIN-only", () => {
+    expect(tenantAccess(user(["ANALYST"]), undefined, allowed)).toMatchObject({
+      tenantId: T,
+      actingAsPlatformAdmin: false,
+    });
+    expect(code(() => tenantAccess(user(["ANALYST"]), T, allowed))).toBe("FORBIDDEN");
+    expect(code(() => tenantAccess(user(["VIEWER"]), undefined, allowed))).toBe("FORBIDDEN");
+  });
+
+  it("PLATFORM_ADMIN must name a tenant, never the platform tenant", () => {
+    const pa = user(["PLATFORM_ADMIN"], PLATFORM_TENANT_ID);
+    expect(tenantAccess(pa, T, allowed)).toMatchObject({ tenantId: T, actingAsPlatformAdmin: true });
+    expect(code(() => tenantAccess(pa, undefined, allowed))).toBe("FORBIDDEN");
+    expect(code(() => tenantAccess(pa, PLATFORM_TENANT_ID, allowed))).toBe("NOT_FOUND");
+  });
+
+  it("INTEGRATION accounts act as integration:{clientId}; SERVICE principals are refused", () => {
+    const integ: Principal = {
+      kind: "integration",
+      clientId: "int-feed",
+      tenantId: T,
+      tenantSlug: "t",
+      roles: ["INTEGRATION"],
+      tokenId: "x",
+    };
+    expect(tenantAccess(integ, undefined, allowed)).toMatchObject({ actor: "integration:int-feed", userId: null });
+    expect(code(() => tenantAccess({ kind: "service", clientId: "svc-x", actions: [] }, undefined, allowed))).toBe(
+      "FORBIDDEN",
+    );
   });
 });

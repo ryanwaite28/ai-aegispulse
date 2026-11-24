@@ -57,6 +57,7 @@ const IMPLEMENTED: Record<string, readonly string[]> = {
     "deleteWebhookSource",
     "listWebhookDeliveries",
   ],
+  "Phase 5": ["initUpload", "completeUpload", "abortUpload"],
 };
 const implemented = new Set(Object.values(IMPLEMENTED).flat());
 const phase2 = Object.entries(routes).filter(([id]) => implemented.has(id));
@@ -73,7 +74,11 @@ describe("FR-AUTH-06 role matrix over the gateway", () => {
       const allowed = route.roles.includes(role);
       it(`${id} (${route.method} ${route.path}) × ${role} → ${allowed ? "allowed" : "403"}`, async () => {
         const w = await world();
-        const path = route.path.replace("{tenantId}", w.a.id).replace("{userId}", RANDOM_ID).replace("{id}", RANDOM_ID);
+        const path = route.path
+          .replace("{tenantId}", w.a.id)
+          .replace("{userId}", RANDOM_ID)
+          .replace("{id}", RANDOM_ID)
+          .replace("{fileId}", RANDOM_ID);
         const body = route.method === "GET" || route.method === "DELETE" ? undefined : {};
         const headers: Record<string, string> =
           role === ("PLATFORM_ADMIN" satisfies RoleName) ? { "x-aegis-tenant": w.a.id } : {};

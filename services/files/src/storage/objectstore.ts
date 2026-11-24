@@ -12,6 +12,17 @@ export function createObjectStore(config: Config): S3Client {
   });
 }
 
+/** Signs presigned URLs for the host clients use (PUBLIC_OBJECTS_URL, §10.4); never sends requests itself. */
+export function createPresigner(config: Config): S3Client {
+  return new S3Client({
+    endpoint: config.PUBLIC_OBJECTS_URL,
+    region: config.S3_REGION,
+    forcePathStyle: config.S3_FORCE_PATH_STYLE,
+    credentials: { accessKeyId: config.S3_ACCESS_KEY_ID, secretAccessKey: config.S3_SECRET_ACCESS_KEY },
+    requestChecksumCalculation: "WHEN_REQUIRED",
+  });
+}
+
 export function bucketName(config: Config): string {
   return `${config.S3_BUCKET_PREFIX}-raw`;
 }

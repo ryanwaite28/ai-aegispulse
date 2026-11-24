@@ -16,6 +16,12 @@ const valid = {
   S3_SECRET_ACCESS_KEY: "s",
   S3_BUCKET_PREFIX: "aegispulse-local",
   CLAMAV_HOST: "clamav",
+  PUBLIC_OBJECTS_URL: "http://localhost:9000",
+  REGISTRY_URL: "http://registry:8084",
+  JWT_ISSUER: "aegispulse-registry",
+  JWT_AUDIENCE: "aegispulse",
+  SERVICE_CLIENT_ID: "svc-files",
+  SERVICE_CLIENT_SECRET: "0".repeat(32),
 };
 
 describe("files config (§6.9, §10.4, NFR-11)", () => {

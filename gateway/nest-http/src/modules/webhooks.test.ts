@@ -45,6 +45,7 @@ beforeAll(async () => {
     OTEL_SERVICE_NAMESPACE: "aegispulse",
     REGISTRY_URL: url,
     INGESTION_URL: url,
+    FILES_URL: url,
     JWT_ISSUER: "aegispulse-registry",
     JWT_AUDIENCE: "aegispulse",
     SERVICE_CLIENT_ID: "svc-gateway",

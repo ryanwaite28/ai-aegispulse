@@ -2,18 +2,20 @@
   "name": "@aegispulse/files",
   "version": "0.1.0",
   "private": true,
-  "description": "Files Service \u2014 upload lifecycle, validation, presign, sweeps (\u00a72.7). Phase 1e: skeleton (config, logs, traces, probes).",
+  "description": "Files Service — upload lifecycle, validation, presign, sweeps (§2.7). Phase 1e: skeleton (config, logs, traces, probes).",
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node --import @aegispulse/ts-platform/telemetry/register dist/main.js",
     "test": "vitest run --dir src",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:integration": "vitest run --dir tests/integration --testTimeout=60000"
   },
   "dependencies": {
     "@aegispulse/contracts": "workspace:*",
     "@aegispulse/ts-platform": "workspace:*",
     "@aws-sdk/client-s3": "3.1175.0",
+    "@aws-sdk/s3-request-presigner": "3.1175.0",
     "ioredis": "6.1.0",
     "pg": "8.23.1",
     "zod": "4.6.7"

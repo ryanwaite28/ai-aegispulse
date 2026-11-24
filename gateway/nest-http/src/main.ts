@@ -12,6 +12,7 @@ import { createLogger } from "@aegispulse/ts-platform/logging";
 import { startTelemetry } from "@aegispulse/ts-platform/telemetry";
 import { AppModule } from "./app.module.js";
 import { installBodyParsing } from "./common/body-parsing.js";
+import { FilesClient } from "./clients/files.client.js";
 import { IngestionClient } from "./clients/ingestion.client.js";
 import { RegistryClient } from "./clients/registry.client.js";
 import { configSchema, JSON_BODY_LIMIT, PORT, SERVICE, type Config } from "./config.js";
@@ -23,11 +24,12 @@ export async function createGateway(
   logger: ReturnType<typeof createLogger>,
   registry: RegistryClient = new RegistryClient(config),
   ingestion: IngestionClient = new IngestionClient(config, registry.gatewayToken),
+  files: FilesClient = new FilesClient(config),
 ): Promise<NestFastifyApplication> {
   const fastify = createHttpServer({ logger, bodyLimit: JSON_BODY_LIMIT, nestManaged: true });
   installBodyParsing(fastify);
   const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule.register({ config, verifier, health, registry, ingestion }),
+    AppModule.register({ config, verifier, health, registry, ingestion, files }),
     new FastifyAdapter(fastify as never),
     { logger: false, bodyParser: false },
   );
@@ -54,12 +56,14 @@ async function main(): Promise<void> {
   });
   const registry = new RegistryClient(config);
   const ingestion = new IngestionClient(config, registry.gatewayToken);
-  const app = await createGateway(config, verifier, health, logger, registry, ingestion);
+  const files = new FilesClient(config);
+  const app = await createGateway(config, verifier, health, logger, registry, ingestion, files);
   await app.listen({ host: "0.0.0.0", port: PORT });
   lifecycle
     .onShutdown("http", "nest", () => app.close())
     .onShutdown("pools", "registry", () => registry.close())
     .onShutdown("pools", "ingestion", () => ingestion.close())
+    .onShutdown("pools", "files", () => files.close())
     .onShutdown("telemetry", "otel", () => telemetry.shutdown());
   health.markRunning();
   logger.info({ port: PORT }, "gateway ready");
