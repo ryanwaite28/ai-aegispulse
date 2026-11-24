@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-23 (JVM heap 50%; ADR-0017 SERVICE secret reconciliation; client-credentials rate limit; JWKS source; changePassword session keep; `registry.tenant.deactivated`; FR-TEN-09) |
+| **Last updated** | 2026-11-24 (§5.1 CronJob `aegispulse-cron-secret-expiry`, 9 CronJobs; §5.7.3 ingestion object-store list grant for FR-WHK-08) · 2026-11-23 (JVM heap 50%; ADR-0017 SERVICE secret reconciliation; client-credentials rate limit; JWKS source; changePassword session keep; `registry.tenant.deactivated`; FR-TEN-09) |
 
 ---
 
@@ -836,7 +836,7 @@ Pattern: `aegispulse-{component}[-{descriptor}]`.
 | Namespace | `aegispulse` (prod), `aegispulse-dev` (dev); restore drills: `aegispulse-restore-test` |
 | Deployment / Service | `aegispulse-gateway`, `aegispulse-cases` |
 | StatefulSet | `aegispulse-postgres`, `aegispulse-mongo`, `aegispulse-redis`, `aegispulse-objectstore` |
-| CronJob | `aegispulse-cron-connectors`, `aegispulse-cron-file-sweep`, `aegispulse-cron-rollups-15m`, `aegispulse-cron-rollups-nightly`, `aegispulse-cron-backup-postgres`, `aegispulse-cron-backup-mongo`, `aegispulse-cron-audit-verify`, `aegispulse-cron-retention` |
+| CronJob | `aegispulse-cron-connectors`, `aegispulse-cron-file-sweep`, `aegispulse-cron-rollups-15m`, `aegispulse-cron-rollups-nightly`, `aegispulse-cron-backup-postgres`, `aegispulse-cron-backup-mongo`, `aegispulse-cron-audit-verify`, `aegispulse-cron-retention`, `aegispulse-cron-secret-expiry` (hourly, job `ingestion-secret-expiry`, FR-WHK-08) |
 | Migration Job | `aegispulse-migrate-{service}-{shortsha}` |
 | ServiceAccount | `aegispulse-{component}` (+ `aegispulse-ci-deployer`) |
 | Secret (Infisical-managed) | `aegispulse-{component}-secrets` |
@@ -876,7 +876,7 @@ metadata:
 | Ingress | `aegispulse-objects` → `aegispulse-objects.rmwhs.com` (prod) / `aegispulse-objects.rmwhs-dev.space` (dev) | object store S3 API for presigned PUT/GET only (`proxy-body-size: 100m`) |
 | Deployments | 12 (§5.4) | application runtimes |
 | StatefulSets | postgres, mongo, redis, objectstore | data stores pinned to the storage node `optiplex-tower` (`dedicated: storage`) |
-| CronJobs | 8 (§5.1) | schedules via `workers/scheduler-trigger` and backup images |
+| CronJobs | 9 (§5.1) | schedules via `workers/scheduler-trigger` and backup images |
 | Jobs | per-service Flyway migrations, Mongo index migrations, RabbitMQ topology assert, seed (dev: all seed tenants; prod: demo tenant only) | pre-rollout |
 | PVCs (`local-path`) | postgres 20Gi, mongo 20Gi, redis 1Gi, objectstore 60Gi, clamav-db 2Gi (`optiplex`, required worker affinity) | persistent data; storage-tier PVs live on `optiplex-tower`'s data SSD |
 | NetworkPolicies | default-deny ingress+egress; explicit allows (§5.7.5) | zero-trust network |
@@ -986,7 +986,7 @@ No role has cross-schema privileges; RLS enabled with `FORCE ROW LEVEL SECURITY`
 | Redis ACL `registry` | `~auth:* ~ratelimit:auth:*` |
 | RabbitMQ user per service | configure: `^$` (topology asserted by migration Job user `aegis_topology`), write: owning exchanges + `aegispulse.retry` + `aegispulse.dlx`, read: own queues only |
 | Object store `files` | `raw/*`, `quarantine/*`, `artifacts/*` (read) on its buckets; presign rights |
-| Object store `ingestion` | `aegispulse-{env}-raw/raw/webhooks/*` write |
+| Object store `ingestion` | `aegispulse-{env}-raw/raw/webhooks/*` read, write (incl. delete) and list, prefix-scoped (FR-WHK-08 orphan sweep) |
 | Object store `doc_extraction` | `artifacts/*` write; reads raw only via Files-issued presigned URLs |
 | Object store `events` | `aegispulse-{env}-archive/*` write |
 | Object store `data_intel` | `aegispulse-{env}-analytics/*` RW |
@@ -2872,7 +2872,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 1 | Contracts, Platform Kits & Data Foundations | IN PROGRESS: slice 1a INTEGRATION-VERIFIED (contracts + data foundations); slices 1a–1e INTEGRATION-VERIFIED; all 12 runtimes `/readyz` 200 locally; health-request traces in OpenObserve; remaining exit evidence: commit + green first GitLab pipeline | [phase-01a](docs/evidence/phase-01a.md), [phase-01b](docs/evidence/phase-01b.md), [phase-01c](docs/evidence/phase-01c.md), [phase-01d](docs/evidence/phase-01d.md), [phase-01e](docs/evidence/phase-01e.md) |
 | 2 | Registry: Tenancy, Identity & RBAC | IN PROGRESS (2a, 2b INTEGRATION-VERIFIED; 2c RUNTIME-VERIFIED locally; drill + pipeline pending) | [phase-02a](docs/evidence/phase-02a.md), [phase-02b](docs/evidence/phase-02b.md), [phase-02c](docs/evidence/phase-02c.md) |
 | 3 | Entities & Watchlists | IN PROGRESS (RUNTIME-VERIFIED locally; pipeline pending) | [phase-03](docs/evidence/phase-03.md) |
-| 4 | Webhook Ingestion | IN PROGRESS (4a, 4b RUNTIME-VERIFIED locally) | [phase-04a](docs/evidence/phase-04a.md), [phase-04b](docs/evidence/phase-04b.md) |
+| 4 | Webhook Ingestion | IN PROGRESS (4a, 4b RUNTIME-VERIFIED locally; 4c RUNTIME-VERIFIED locally) | [phase-04a](docs/evidence/phase-04a.md), [phase-04b](docs/evidence/phase-04b.md), [phase-04c](docs/evidence/phase-04c.md) |
 | 5 | Files Subsystem | PENDING | — |
 | 6 | Events Archive & Stage-1 Classification | PENDING | — |
 | 7 | Messaging Resilience & Dead Letters | PENDING | — |
@@ -3065,12 +3065,12 @@ Mapping to the source roadmap ([docs/AEGIS_PULSE.md §8](docs/AEGIS_PULSE.md)): 
 - [x] Tests: integration (compose) — accepted webhook appears on a test queue bound to `external.#` exactly once after 3 relay restarts; duplicate externalId → `duplicate:true`
 
 #### FR-WHK-08 — Secret expiry & raw-object sweep
-- [ ] `expirePreviousSecrets` + orphan raw-object sweep; scheduler-trigger job `ingestion-secret-expiry` (hourly)
-- [ ] Tests: clock-controlled expiry; orphan object deleted, referenced object retained
+- [x] `expirePreviousSecrets` + orphan raw-object sweep (`V5__webhook_maintenance.sql` definer functions); scheduler-trigger job `ingestion-secret-expiry` (hourly; CronJob `aegispulse-cron-secret-expiry`, §5.1) in `workers/scheduler-trigger`, run locally with `make trigger JOB=ingestion-secret-expiry` (the k8s CronJob ships with the Phase 9 CronJob item)
+- [x] Tests: clock-controlled expiry; orphan object deleted, referenced object retained
 
 **Phase 4 exit evidence:** signed webhook via `scripts/demo/webhook-sign.ts` → 202 → message observed on broker; adversarial suite report; OpenObserve rejection metric screenshot.
-**Phase note:** migrations are V3/V4 (V2 is ADR-0016's `enforced_rls_bypass`). Delivered in slices: 4a sources + secret crypto; 4b verification, persistence, outbox, gateway webhook route, adversarial suite; 4c expiry + sweep. Spec `FR-WHK-01-08-webhook-ingestion`.
-**Phase note:** status **`IN PROGRESS`**: slice 4a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04a](docs/evidence/phase-04a.md); E2E 183/183); slice 4b `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04b](docs/evidence/phase-04b.md); E2E 192/192 incl. the adversarial suite). Phase exit still needs the demo → broker capture, the rejection-metric screenshot, and slice 4c.
+**Phase note:** migrations are V3/V4 (V2 is ADR-0016's `enforced_rls_bypass`), plus `V5__webhook_maintenance` (FR-WHK-08 definer functions; no table changes). Delivered in slices: 4a sources + secret crypto; 4b verification, persistence, outbox, gateway webhook route, adversarial suite; 4c expiry + sweep. Spec `FR-WHK-01-08-webhook-ingestion`.
+**Phase note:** status **`IN PROGRESS`**: slice 4a `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04a](docs/evidence/phase-04a.md); E2E 183/183); slice 4b `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04b](docs/evidence/phase-04b.md); E2E 192/192 incl. the adversarial suite). Slice 4c `RUNTIME-VERIFIED` locally (2026-11-24, [phase-04c](docs/evidence/phase-04c.md); `make trigger` exit 0). Phase exit still needs the demo → broker capture, the rejection-metric screenshot, and the pipeline.
 
 ---
 

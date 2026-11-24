@@ -3,14 +3,21 @@
 // Tenant status is a port (the registry call is covered by the compose E2E).
 import { randomBytes, randomUUID } from "node:crypto";
 import { Writable } from "node:stream";
-import { CreateBucketCommand, GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  CreateBucketCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { Redis } from "ioredis";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AmqpPublisher, createAmqpClient, type AegisAmqpClient } from "@aegispulse/ts-platform/amqp";
 import type { ServicePrincipal, UserPrincipal } from "@aegispulse/ts-platform/auth";
 import { IdempotencyRepository } from "@aegispulse/ts-platform/idempotency";
 import { createLogger } from "@aegispulse/ts-platform/logging";
-import { OutboxRelay, OutboxRepository } from "@aegispulse/ts-platform/outbox";
+import { OutboxRelay, OutboxRepository, withTenantTransaction } from "@aegispulse/ts-platform/outbox";
 import {
   bindTestQueue,
   drainQueue,
@@ -24,12 +31,15 @@ import {
   type RedisEnv,
 } from "../../../../packages/ts-platform/tests/integration/env.js";
 import { WebhookDeliveryRepository } from "../../src/db/webhook-deliveries.repository.js";
+import { WebhookMaintenanceRepository } from "../../src/db/webhook-maintenance.repository.js";
+import { rawWebhookKey } from "../../src/domain/raw-objects.js";
 import { WebhookSourceRepository } from "../../src/db/webhook-sources.repository.js";
 import { parseKek } from "../../src/domain/crypto.js";
 import { sign } from "../../src/domain/signature.js";
 import { IngestWebhookUseCase, type IngestInput } from "../../src/service/orchestrators/ingest-webhook.usecase.js";
 import { WebhookSourceService } from "../../src/service/webhook-source.service.js";
-import { RedisNonceStore, S3RawStore } from "../../src/storage/webhook-infra.js";
+import { RedisNonceStore, S3RawStore, S3RawSweeper } from "../../src/storage/webhook-infra.js";
+import { WebhookMaintenanceService } from "../../src/service/webhook-maintenance.service.js";
 
 const logger = createLogger({
   service: "ingestion",
@@ -355,6 +365,105 @@ describe("webhook ingest (FR-WHK-02..05)", () => {
       ).toBe(false);
     } finally {
       nowMs = Date.parse("2026-11-24T12:00:00Z");
+    }
+  });
+});
+
+describe("webhook maintenance (FR-WHK-08)", () => {
+  const scheduler: ServicePrincipal = {
+    kind: "service",
+    clientId: "svc-scheduler-trigger",
+    actions: ["ingestion.expirePreviousSecrets"],
+  };
+  let maintenanceNow = new Date();
+  const maintenance = (): WebhookMaintenanceService =>
+    new WebhookMaintenanceService({
+      pool: db.pool,
+      repository: new WebhookMaintenanceRepository(),
+      objects: new S3RawSweeper(s3, BUCKET),
+      logger,
+      now: () => maintenanceNow,
+    });
+  const slots = (tenant: string, sourceId: string): Promise<string[]> =>
+    withTenantTransaction(db.pool, tenant, async (tx) =>
+      (
+        await tx.query<{ slot: string }>(
+          "SELECT slot FROM ingestion.webhook_secrets WHERE source_id = $1 ORDER BY slot",
+          [sourceId],
+        )
+      ).rows.map((r) => r.slot),
+    );
+  const exists = (key: string): Promise<boolean> =>
+    s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key })).then(
+      () => true,
+      () => false,
+    );
+
+  it("FR-WHK-08 expires PREVIOUS secrets only after 72 h (controlled clock) and never CURRENT", async () => {
+    const tenant = randomUUID();
+    const src = await sources.create(ta(tenant), undefined, {
+      sourceKey: `exp-${randomUUID().slice(0, 8)}`,
+      displayName: "E",
+    });
+    await sources.rotate(ta(tenant), undefined, src.id); // PREVIOUS expires at nowMs + 72 h
+    maintenanceNow = new Date(nowMs + 71 * 3600 * 1000);
+    await maintenance().expirePreviousSecrets(scheduler);
+    expect(await slots(tenant, src.id)).toEqual(["CURRENT", "PREVIOUS"]);
+    maintenanceNow = new Date(nowMs + 72 * 3600 * 1000 + 1000);
+    const run = await maintenance().expirePreviousSecrets(scheduler);
+    expect(run.processedCount).toBeGreaterThanOrEqual(1);
+    expect(Date.parse(run.finishedAt)).toBeGreaterThanOrEqual(Date.parse(run.startedAt));
+    expect(await slots(tenant, src.id)).toEqual(["CURRENT"]);
+    expect(await code(maintenance().expirePreviousSecrets(ta(tenant)))).toBe("FORBIDDEN"); // user tokens never
+  });
+
+  it("FR-WHK-08 deletes orphan raw objects older than 1 h and keeps referenced, young and foreign-shaped ones", async () => {
+    const realNow = Date.now();
+    nowMs = realNow; // objects get real LastModified times; key days follow the same clock
+    try {
+      const tenant = randomUUID();
+      const src = await sources.create(ta(tenant), undefined, {
+        sourceKey: `swp-${randomUUID().slice(0, 8)}`,
+        displayName: "S",
+      });
+      await usecase.execute(gateway, delivery(src.sourceKey, src.signingSecret, event(`swp-${randomUUID()}`)));
+      const referenced = await withTenantTransaction(db.pool, tenant, async (tx) => {
+        const r = await tx.query<{ k: string }>("SELECT raw_storage_key AS k FROM ingestion.webhook_deliveries");
+        return r.rows[0]?.k ?? "";
+      });
+      expect(referenced).toMatch(/^raw\/webhooks\//);
+      const orphan = rawWebhookKey(tenant, new Date(realNow), randomUUID()); // PUT succeeded, TX never committed
+      const foreign = `raw/webhooks/${tenant}/${new Date(realNow).toISOString().slice(0, 10).replaceAll("-", "/")}/notes.txt`;
+      for (const key of [orphan, foreign]) {
+        await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: "{}" }));
+      }
+
+      maintenanceNow = new Date(realNow + 30 * 60 * 1000); // 30 min later: everything is still young
+      await maintenance().expirePreviousSecrets(scheduler);
+      expect(await exists(orphan)).toBe(true);
+
+      maintenanceNow = new Date(realNow + 2 * 3600 * 1000);
+      const run = await maintenance().expirePreviousSecrets(scheduler);
+      expect(run.processedCount).toBeGreaterThanOrEqual(1);
+      expect(await exists(orphan)).toBe(false);
+      expect(await exists(referenced)).toBe(true);
+      expect(await exists(foreign)).toBe(true);
+      await maintenance().expirePreviousSecrets(scheduler); // idempotent re-run
+      expect(await exists(referenced)).toBe(true);
+    } finally {
+      nowMs = Date.parse("2026-11-24T12:00:00Z");
+    }
+  });
+
+  it("FR-WHK-08 the ingestion identity may list raw/webhooks/ only", async () => {
+    const page = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: "raw/webhooks/" }));
+    expect(page.$metadata.httpStatusCode).toBe(200);
+    for (const prefix of ["raw/", "raw/files/", ""]) {
+      const denied = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix })).then(
+        () => "listed",
+        (e: unknown) => (e as { name?: string }).name ?? "error",
+      );
+      expect({ prefix, denied }).toEqual({ prefix, denied: "AccessDenied" });
     }
   });
 });

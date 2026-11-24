@@ -4,7 +4,7 @@
 |---|---|
 | Phase | 04 — Webhook Ingestion (`PROJECT.md` §11). FR-WHK-06 attachments is Phase 11 |
 | Owner runtime(s) | `services/ingestion` (TS/Fastify); gateway `POST /webhooks/:sourceKey`, `/v1/webhook-sources*` |
-| Status | 4a RUNTIME-VERIFIED locally (2026-11-24); 4b RUNTIME-VERIFIED locally (2026-11-24, E2E 192/192); 4c pending |
+| Status | 4a RUNTIME-VERIFIED locally (2026-11-24); 4b RUNTIME-VERIFIED locally (2026-11-24, E2E 192/192); 4c RUNTIME-VERIFIED locally (2026-11-24) |
 | Slices | **4a** source management + secret crypto · **4b** signature verification, delivery persistence, outbox → `aegispulse.ingress`, gateway webhook route, adversarial suite · **4c** secret expiry + orphan sweep + scheduler trigger |
 | Related | ADR-0002, ADR-0004 (outbox), ADR-0009 (pointers only), ADR-0010, ADR-0016 (definer lookups); NFR-02, NFR-06, NFR-08 |
 
@@ -60,14 +60,20 @@
 - The outbox relay publishes to `aegispulse.ingress` with publisher confirms.
 
 ### Expiry and sweep (FR-WHK-08; 4c)
-`expirePreviousSecrets` (scheduler-trigger SERVICE token, hourly CronJob `ingestion-secret-expiry`):
-- deletes PREVIOUS secrets past `expires_at` (definer function, cross-tenant);
-- deletes raw objects under `raw/webhooks/` older than 1 h that have no delivery row;
-- returns a `JobRunSummary`.
+`expirePreviousSecrets` (scheduler-trigger SERVICE token, hourly job `ingestion-secret-expiry`; user tokens → 403 `FORBIDDEN`):
+- **Expiry:** `ingestion.expire_previous_webhook_secrets(now)` deletes PREVIOUS secrets with `expires_at <= now`, across tenants (definer). CURRENT is never touched. An expired PREVIOUS already stops verifying (FR-WHK-07), so this is storage hygiene.
+- **Orphan sweep** (`src/domain/raw-objects.ts`, `S3RawSweeper`):
+  - For every tenant with a source (definer `webhook_source_tenants()`, soft-deleted sources included), list the prefixes `raw/webhooks/{tenant}/{yyyy}/{mm}/{dd}/` for the last 7 UTC days. Listing stays bounded as raw bodies accumulate, and a job outage of up to a week is still caught.
+  - Candidates: keys with the service's own shape (`{uuid}.json`) whose `LastModified` is more than 1 h old. A younger object may belong to a delivery transaction still in flight.
+  - The definer `unreferenced_raw_keys(keys[])` returns the candidates no delivery row references, and only those are deleted (`DeleteObjects`, ≤ 1000 per call).
+- Every step is safe to repeat. Returns `JobRunSummary{processedCount = secrets expired + objects deleted, startedAt, finishedAt}`.
+- **Object-store grant** (§5.7.3): the `ingestion` identity gains `List` scoped to `raw/webhooks/*`. In SeaweedFS `Write` already covers delete. Listing any other prefix is denied (integration-tested).
+- **scheduler-trigger** (`workers/scheduler-trigger`): a Node CLI, `node dist/main.js <job>`. It gets its SERVICE token from the registry, calls one action with `{}`, logs the summary, and exits 0 on success, 1 when the call fails, and 2 on a usage or config error. It has no datastore access. Locally: `make trigger JOB=ingestion-secret-expiry`. The k8s CronJob ships with Phase 9.
 
 ## 3. Data
 - **`V3__webhook_sources.sql`:** `webhook_sources` and `webhook_secrets` (§7.2) under RLS, plus the definer functions `webhook_source_key_taken(text)` and `webhook_source_for_delivery(text)`.
 - **`V4__webhook_deliveries.sql`** (4b): `webhook_deliveries` (§7.2) under RLS.
+- **`V5__webhook_maintenance.sql`** (4c): the three FR-WHK-08 definer functions above, owned by `ingestion_platform`, EXECUTE for `svc_ingestion` only (ADR-0016). No table changes.
 
 ## 4. Tests
 Demo: `scripts/demo/webhook-sign.mts` (the §11 exit item names `webhook-sign.ts`; `.mts` so Node runs it directly, like `scripts/dev/seed.mts`). The secret comes from `WEBHOOK_SECRET`, never an argument.
@@ -81,4 +87,6 @@ Demo: `scripts/demo/webhook-sign.mts` (the §11 exit item names `webhook-sign.ts
 | Integration | `ingest.integration.test.ts` (4b) | 202 → envelope on a test queue bound to `external.#` exactly once across relay restarts; duplicate externalId → `duplicate: true`, no event |
 | Unit | gateway `webhooks.test.ts` (4b) | raw bytes forwarded byte-exact with the gateway SERVICE token; 1 MiB only on the webhook route; strict parsing elsewhere |
 | Security | `tests/security/webhooks.spec.ts` (4b) | adversarial: wrong secret, truncated signature, skew ±301 s, replayed id, oversize, malformed JSON, missing headers → codes |
-| Integration | expiry/sweep (4c) | clock-controlled expiry; orphan deleted, referenced object kept |
+| Unit | `raw-objects.test.ts` (4c) | §7.8 key shape; UTC day prefixes across month ends; 1 h age rule; foreign-shaped keys never candidates |
+| Unit | scheduler-trigger `jobs.test.ts` (4c) | job → action; every job's action is on the svc-scheduler-trigger allowlist; unknown jobs refused |
+| Integration | expiry/sweep (4c, in `ingest.integration.test.ts`) | clock-controlled expiry (71 h kept, 72 h deleted, CURRENT kept); orphan deleted, referenced, young and foreign-shaped objects kept; re-run idempotent; user token 403; the identity can list `raw/webhooks/` only |

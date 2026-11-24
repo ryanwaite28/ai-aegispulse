@@ -13,6 +13,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 4c webhook maintenance (FR-WHK-08):
+  - **Ingestion:** `expirePreviousSecrets` expires PREVIOUS secrets past 72 h and sweeps orphan raw objects. The sweep covers 7 days of per-tenant day prefixes and objects older than 1 h with no delivery row. `V5__webhook_maintenance` adds the definer functions (ADR-0016).
+  - **Worker:** new `workers/scheduler-trigger` (Node CLI, SERVICE token, one action per job, exit codes 0/1/2), plus the compose `scheduler-trigger` tool and `make trigger JOB=ingestion-secret-expiry`.
+  - **Object store:** the `ingestion` identity can now list `raw/webhooks/*` (prefix-scoped; other prefixes denied).
 - Phase 4b webhook ingestion (FR-WHK-02..05):
   - **Ingestion:** `V4__webhook_deliveries` (RLS; definer `webhook_source_for_delivery`). `IngestWebhookUseCase`: source → tenant status → HMAC over `{ts}.{deliveryId}.{raw}` against CURRENT and PREVIOUS (every pair compared with `timingSafeEqual`) → ±300 s skew → Redis nonce → `AEGIS_MARKET_EVENT_V1` validation → raw object PUT → delivery row + outbox envelope on `aegispulse.ingress`; a repeated idempotency key records `DUPLICATE` and emits nothing. Rejections count in `aegispulse_webhook_rejected_total{source,reason}`; logs never carry the body.
   - **Gateway:** public `POST /webhooks/:sourceKey` forwards the raw bytes (1 MiB route limit; 256 KiB strict JSON elsewhere) with its own SERVICE token; `GET /v1/webhook-sources/:id/deliveries` (metadata only).
@@ -138,6 +142,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- PROJECT.md §5.1/§5.3: adds CronJob `aegispulse-cron-secret-expiry` (hourly `ingestion-secret-expiry`, FR-WHK-08), so there are now 9 CronJobs. §5.1 had no name for the job §11 requires (owner-approved amendment). Each run requests 50m CPU / 64Mi, as for every CronJob in §5.4.
+- PROJECT.md §5.7.3: the object-store `ingestion` row now reads read/write (incl. delete)/list on `raw/webhooks/*`, as FR-WHK-08's sweep requires (clarification).
 - Phase 4 migrations renumbered to V3/V4 (V2 is ADR-0016). Spec `FR-WHK-01-08-webhook-ingestion` (secret envelope encryption with AES-KW-wrapped data keys, verification order, slices 4a–4c).
 - PROJECT.md Phase 3 migrations renumbered to V7/V8 (Phase 2 took V3–V6), which completes the approved renumbering. Spec `FR-ENT-01-05-entities-watchlists`.
 - PROJECT.md §3 amendment (approved): JVM `-XX:MaxRAMPercentage` 70 → 50 for all Java runtimes (Dockerfile + sre skill). Measured on the local stack: at 70% the 768Mi registry crash-looped (non-heap ≈ 290 MiB); at 50% it peaked at 667 MiB under 80×16 concurrent token requests.
@@ -177,6 +183,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - ADR-0014: `dev` (`aegispulse-dev`, `*.rmwhs-dev.space`) and `prod` (`aegispulse`, `*.rmwhs.com`) environments on the same cluster and Cloudflare tunnel. `main` auto-deploys to dev, and prod receives the same digests by manual or tag promotion. Active DAST, chaos, and resets are dev only. Applied across PROJECT.md, CLAUDE.md, ADR-0006/0007/0012, skills, and evidence templates.
 
 ### Status
+- Phase 4 slice 4c `RUNTIME-VERIFIED` locally: `make trigger JOB=ingestion-secret-expiry` exit 0, E2E 192/192 ([phase-04c](docs/evidence/phase-04c.md)).
 - Phase 4 slice 4b `RUNTIME-VERIFIED` locally: E2E 192/192 incl. the adversarial webhook suite ([phase-04b](docs/evidence/phase-04b.md)).
 - Phase 2 slice 2a `INTEGRATION-VERIFIED` (tenants, users, platform bootstrap): 24 unit + 13 integration tests; V3/V4 applied locally; registry `/readyz` 200 at schema 4 — [evidence](docs/evidence/phase-02a.md). Local bootstrap runtime-verified (create, then no-op; event relayed).
 - Phase 1 slice 1b (`ts-platform`) `INTEGRATION-VERIFIED`: 46 unit + 19 Testcontainers integration tests against PostgreSQL 18.7 (as `svc_files`, under RLS) and RabbitMQ 4.4.1 (configure-`^$` runtime user) — [evidence](docs/evidence/phase-01b.md). It was briefly paused on `rxjs-rabbitmq` 2.2.3; the owner's 3.0.0 was reviewed and accepted ([review](docs/evidence/rxjs-rabbitmq-3.0.0-review.md)).

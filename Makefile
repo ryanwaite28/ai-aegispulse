@@ -126,8 +126,9 @@ demo: ## End-to-end demo scenario
 	$(call not_yet,Phase 20)
 chaos: ## Chaos scenario (SCENARIO=name; dev/local only)
 	$(call not_yet,Phase 18)
-trigger: ## Run a scheduler-trigger job locally (JOB=name)
-	$(call not_yet,Phase 4+)
+trigger: ## Run a scheduler-trigger job against the local stack (JOB=name, e.g. ingestion-secret-expiry)
+	@test -n "$(JOB)" || { echo "usage: make trigger JOB=<job>" >&2; exit 2; }
+	$(COMPOSE) --profile tools run --rm --build scheduler-trigger $(JOB)
 k3d-up k3d-down: ## Optional k3d parity cluster
 	$(call not_yet,Phase 9)
 env-sleep env-wake env-reset: ## Dev namespace sleep/wake/reset (refuses prod)

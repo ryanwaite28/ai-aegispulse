@@ -222,6 +222,32 @@ services:
       rabbitmq: { condition: service_healthy }
     restart: "no"
 
+  # scheduler-trigger (§5.1 CronJobs locally): `make trigger JOB=<job>` — one SERVICE-token call, then exit.
+  scheduler-trigger:
+    profiles: [tools]
+    image: aegispulse-scheduler-trigger:local
+    build:
+      context: ../..
+      dockerfile: deploy/docker/node-service.Dockerfile
+      args:
+        SERVICE: scheduler-trigger
+        MAX_OLD_SPACE_MB: 64
+        GIT_SHA: ${GIT_SHA:-dev}
+    environment:
+      AEGIS_ENV: local
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_SDK_DISABLED: "true"
+      REGISTRY_URL: http://registry:8084
+      INGESTION_URL: http://ingestion:8081
+      SERVICE_CLIENT_ID: svc-scheduler-trigger
+      SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET_SCHEDULER_TRIGGER:-} # empty → exit 2 naming the variable
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    restart: "no"
+
   # ---------- application runtimes (Phase 1e skeletons; PROJECT.md §5.4) ----------
   # Each runtime gets only its own credentials (interpolated from ../../.env), runs non-root with a read-only root FS
   # (tmpfs /tmp), drops all capabilities, and is probed from the host on 127.0.0.1:<port>/readyz by compose-wait.sh.

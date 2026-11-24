@@ -13,6 +13,7 @@ import { getMeter } from "@aegispulse/ts-platform/telemetry";
 import { open, type Kek } from "../../domain/crypto.js";
 import { buildWebhookEnvelope, idempotencyKey } from "../../domain/envelope-builder.js";
 import { marketEventV1 } from "../../domain/market-event.js";
+import { rawWebhookKey } from "../../domain/raw-objects.js";
 import { parseHeaders, verify, withinSkew, type Candidate } from "../../domain/signature.js";
 import type { SecretSlot } from "../../domain/webhook-source.js";
 import type { DeliveryRecord, WebhookDeliveryRepository } from "../../db/webhook-deliveries.repository.js";
@@ -137,8 +138,7 @@ export class IngestWebhookUseCase {
 
     // 7. raw body to object storage, before the transaction (orphans are swept, FR-WHK-08)
     const deliveryUuid = randomUUID();
-    const day = new Date(now).toISOString().slice(0, 10).split("-");
-    const rawStorageKey = `raw/webhooks/${source.tenantId}/${day[0] ?? ""}/${day[1] ?? ""}/${day[2] ?? ""}/${deliveryUuid}.json`;
+    const rawStorageKey = rawWebhookKey(source.tenantId, new Date(now), deliveryUuid);
     const rawSha256 = createHash("sha256").update(raw).digest("hex");
     await this.deps.raw.put(rawStorageKey, raw, rawSha256);
 

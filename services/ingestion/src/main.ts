@@ -18,11 +18,14 @@ import { createLogger } from "@aegispulse/ts-platform/logging";
 import { IdempotencyRepository } from "@aegispulse/ts-platform/idempotency";
 import { OutboxRelay, OutboxRepository } from "@aegispulse/ts-platform/outbox";
 import { startTelemetry } from "@aegispulse/ts-platform/telemetry";
+import { registerMaintenanceRoutes } from "./adapters/http/maintenance.routes.js";
 import { registerWebhookDeliveryRoutes } from "./adapters/http/webhook-delivery.routes.js";
 import { registerWebhookSourceRoutes } from "./adapters/http/webhook-sources.routes.js";
+import { WebhookMaintenanceRepository } from "./db/webhook-maintenance.repository.js";
 import { WebhookDeliveryRepository } from "./db/webhook-deliveries.repository.js";
 import { IngestWebhookUseCase } from "./service/orchestrators/ingest-webhook.usecase.js";
-import { RedisNonceStore, RegistryTenantStatus, S3RawStore } from "./storage/webhook-infra.js";
+import { RedisNonceStore, RegistryTenantStatus, S3RawStore, S3RawSweeper } from "./storage/webhook-infra.js";
+import { WebhookMaintenanceService } from "./service/webhook-maintenance.service.js";
 import { WebhookSourceRepository } from "./db/webhook-sources.repository.js";
 import { parseKek } from "./domain/crypto.js";
 import { WebhookSourceService } from "./service/webhook-source.service.js";
@@ -47,7 +50,7 @@ async function main(): Promise<void> {
 
   const pg = createPostgresPool(config);
   await connectWithRetry("postgres", async () => pg.query("SELECT 1"), { logger });
-  health.addCheck("postgres", postgresPingCheck(pg)).addCheck("schema", flywaySchemaVersionCheck(pg, "ingestion", "4"));
+  health.addCheck("postgres", postgresPingCheck(pg)).addCheck("schema", flywaySchemaVersionCheck(pg, "ingestion", "5"));
   lifecycle.onShutdown("pools", "postgres", () => pg.end());
   const redis = await connectWithRetry("redis", () => connectRedis(config), { logger });
   health.addCheck("redis", redisCheck(redis));
@@ -123,10 +126,18 @@ async function main(): Promise<void> {
     logger,
   });
 
+  const maintenance = new WebhookMaintenanceService({
+    pool: pg,
+    repository: new WebhookMaintenanceRepository(),
+    objects: new S3RawSweeper(s3, bucketName(config)),
+    logger,
+  });
+
   const app = createHttpServer({ logger });
   registerHealthRoutes(app, health);
   registerWebhookSourceRoutes(app, verifier, sources);
   registerWebhookDeliveryRoutes(app, verifier, ingest);
+  registerMaintenanceRoutes(app, verifier, maintenance);
   await app.listen({ host: "0.0.0.0", port: PORT });
   lifecycle
     .onShutdown("http", "fastify", () => app.close())
