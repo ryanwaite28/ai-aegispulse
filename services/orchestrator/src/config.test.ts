@@ -5,6 +5,11 @@ import { configSchema, PORT } from "./config.js";
 const valid = {
   AEGIS_ENV: "local",
   AMQP_URL: "amqp://svc_orchestrator:pw@rabbitmq:5672/aegispulse-local",
+  REGISTRY_URL: "http://registry:8084",
+  JWT_ISSUER: "aegispulse-registry",
+  JWT_AUDIENCE: "aegispulse",
+  SERVICE_CLIENT_ID: "svc-orchestrator",
+  SERVICE_CLIENT_SECRET: "x".repeat(32),
 };
 
 describe("orchestrator config (§6.9, §10.4, NFR-11)", () => {

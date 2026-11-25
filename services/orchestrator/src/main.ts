@@ -1,5 +1,5 @@
-// orchestrator composition root (Phase 1e skeleton): config → telemetry → logs → owned clients → probes → HTTP.
-// No business logic: service actions, repositories and adapters arrive with their FRs.
+// orchestrator composition root: config → telemetry → logs → owned clients → probes → saga consumers → HTTP.
+// No business logic here: sagas live in src/service/orchestrators/; adapters only parse and dispatch.
 import { amqpReadyCheck, createAmqpClient } from "@aegispulse/ts-platform/amqp";
 import { buildVersion } from "@aegispulse/ts-platform/build-info";
 import { ConfigError, loadConfig } from "@aegispulse/ts-platform/config";
@@ -8,6 +8,13 @@ import { createHttpServer, registerHealthRoutes } from "@aegispulse/ts-platform/
 import { createLogger } from "@aegispulse/ts-platform/logging";
 import { startTelemetry } from "@aegispulse/ts-platform/telemetry";
 import { configSchema, PORT, SERVICE } from "./config.js";
+
+import { consumeTransactions } from "./adapters/amqp/txn.consumer.js";
+import { SagaClients } from "./clients/saga-clients.js";
+import { ScoreTransactionSaga } from "./service/orchestrators/score-transaction.saga.js";
+import { ServiceTokenProvider } from "@aegispulse/ts-platform/auth";
+import { InternalServiceClient } from "@aegispulse/ts-platform/http-client";
+import { TenantSettingsCache } from "@aegispulse/ts-platform/tenant-settings";
 
 async function main(): Promise<void> {
   const config = loadConfig(configSchema);
@@ -39,6 +46,48 @@ async function main(): Promise<void> {
   await connectWithRetry("rabbitmq", () => amqp.init(), { logger });
   health.addCheck("rabbitmq", amqpReadyCheck(amqp));
   lifecycle.onShutdown("consumers", "rabbitmq", () => amqp.close({ drainTimeoutMs: 20_000 }));
+
+  // SERVICE token for every callee (svc-orchestrator act[], §5.7.4); per-call timeouts and breakers per §6.5.
+  const registryAuth = new InternalServiceClient("registry", {
+    name: "registry",
+    baseUrl: config.REGISTRY_URL,
+    timeoutMs: 3_000,
+  });
+  const tokens = new ServiceTokenProvider({
+    clientId: config.SERVICE_CLIENT_ID,
+    clientSecret: config.SERVICE_CLIENT_SECRET,
+    issue: (input) =>
+      registryAuth.invoke<"issueClientCredentialsToken", { accessToken: string; expiresIn: number }>(
+        "issueClientCredentialsToken",
+        input,
+      ),
+  });
+  const registry = new InternalServiceClient("registry", {
+    name: "registry",
+    baseUrl: config.REGISTRY_URL,
+    timeoutMs: 1_000,
+    serviceToken: tokens.token,
+  });
+  const scoring = new InternalServiceClient("riskScoring", {
+    name: "risk-scoring",
+    baseUrl: config.RISK_SCORING_URL,
+    timeoutMs: 2_000, // FR-TXN-03
+    serviceToken: tokens.token,
+  });
+  const cases = new InternalServiceClient("cases", {
+    name: "cases",
+    baseUrl: config.CASES_URL,
+    timeoutMs: 3_000,
+    serviceToken: tokens.token,
+  });
+  lifecycle.onShutdown("pools", "clients", async () => {
+    await Promise.all([registry.close(), registryAuth.close(), scoring.close(), cases.close()]);
+  });
+  const saga = new ScoreTransactionSaga(
+    new SagaClients(TenantSettingsCache.forRegistry(registry), registry, scoring, cases),
+    logger,
+  );
+  consumeTransactions(amqp, logger, saga);
 
   const app = createHttpServer({ logger });
   registerHealthRoutes(app, health);

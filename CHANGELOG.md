@@ -13,6 +13,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 8e ScoreTransactionSaga (FR-TXN-03; spec `docs/specs/FR-TXN-03-score-transaction-saga.md`, evidence `docs/evidence/phase-08e.md`):
+  - **Saga:** the orchestrator consumes `orchestrator.txn.q` and runs tenant settings (≤ 60 s cache) → `checkWatchlists` → `riskScoring.score` (2 s timeout, breaker) → `cases.recordRiskEvaluation` (with `tenantStatus`), using its SERVICE token.
+  - **Compose:** the orchestrator gets its service credentials plus `RISK_SCORING_URL`/`CASES_URL`.
+  - **Tests:** E2E cover a velocity-triggered case and FR-TEN-08 settings propagation; an outage drill shows retries → DLQ → replay → scored once.
 - Phase 8d audit log read side (FR-AUD-02/03; spec `docs/specs/FR-AUD-01-03-audit-log.md`, evidence `docs/evidence/phase-08d.md`):
   - **Ingest:** a `cases.audit-ingest.q` consumer chains registry, override, ops and replay events once each. Tenantless events go to the platform tenant.
   - **Read and verify:** `listAuditEntries` (filters, seq cursor) and `verifyAuditChain` (recomputes hashes and links, reports `firstBrokenSeq`).

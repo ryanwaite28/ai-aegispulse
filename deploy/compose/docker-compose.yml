@@ -657,6 +657,13 @@ services:
       OTEL_SERVICE_NAMESPACE: aegispulse
       OTEL_EXPORTER_OTLP_ENDPOINT: http://openobserve:5080/api/default
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      REGISTRY_URL: http://registry:8084
+      JWT_ISSUER: aegispulse-registry
+      JWT_AUDIENCE: aegispulse
+      SERVICE_CLIENT_ID: svc-orchestrator
+      SERVICE_CLIENT_SECRET: ${SERVICE_CLIENT_SECRET_ORCHESTRATOR:-}
+      RISK_SCORING_URL: http://risk-scoring:8086
+      CASES_URL: http://cases:8085
       AMQP_URL: amqp://svc_orchestrator:${RABBITMQ_PASSWORD_ORCHESTRATOR:?run make env}@rabbitmq:5672/aegispulse-local
     ports: ["127.0.0.1:8090:8090"]
     read_only: true
