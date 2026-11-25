@@ -47,6 +47,7 @@ beforeAll(async () => {
     INGESTION_URL: url,
     FILES_URL: url,
     EVENTS_URL: url,
+    CASES_URL: url,
     JWT_ISSUER: "aegispulse-registry",
     JWT_AUDIENCE: "aegispulse",
     SERVICE_CLIENT_ID: "svc-gateway",

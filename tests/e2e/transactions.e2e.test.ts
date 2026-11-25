@@ -36,6 +36,16 @@ describe("transaction intake over the gateway (FR-TXN-01)", () => {
     expect(accepted.transactionId).toMatch(/^[0-9a-f-]{36}$/);
     const repeat = await call("POST", "/v1/transactions", { token, body });
     expect([repeat.status, repeat.body.data]).toEqual([202, accepted]);
+    const detail = await call("GET", `/v1/transactions/${accepted.transactionId}`, { token: w.token("VIEWER") });
+    expect(detail.status).toBe(200);
+    expect(detail.body.data).toMatchObject({
+      submission: { id: accepted.transactionId, eventId: accepted.eventId, amount: "1250.5000", currency: "EUR" },
+      processingStatus: "ACCEPTED", // scored once the ScoreTransactionSaga runs (Phase 8e)
+      latestEvaluation: null,
+      caseId: null,
+    });
+    const other = await call("GET", `/v1/transactions/${accepted.transactionId}`, { token: w.token("ANALYST", w.b) });
+    expect(other.status).toBe(404);
     const reused = await call("POST", "/v1/transactions", { token, body: txn(key, { amount: "9.99" }) });
     expect([reused.status, reused.body.error?.code]).toEqual([409, "IDEMPOTENCY_KEY_REUSED"]);
 

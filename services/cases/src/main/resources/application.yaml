@@ -31,6 +31,6 @@ aegis:
     audience: ${JWT_AUDIENCE}
   readiness:
     schema: cases
-    min-flyway-version: "2"
+    min-flyway-version: "5"
   outbox:
     schema: cases

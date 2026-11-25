@@ -2879,7 +2879,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 5 | Files Subsystem | COMPLETE (gate met: exit items, OpenObserve, pipelines green, clean-state run, merged to `main` in !1 (`46ccd5e`, 2026-11-24)) | [phase-05](docs/evidence/phase-05.md) ([5a](docs/evidence/phase-05a.md), [5b](docs/evidence/phase-05b.md), [5c](docs/evidence/phase-05c.md), [5d](docs/evidence/phase-05d.md), [5e](docs/evidence/phase-05e.md)), [clean-state](docs/evidence/clean-state-2026-11-24.md) |
 | 6 | Events Archive & Stage-1 Classification | COMPLETE (gate met: exit items, OpenObserve, pipelines green, clean-state run, merged to `main` in !1 (`46ccd5e`, 2026-11-24)) | [phase-06](docs/evidence/phase-06.md) ([6a](docs/evidence/phase-06a.md), [6b](docs/evidence/phase-06b.md), [6c+6d](docs/evidence/phase-06c.md)), [clean-state](docs/evidence/clean-state-2026-11-24.md) |
 | 7 | Messaging Resilience & Dead Letters | IN PROGRESS (exit items met locally; open: pipelines, merge, clean-state run; FR-MSG-04 dev alert test → Phase 18) | [phase-07](docs/evidence/phase-07.md) |
-| 8 | Transactions, Scoring & Risk Cases (MVP slice) | IN PROGRESS (8a runtime-verified; 8b integration-verified) | [phase-08a](docs/evidence/phase-08a.md), [phase-08b](docs/evidence/phase-08b.md) |
+| 8 | Transactions, Scoring & Risk Cases (MVP slice) | IN PROGRESS (8a runtime-verified; 8b, 8c integration-verified) | [phase-08a](docs/evidence/phase-08a.md), [phase-08b](docs/evidence/phase-08b.md), [phase-08c](docs/evidence/phase-08c.md) |
 | 9 | Kubernetes, IaC & Secrets (homelab dev + prod) | PENDING | — |
 | 10 | CI/CD & DevSecOps Gates | PENDING | — |
 | 11 | Document ETL & Extraction | PENDING | — |
@@ -3188,7 +3188,7 @@ The FR-MSG-04 alert firing to ntfy in dev stays a Phase 18 item, as planned. Ope
 #### FR-TXN-01 / FR-TXN-06 — Transaction intake & status
 - [x] Migration `V6__transaction_submissions.sql` (ingestion already has V4/V5 from Phase 4) ([phase-08a](docs/evidence/phase-08a.md))
 - [x] `TransactionService.submit` (validation, FX currency check, idempotency with body hash), outbox `txn.submitted`; `getTransaction` ([phase-08a](docs/evidence/phase-08a.md))
-- [ ] Gateway `POST /v1/transactions`, `GET /v1/transactions/{id}` (composes ingestion + cases clients) — POST done ([phase-08a](docs/evidence/phase-08a.md)); GET composition with cases in 8c
+- [ ] Gateway `POST /v1/transactions`, `GET /v1/transactions/{id}` (composes ingestion + cases clients) — POST done ([phase-08a](docs/evidence/phase-08a.md)); GET composition ([phase-08c](docs/evidence/phase-08c.md))
 - [x] Tests: key reuse with different body → 409; same body → original response ([phase-08a](docs/evidence/phase-08a.md))
 
 #### FR-TXN-04 — Risk scoring service (heuristic)
@@ -3202,11 +3202,11 @@ The FR-MSG-04 alert firing to ntfy in dev stays a Phase 18 item, as planned. Ope
 - [ ] Tests: registry down → retries → DLQ; scoring timeout → retry; success path idempotent under redelivery (single evaluation row)
 
 #### FR-TXN-05 / FR-CASE-01 / FR-CASE-02 / FR-CASE-03 — Evaluations & case state machine
-- [ ] Migrations `V2__risk_evaluations.sql`, `V3__cases.sql` (cases, sequences, transitions, policy_evaluations, evidence, notes, dispositions)
-- [ ] `CaseStateMachine` (domain, pure) with transition table; `CaseService.open/transition` with transition keys, optimistic locking, outbox events
-- [ ] `recordRiskEvaluation` opening TRANSACTION_RISK cases ≥ 70; tenant-suspended suppression
+- [x] Migrations `V3__risk_evaluations.sql`, `V4__cases.sql` (cases, sequences, transitions, policy_evaluations, evidence, notes, dispositions); cases already had V1/V2 ([phase-08c](docs/evidence/phase-08c.md))
+- [x] `CaseStateMachine` (domain, pure) with transition table; `CaseService.open/transition` with transition keys, optimistic locking, outbox events ([phase-08c](docs/evidence/phase-08c.md))
+- [x] `recordRiskEvaluation` opening TRANSACTION_RISK cases ≥ 70; tenant-suspended suppression (the saga supplies `tenantStatus`) ([phase-08c](docs/evidence/phase-08c.md))
 - [ ] Enrichment timeout: delayed self-message + `runEnrichmentTimeouts` sweep (scheduler-trigger */5)
-- [ ] Tests: exhaustive transition matrix test; duplicate open key → same case
+- [x] Tests: exhaustive transition matrix test; duplicate open key → same case ([phase-08c](docs/evidence/phase-08c.md))
 
 #### FR-CASE-04 — Policy evaluation
 - [ ] `domain/policy/PolicyV1` (§1.4.5) pure + property tests; `PolicyEvaluationService` storing factors; escalation side effects (`correlation.requested`, N-01)
@@ -3218,14 +3218,14 @@ The FR-MSG-04 alert firing to ntfy in dev stays a Phase 18 item, as planned. Ope
 - [ ] Tests: concurrent transition race (two threads) → one wins, no duplicate audit; four-eyes violation 409
 
 #### FR-AUD-01 / FR-AUD-02 / FR-AUD-03 — Immutable audit log
-- [ ] Migration `V4__audit_log.sql` (table, triggers, grants, chain heads)
-- [ ] `AuditService.append` with advisory lock, canonical JSON (RFC 8785 JCS) hashing; called inside every case transaction
+- [x] Migration `V5__audit_log.sql` (table, triggers, grants, chain heads) ([phase-08c](docs/evidence/phase-08c.md))
+- [x] `AuditService.append` with advisory lock, canonical JSON (RFC 8785 JCS) hashing; called inside every case transaction ([phase-08c](docs/evidence/phase-08c.md))
 - [ ] Consumer `cases.audit-ingest.q` → `ingestAuditEvent` (idempotent by source event)
 - [ ] `listAuditEntries`, `verifyAuditChain` + nightly scheduler job `cases-audit-verify`; gateway `/v1/audit*`
 - [ ] Tests: UPDATE/DELETE rejected by DB; tampering a row via superuser in test → verify reports `firstBrokenSeq`
 
 **Phase 8 exit evidence (MVP slice):** compose E2E — signed webhook archived & classified (Stage 1), transaction burst → evaluation → case ESCALATED → audit chain verified; zero duplicates after replaying all queues 3×; trace waterfall across Node → Python → Java.
-**Phase note:** status **`IN PROGRESS`** (2026-11-25). Slice 8a, transaction intake (FR-TXN-01 + the ingestion read of FR-TXN-06), is runtime-verified locally ([phase-08a](docs/evidence/phase-08a.md)). Slice 8b, risk scoring (FR-TXN-04), is integration-verified ([phase-08b](docs/evidence/phase-08b.md)); its call path from the orchestrator is verified with the saga in 8e. Next: 8c evaluations and case state machine (with the `GET /v1/transactions/{id}` composition), 8d audit log, 8e saga, 8f policy and case work, 8g exit.
+**Phase note:** status **`IN PROGRESS`** (2026-11-25). Slice 8a, transaction intake (FR-TXN-01 + the ingestion read of FR-TXN-06), is runtime-verified locally ([phase-08a](docs/evidence/phase-08a.md)). Slice 8b, risk scoring (FR-TXN-04), is integration-verified ([phase-08b](docs/evidence/phase-08b.md)); its call path from the orchestrator is verified with the saga in 8e. Slice 8c (evaluations, case core with audit append, transaction detail view) is integration-verified ([phase-08c](docs/evidence/phase-08c.md)). Next: 8c evaluations and case state machine (with the `GET /v1/transactions/{id}` composition), 8d audit log, 8e saga, 8f policy and case work, 8g exit.
 
 ---
 

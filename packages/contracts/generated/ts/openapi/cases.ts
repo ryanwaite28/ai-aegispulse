@@ -615,6 +615,11 @@ export type components = {
             modelVersion: string;
             score: number;
             tenantId: components["schemas"]["Uuid"];
+            /**
+             * @description Tenant status the saga read with getTenantSettings (cases has no callees, §5.7.4). Not ACTIVE → the evaluation is recorded and the case is suppressed with suppressedReason TENANT_SUSPENDED (FR-TXN-05, FR-TEN-02). Absent = ACTIVE.
+             * @enum {string}
+             */
+            tenantStatus?: "ACTIVE" | "SUSPENDED" | "DEACTIVATED";
             transactionEventId: components["schemas"]["Uuid"];
             transactionId: components["schemas"]["Uuid"];
             watchlistHits?: components["schemas"]["WatchlistHit"][];

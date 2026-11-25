@@ -13,6 +13,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 8c cases core (FR-TXN-05/06, FR-CASE-01/02/03/07, FR-AUD-01; spec `docs/specs/FR-TXN-05-CASE-01-03-cases-core.md`, evidence `docs/evidence/phase-08c.md`):
+  - **Migrations:** cases V3 (risk evaluations), V4 (cases + history), V5 (append-only audit log + chain heads), with RLS and §5.7.2 grants.
+  - **Evaluations and cases:** `recordRiskEvaluation` (idempotent; opens a TRANSACTION_RISK case ≥ 70, or suppresses it for non-ACTIVE tenants), `openCase` and `getTransactionEvaluation`. The case core is a pure state machine with idempotent transition keys and optimistic locking; every transition writes an audit entry (hash chain, RFC 8785 canonical JSON) and `case.*` outbox events.
+  - **Gateway:** `GET /v1/transactions/{id}` composes ingestion and cases (ACCEPTED, SCORED or CASE_OPENED); new `CASES_URL` (default `http://cases:8085`).
+  - **Contract:** additive optional `RecordRiskEvaluationInput.tenantStatus`, supplied by the saga because cases has no callees.
 - Phase 8b risk scoring (FR-TXN-04; spec `docs/specs/FR-TXN-04-risk-scoring.md`, evidence `docs/evidence/phase-08b.md`):
   - **Endpoint:** `POST /internal/v1/score`, accepting SERVICE tokens with `riskScoring.score` only and authenticating before validation.
   - **Model:** `risk-heuristic-v1.0.0` with `fx-static-v1`. An empty tenant high-risk list falls back to `HIGH_RISK_COUNTRIES_DEFAULT`.

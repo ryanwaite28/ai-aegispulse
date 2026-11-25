@@ -19,6 +19,7 @@ let fake: Server;
 let app: Awaited<ReturnType<typeof createGateway>>;
 let token: string;
 let deduplicated = false;
+let notScored = false;
 let seen: {
   path: string;
   auth?: string | undefined;
@@ -40,6 +41,16 @@ beforeAll(async () => {
         ...(h("idempotency-key") === undefined ? {} : { idem: h("idempotency-key") }),
         body: raw === "" ? {} : (JSON.parse(raw) as Record<string, unknown>),
       });
+      if (req.url === "/internal/v1/getTransactionEvaluation" && notScored) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: { code: "NOT_FOUND", message: "no evaluation", details: [] }, meta: {} }));
+        return;
+      }
+      if (req.url === "/internal/v1/getTransactionEvaluation") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ data: { id: "e-1", score: 82, caseId: FILE_ID }, meta: {} }));
+        return;
+      }
       const data =
         req.url === "/internal/v1/initUpload"
           ? { fileId: FILE_ID, status: "INITIATED", deduplicated }
@@ -58,6 +69,7 @@ beforeAll(async () => {
     OTEL_SERVICE_NAMESPACE: "aegispulse",
     REGISTRY_URL: url,
     INGESTION_URL: url,
+    CASES_URL: url,
     FILES_URL: url,
     EVENTS_URL: url,
     JWT_ISSUER: "aegispulse-registry",
@@ -95,6 +107,7 @@ afterAll(async () => {
 beforeEach(() => {
   seen = [];
   deduplicated = false;
+  notScored = false;
 });
 
 const get = (url: string, headers: Record<string, string> = {}): Promise<{ statusCode: number }> =>
@@ -218,5 +231,36 @@ describe("transaction intake over the gateway (FR-TXN-01)", () => {
     expect(seen.map((x) => [x.path, x.body, x.tenant, x.idem])).toEqual([
       ["/internal/v1/submitTransaction", body, TENANT, "t-1"],
     ]);
+  });
+});
+
+describe("transaction detail over the gateway (FR-TXN-06)", () => {
+  const TXN = "1c9e0f4a-7a33-4b44-9c6d-7e8f9a0b1c2d";
+
+  it("composes the submission with the latest evaluation: CASE_OPENED when a case is linked", async () => {
+    const r = (await get(`/v1/transactions/${TXN}`, { "x-aegis-tenant": TENANT })) as {
+      statusCode: number;
+      json: () => { data: Record<string, unknown> };
+    };
+    expect(r.statusCode).toBe(200);
+    expect(r.json().data).toMatchObject({
+      processingStatus: "CASE_OPENED",
+      caseId: FILE_ID,
+      latestEvaluation: { score: 82 },
+    });
+    expect(seen.map((x) => [x.path, x.body, x.tenant])).toEqual([
+      ["/internal/v1/getTransaction", { transactionId: TXN }, TENANT],
+      ["/internal/v1/getTransactionEvaluation", { transactionId: TXN }, TENANT],
+    ]);
+  });
+
+  it("ACCEPTED with a null evaluation while cases has none (404); malformed ids are a local 404", async () => {
+    notScored = true;
+    const r = (await get(`/v1/transactions/${TXN}`)) as {
+      statusCode: number;
+      json: () => { data: Record<string, unknown> };
+    };
+    expect(r.json().data).toMatchObject({ processingStatus: "ACCEPTED", latestEvaluation: null, caseId: null });
+    expect((await get("/v1/transactions/nope")).statusCode).toBe(404);
   });
 });

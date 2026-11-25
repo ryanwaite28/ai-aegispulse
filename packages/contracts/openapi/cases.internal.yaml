@@ -1095,6 +1095,13 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WatchlistHit"
+        tenantStatus:
+          type: string
+          enum:
+            - ACTIVE
+            - SUSPENDED
+            - DEACTIVATED
+          description: Tenant status the saga read with getTenantSettings (cases has no callees, §5.7.4). Not ACTIVE → the evaluation is recorded and the case is suppressed with suppressedReason TENANT_SUSPENDED (FR-TXN-05, FR-TEN-02). Absent = ACTIVE.
       required:
         - tenantId
         - idempotencyKey
