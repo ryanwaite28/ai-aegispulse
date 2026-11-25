@@ -1,0 +1,146 @@
+# Local-LLM offload routing for Claude Code sessions (docs/steering/local-llm.md).
+# Read by scripts/llm/ollama_offload.py. Workstation tooling only: no service, image,
+# pipeline or cluster reads this file, and nothing here is a PROJECT.md runtime env var.
+#
+# Tiers: "fast" = cheap high-volume condensing; "deep" = longer drafts that need more reasoning.
+# Swap model tags here (and run `make llm-setup`) without touching the script.
+
+[server]
+# OLLAMA_HOST (Ollama's own variable) overrides this when set.
+host = "http://127.0.0.1:11434"
+timeout_s = 300
+keep_alive = "10m"        # unload models after 10 min idle so the compose stack keeps its RAM
+
+[models]
+fast = "qwen2.5-coder:7b"
+deep = "qwen2.5-coder:14b"
+
+[limits]
+# Chars per chunk sent in one request (~4 chars/token, leaving room for the prompt and the answer).
+chunk_chars = 24000
+# Inputs above this are refused: route them to a narrower slice instead of a giant map-reduce.
+max_input_chars = 600000
+num_ctx = 16384
+
+[guard]
+# Never read these files (secret material). Matched against repo-relative paths (fnmatch).
+deny_paths = [
+  ".env", ".env.*", "**/.env", "**/.env.*", "*.pem", "*.key", "*.p12", "*.pfx", "**/id_rsa*", "**/id_ed25519*",
+  "cosign.key", ".seed-state.json", ".claude/settings.local.json",
+]
+# Security-critical code (CLAUDE.md model routing: Opus only). Tasks with
+# `code = true` (they write code) refuse these paths; summary tasks may still read them.
+security_paths = [
+  "gateway/nest-http/src/common/guards/**", "gateway/nest-http/src/modules/auth/**",
+  "**/webhook*", "**/*hmac*", "**/*ssrf*", "**/*signature*", "**/*redact*",
+  "**/*rls*", "**/audit*chain*", "**/*jwks*", "**/*jwt*",
+  "services/*/db/migrations/**", "services/*/src/main/resources/db/migration/**",
+  "deploy/k8s/**/networkpolic*", "deploy/infisical/**", "ci/**",
+]
+
+# --------------------------------------------------------------------------- tasks
+# model: fast | deep · draft: output is proposed text that Claude must review before use
+# code: the task writes code, so it refuses [guard].security_paths
+# format: "text" | "json" · map_reduce: chunk large inputs, condense each, then merge
+
+[tasks.summarize-log]
+model = "fast"
+draft = false
+map_reduce = true
+format = "text"
+temperature = 0.0
+prompt = """You triage build/test/CI logs. Report ONLY:
+1. Overall result (pass/fail, counts if printed).
+2. Each distinct failure: test or step name, file:line if present, the first meaningful error line verbatim (max 2 lines).
+3. Root-cause hints visible in the log (e.g. connection refused, timeout, type error), deduplicated.
+Never invent names, numbers or lines that are not in the log. If nothing failed, say so in one line. Max 40 lines."""
+
+[tasks.summarize-file]
+model = "fast"
+draft = false
+map_reduce = true
+format = "text"
+temperature = 0.0
+prompt = """Outline this source/doc file for an engineer who will not read it. List: purpose (1 line); exported
+symbols / sections with one-line roles and line numbers if shown; external dependencies and I/O
+(DB, queues, HTTP); TODOs. Quote identifiers exactly. Do not speculate beyond the text. Max 40 lines."""
+
+[tasks.summarize-diff]
+model = "fast"
+draft = false
+map_reduce = true
+format = "text"
+temperature = 0.0
+prompt = """Summarize this git diff per file: what changed and why it likely changed (only if evident).
+Flag: new migrations, contract (packages/contracts) changes, new env vars, deleted tests, TODO/FIXME added.
+Group by directory. Exact paths. Max 50 lines."""
+
+[tasks.commit-msg]
+model = "deep"   # 7b copied FR ids from unchanged context lines in trials (2026-11-25); 14b did not
+draft = true
+map_reduce = true
+format = "text"
+temperature = 0.2
+prompt = """Draft a git commit message for this diff. Only lines starting with "+" or "-" are changes; lines
+without a prefix are unchanged context and must NOT be described or used for ids. Line 1: imperative summary
+<= 72 chars. Prefix it with a phase/slice and FR ids ONLY if those ids appear on added ("+") lines that describe
+this change (e.g. "Phase 8g: ... (FR-CASE-05)"); otherwise no prefix. Blank line. Then 3-8 bullet lines of what
+changed. No marketing words. No trailers. Output the message only."""
+
+[tasks.changelog]
+model = "fast"
+draft = true
+map_reduce = true
+format = "text"
+temperature = 0.2
+prompt = """Draft a CHANGELOG.md entry (Keep a Changelog) for the [Unreleased] section from this diff. Use the
+categories Added/Changed/Fixed/Security/Docs/Status only as needed. Reference FR/NFR ids and the phase when they
+appear in the diff. Bold short labels for sub-bullets, as in "- **Saga:** ...". Output Markdown only."""
+
+[tasks.inventory]
+model = "fast"
+draft = false
+map_reduce = true
+format = "text"
+temperature = 0.0
+prompt = """The input is raw grep/find/ls output. Turn it into a compact inventory answering the QUESTION
+(if given). Group by directory, dedupe, count, and list exact paths. Never add items not in the input."""
+
+[tasks.extract]
+model = "fast"
+draft = false
+map_reduce = false
+format = "json"
+temperature = 0.0
+prompt = """Extract the information requested in QUESTION from the input as JSON. Use only facts present in the
+input; use null when absent. Output a single JSON object, no prose."""
+
+[tasks.test-scaffold]
+model = "deep"
+draft = true
+code = true
+map_reduce = false
+format = "text"
+temperature = 0.1
+prompt = """Draft unit tests for the given pure domain/service code in the same language and framework used by
+the repo (Vitest for TS, JUnit 5 + AssertJ for Java, pytest for Python). Test names must include the FR id given
+in QUESTION. Cover happy path, validation errors and edge cases visible in the code. Do not mock databases or
+brokers; target pure functions only. Output one code block with the complete test file."""
+
+[tasks.explain]
+model = "deep"
+draft = false
+map_reduce = false
+format = "text"
+temperature = 0.1
+prompt = """Explain what this code does, step by step, for a reviewer. Point out obvious bugs or unhandled
+errors you can see in the text (label them "possible issue"). Answer QUESTION if given. Max 40 lines."""
+
+[tasks.ask]
+model = "deep"
+draft = true
+code = true
+map_reduce = false
+format = "text"
+temperature = 0.2
+prompt = """Answer the QUESTION using only the provided input. If the input does not contain the answer, say so."""

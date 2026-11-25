@@ -36,3 +36,5 @@ docs/sessions/.errors.log
 .import_linter_cache/
 # make seed: local tenant ids (no secrets)
 .seed-state.json
+# local LLM offload usage counters (sizes and timings only, no content)
+.claude/ollama/usage.jsonl

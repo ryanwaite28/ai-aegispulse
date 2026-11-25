@@ -13,6 +13,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Local-LLM offload for agent sessions (workstation tooling, not shipped; steering `docs/steering/local-llm.md`):
+  - **CLI:** `scripts/llm/ollama_offload.py`, stdlib only. Tasks: summarize-log/file/diff, inventory, extract, commit-msg, changelog, test-scaffold, explain, ask. Large inputs are map-reduced.
+  - **Guards:** secret files are never read. Credential shapes are redacted both ways. Code-writing tasks refuse security-critical paths. Exit 3 means fall back to Claude.
+  - **Config and wiring:** `.claude/ollama/routing.toml` (`fast` `qwen2.5-coder:7b`, `deep` `qwen2.5-coder:14b`); `local-llm-offload` skill; `make llm-setup|llm-check|llm|llm-stats`; CLAUDE.md model-routing row.
 - Phase 8g analyst case work (FR-CASE-05..08; spec `docs/specs/FR-CASE-05-08-case-work.md`, evidence `docs/evidence/phase-08g.md`):
   - **Reads:** list (filters, keyset), detail with policy factors, timeline.
   - **Writes:** optimistic assign; immutable notes; dispositions with four-eyes, idempotency, model/rule versions and `case.disposition.recorded`; manual re-evaluation.

@@ -119,11 +119,13 @@ Pick the cheapest model that can still meet the quality bar in `docs/steering/qu
 | Architecture decisions, ADRs, `PROJECT.md` amendments, cross-service design, security-critical code (auth, webhooks, SSRF, RLS, audit chain), debugging hard failures | Opus | Judgment-heavy; mistakes are expensive and propagate |
 | Routine FR implementation from an existing spec, tests, migrations, manifests, CI scripts, refactors | Sonnet | Well-specified work; spec and review agents carry the constraints |
 | Mechanical tracing, grep and inventory, changelog and ledger updates, formatting, boilerplate | Haiku | Low reasoning, high volume |
+| Condensing large logs/diffs/files/grep output, commit-message and CHANGELOG drafts, test skeletons for pure domain code | Local Ollama (`local-llm-offload` skill) | Keeps bulky input out of Claude context at zero subscription cost; output is a draft or lead that Claude verifies. Never security-critical code, contracts, migrations, decisions, or evidence (`docs/steering/local-llm.md`); exit 3 → do it in Claude |
 Subagent defaults (frontmatter): `architecture-reviewer` → sonnet, `security-reviewer` → opus, `spec-tracer` → haiku. Never downgrade the model to save cost on security review or on `PROJECT.md` changes.
 
 ## Skills & Agents
 Role skills live in `.claude/skills/`: `systems-architect`, `principal-engineer`, `devsecops`, `database-admin`, `cybersecurity`, `messaging-engineer`, `ml-ai-engineer`, `data-intel-engineer`, `sre-observability`, `kubernetes-platform`, `qa-test-engineer`, `frontend-engineer`.
 Workflow skills: `/implement-fr`, `/write-spec`, `/phase-exit-evidence`, `/new-adr`, `/amend-project`.
 Product & execution skills (deterministic decisions; product intent in `PROJECT.md` §1.1 decides everything else): `product-manager` (value hierarchy, gap filling), `end-user-personas` (who the users are and their jobs), `project-manager` (what is next, definition of done, test/bug handling, commit policy), `decision-protocol` (authority order: when to decide, record or ask).
+Efficiency skill: `local-llm-offload` (route condensing and drafting to local Ollama; `make llm-check`, `make llm-stats`).
 Session trail: every prompt and response is recorded automatically to `docs/sessions/` by `.claude/hooks/session_log.py` (see `docs/sessions/README.md`).
 Review agents live in `.claude/agents/`: `architecture-reviewer`, `security-reviewer`, `spec-tracer`. Use them before opening an MR.

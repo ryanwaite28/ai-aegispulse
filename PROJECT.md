@@ -1125,7 +1125,8 @@ aegispulse/
 ├── scripts/
 │   ├── demo/                          # webhook-sign.ts, upload.ts, scenario.ts, chaos/*.sh
 │   ├── dev/                           # seed.ts, reset.sh, gen-local-secrets.sh, pg-bootstrap.sh
-│   └── infisical/                     # seed.py (MB-06): folders + generated secrets from deploy/infisical/secrets-catalog.yaml
+│   ├── infisical/                     # seed.py (MB-06): folders + generated secrets from deploy/infisical/secrets-catalog.yaml
+│   └── llm/                           # ollama_offload.py: workstation-only local-LLM offload for agent sessions (docs/steering/local-llm.md); never shipped
 ├── deploy/
 │   ├── compose/docker-compose.yml     # local stack
 │   ├── k8s/base/                      # namespace, quotas, netpols, deployments, statefulsets, cronjobs, ingresses

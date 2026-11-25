@@ -151,3 +151,17 @@ objectstore-compat: ## ADR-0011 S3 compatibility check against the local object 
 	  --endpoint http://localhost:9000 --admin-key "$$S3_ADMIN_ACCESS_KEY" --admin-secret "$$S3_ADMIN_SECRET_KEY" \
 	  --scoped-key "$$S3_INGESTION_ACCESS_KEY" --scoped-secret "$$S3_INGESTION_SECRET_KEY" \
 	  --bucket aegispulse-local-raw --scoped-prefix raw/webhooks/
+
+# ---------------------------------------------------------------- local LLM offload (workstation only; docs/steering/local-llm.md)
+.PHONY: llm-setup llm-check llm llm-stats
+LLM := python3 scripts/llm/ollama_offload.py
+llm-setup: ## Pull the local Ollama models named in .claude/ollama/routing.toml
+	@command -v ollama >/dev/null || { echo "ollama not installed (brew install ollama)" >&2; exit 2; }
+	@for m in $$($(LLM) models); do ollama pull "$$m" || exit 1; done
+	@$(LLM) check
+llm-check: ## Verify the Ollama server and configured models (exit 3 = unavailable; Claude falls back)
+	@$(LLM) check
+llm: ## Run a local-LLM task: TASK=summarize-log FILE=path (or DIFF=1 / STAGED=1) Q="..."; no TASK lists tasks
+	@if [ -z "$(TASK)" ]; then $(LLM) tasks; else $(LLM) run $(TASK) $(if $(FILE),-f $(FILE)) $(if $(DIFF),--diff) $(if $(STAGED),--staged) $(if $(Q),-q "$(Q)"); fi
+llm-stats: ## Estimated Claude context kept out by local offloads
+	@$(LLM) stats

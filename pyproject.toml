@@ -56,6 +56,7 @@ known-first-party = ["aegis_platform", "aegis_contracts", "aegis_risk", "aegis_s
 "scripts/infisical/*.py" = ["S603", "S607"]  # fixed `infisical` CLI calls; arguments come from the repo catalog
 "scripts/dev/dev_service.py" = ["S603", "S607"]  # fixed docker/compose/pnpm/gradle/uv commands; names come from the compose file
 "scripts/dev/dlq_alert_check.py" = ["S603", "S607"]  # fixed docker compose / rabbitmqctl commands
+"scripts/llm/*.py" = ["S603", "S607"]  # fixed `git diff` calls; paths are guard-checked repo files
 "packages/py-platform/tests/**" = ["S603", "S607", "S105", "S106", "S608"]
 
 [tool.mypy]
@@ -73,7 +74,7 @@ module = ["boto3", "botocore.*", "requests"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["packages/contracts/tests", "packages/py-platform/tests/unit", "services/risk-scoring/tests/unit", "services/sensitivity-scanner/tests/unit", "services/doc-extraction/tests/unit", "services/data-intel/tests/unit", "scripts/infisical"]
+testpaths = ["packages/contracts/tests", "packages/py-platform/tests/unit", "services/risk-scoring/tests/unit", "services/sensitivity-scanner/tests/unit", "services/doc-extraction/tests/unit", "services/data-intel/tests/unit", "scripts/infisical", "scripts/llm"]
 addopts = "-q"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
