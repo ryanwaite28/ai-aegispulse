@@ -13,6 +13,9 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 8f policy and sweeps (FR-CASE-04, FR-CASE-02; spec `docs/specs/FR-CASE-02-04-policy-sweeps.md`, evidence `docs/evidence/phase-08f.md`):
+  - **Policy:** pure `PolicyV1` (§1.4.5). TRANSACTION_RISK cases are evaluated at open: ENRICHING → POLICY_EVALUATED → ESCALATED | CLEARED, with policy factors stored. Escalation ≥ HIGH emits `correlation.requested`; CRITICAL also emits N-01.
+  - **Sweeps:** V7 cross-tenant finders. New scheduler jobs `cases-enrichment-timeouts` (*/5, overdue ENRICHING → policy) and `cases-auto-resolve` (daily, CLEARED with no new evidence for 7 days → RESOLVED).
 - Phase 8e ScoreTransactionSaga (FR-TXN-03; spec `docs/specs/FR-TXN-03-score-transaction-saga.md`, evidence `docs/evidence/phase-08e.md`):
   - **Saga:** the orchestrator consumes `orchestrator.txn.q` and runs tenant settings (≤ 60 s cache) → `checkWatchlists` → `riskScoring.score` (2 s timeout, breaker) → `cases.recordRiskEvaluation` (with `tenantStatus`), using its SERVICE token.
   - **Compose:** the orchestrator gets its service credentials plus `RISK_SCORING_URL`/`CASES_URL`.

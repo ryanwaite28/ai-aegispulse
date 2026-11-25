@@ -9,6 +9,9 @@ import org.jspecify.annotations.Nullable;
 public record Actor(String type, String id, @Nullable String actingAs) {
   public static final Actor SYSTEM = new Actor("SYSTEM", "cases", null);
 
+  /** Scheduled sweeps (enrichment timeout, auto-resolve): trigger type TIMER. */
+  public static final Actor TIMER = new Actor("SYSTEM", "cases-scheduler", null);
+
   public static Actor of(AegisPrincipal principal) {
     return switch (principal) {
       case AegisPrincipal.User u -> new Actor("USER", u.userId(), null);
@@ -20,6 +23,9 @@ public record Actor(String type, String id, @Nullable String actingAs) {
 
   /** case_transitions.trigger_type for this actor. */
   String triggerType() {
+    if ("cases-scheduler".equals(id)) {
+      return "TIMER";
+    }
     return "USER".equals(type) ? "USER" : "SYSTEM".equals(type) ? "SYSTEM" : "EVENT";
   }
 }

@@ -141,6 +141,19 @@ public class CaseService {
       String transitionKey,
       Actor actor,
       @Nullable OffsetDateTime enrichmentDeadline) {
+    return transition(tenantId, caseId, to, transitionKey, actor, enrichmentDeadline, null);
+  }
+
+  /** As above, also writing the policy result (score, version, severity) with the status change. */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public CaseRecord transition(
+      UUID tenantId,
+      UUID caseId,
+      CaseStatus to,
+      String transitionKey,
+      Actor actor,
+      @Nullable OffsetDateTime enrichmentDeadline,
+      CaseRepository.@Nullable PolicyResult policy) {
     for (int attempt = 1; ; attempt++) {
       CaseRecord current =
           cases
@@ -156,7 +169,8 @@ public class CaseService {
               caseId,
               current.version(),
               to,
-              to == CaseStatus.ENRICHING ? enrichmentDeadline : null);
+              to == CaseStatus.ENRICHING ? enrichmentDeadline : null,
+              policy);
       if (updated.isEmpty()) {
         if (attempt >= MAX_ATTEMPTS) {
           throw new DomainException.Conflict(

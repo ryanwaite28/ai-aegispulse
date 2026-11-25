@@ -2879,7 +2879,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 5 | Files Subsystem | COMPLETE (gate met: exit items, OpenObserve, pipelines green, clean-state run, merged to `main` in !1 (`46ccd5e`, 2026-11-24)) | [phase-05](docs/evidence/phase-05.md) ([5a](docs/evidence/phase-05a.md), [5b](docs/evidence/phase-05b.md), [5c](docs/evidence/phase-05c.md), [5d](docs/evidence/phase-05d.md), [5e](docs/evidence/phase-05e.md)), [clean-state](docs/evidence/clean-state-2026-11-24.md) |
 | 6 | Events Archive & Stage-1 Classification | COMPLETE (gate met: exit items, OpenObserve, pipelines green, clean-state run, merged to `main` in !1 (`46ccd5e`, 2026-11-24)) | [phase-06](docs/evidence/phase-06.md) ([6a](docs/evidence/phase-06a.md), [6b](docs/evidence/phase-06b.md), [6c+6d](docs/evidence/phase-06c.md)), [clean-state](docs/evidence/clean-state-2026-11-24.md) |
 | 7 | Messaging Resilience & Dead Letters | IN PROGRESS (exit items met locally; open: pipelines, merge, clean-state run; FR-MSG-04 dev alert test → Phase 18) | [phase-07](docs/evidence/phase-07.md) |
-| 8 | Transactions, Scoring & Risk Cases (MVP slice) | IN PROGRESS (8a, 8d, 8e runtime-verified; 8b, 8c integration-verified) | [phase-08a](docs/evidence/phase-08a.md), [phase-08b](docs/evidence/phase-08b.md), [phase-08c](docs/evidence/phase-08c.md), [phase-08d](docs/evidence/phase-08d.md), [phase-08e](docs/evidence/phase-08e.md) |
+| 8 | Transactions, Scoring & Risk Cases (MVP slice) | IN PROGRESS (8a, 8d, 8e, 8f runtime-verified; 8b, 8c integration-verified) | [phase-08a](docs/evidence/phase-08a.md), [phase-08b](docs/evidence/phase-08b.md), [phase-08c](docs/evidence/phase-08c.md), [phase-08d](docs/evidence/phase-08d.md), [phase-08e](docs/evidence/phase-08e.md), [phase-08f](docs/evidence/phase-08f.md) |
 | 9 | Kubernetes, IaC & Secrets (homelab dev + prod) | PENDING | — |
 | 10 | CI/CD & DevSecOps Gates | PENDING | — |
 | 11 | Document ETL & Extraction | PENDING | — |
@@ -3205,12 +3205,12 @@ The FR-MSG-04 alert firing to ntfy in dev stays a Phase 18 item, as planned. Ope
 - [x] Migrations `V3__risk_evaluations.sql`, `V4__cases.sql` (cases, sequences, transitions, policy_evaluations, evidence, notes, dispositions); cases already had V1/V2 ([phase-08c](docs/evidence/phase-08c.md))
 - [x] `CaseStateMachine` (domain, pure) with transition table; `CaseService.open/transition` with transition keys, optimistic locking, outbox events ([phase-08c](docs/evidence/phase-08c.md))
 - [x] `recordRiskEvaluation` opening TRANSACTION_RISK cases ≥ 70; tenant-suspended suppression (the saga supplies `tenantStatus`) ([phase-08c](docs/evidence/phase-08c.md))
-- [ ] Enrichment timeout: delayed self-message + `runEnrichmentTimeouts` sweep (scheduler-trigger */5)
+- [x] Enrichment timeout: `runEnrichmentTimeouts` sweep (scheduler-trigger */5, job `cases-enrichment-timeouts`) ([phase-08f](docs/evidence/phase-08f.md)). The delayed self-message is carried to Phase 14 (needs a §6.7 event type); TRANSACTION_RISK enrichment is complete at open (clarification)
 - [x] Tests: exhaustive transition matrix test; duplicate open key → same case ([phase-08c](docs/evidence/phase-08c.md))
 
 #### FR-CASE-04 — Policy evaluation
-- [ ] `domain/policy/PolicyV1` (§1.4.5) pure + property tests; `PolicyEvaluationService` storing factors; escalation side effects (`correlation.requested`, N-01)
-- [ ] Tests: factor combinations table; CRITICAL escalation emits notification request
+- [x] `domain/PolicyV1` (§1.4.5) pure + property tests; `PolicyEvaluationService` storing factors; escalation side effects (`correlation.requested`, N-01) ([phase-08f](docs/evidence/phase-08f.md))
+- [x] Tests: factor combinations table; CRITICAL escalation emits notification request ([phase-08f](docs/evidence/phase-08f.md))
 
 #### FR-CASE-05 / FR-CASE-06 / FR-CASE-07 / FR-CASE-08 — Case work & concurrency
 - [ ] `listCases`, `getCase`, `getCaseTimeline`, `assignCase` (`expectedVersion`), `addCaseNote` (15-min lock), `recordDisposition` (four-eyes), `requestReevaluation`, `attachEvidence`, `autoResolveCleared` (daily)
@@ -3225,7 +3225,7 @@ The FR-MSG-04 alert firing to ntfy in dev stays a Phase 18 item, as planned. Ope
 - [x] Tests: UPDATE/DELETE rejected by DB; tampering a row via superuser in test → verify reports `firstBrokenSeq` ([phase-08d](docs/evidence/phase-08d.md))
 
 **Phase 8 exit evidence (MVP slice):** compose E2E — signed webhook archived & classified (Stage 1), transaction burst → evaluation → case ESCALATED → audit chain verified; zero duplicates after replaying all queues 3×; trace waterfall across Node → Python → Java.
-**Phase note:** status **`IN PROGRESS`** (2026-11-25). Slice 8a, transaction intake (FR-TXN-01 + the ingestion read of FR-TXN-06), is runtime-verified locally ([phase-08a](docs/evidence/phase-08a.md)). Slice 8b, risk scoring (FR-TXN-04), is integration-verified ([phase-08b](docs/evidence/phase-08b.md)); its call path from the orchestrator is verified with the saga in 8e. Slice 8c (evaluations, case core with audit append, transaction detail view) is integration-verified ([phase-08c](docs/evidence/phase-08c.md)). Slice 8d (audit ingest, list, verify, nightly job) is runtime-verified locally ([phase-08d](docs/evidence/phase-08d.md)). Slice 8e (ScoreTransactionSaga, FR-TEN-08 propagation) is runtime-verified locally ([phase-08e](docs/evidence/phase-08e.md)); it also exercised the 8b scoring path end to end. Next: 8c evaluations and case state machine (with the `GET /v1/transactions/{id}` composition), 8d audit log, 8e saga, 8f policy and case work, 8g exit.
+**Phase note:** status **`IN PROGRESS`** (2026-11-25). Slice 8a, transaction intake (FR-TXN-01 + the ingestion read of FR-TXN-06), is runtime-verified locally ([phase-08a](docs/evidence/phase-08a.md)). Slice 8b, risk scoring (FR-TXN-04), is integration-verified ([phase-08b](docs/evidence/phase-08b.md)); its call path from the orchestrator is verified with the saga in 8e. Slice 8c (evaluations, case core with audit append, transaction detail view) is integration-verified ([phase-08c](docs/evidence/phase-08c.md)). Slice 8d (audit ingest, list, verify, nightly job) is runtime-verified locally ([phase-08d](docs/evidence/phase-08d.md)). Slice 8e (ScoreTransactionSaga, FR-TEN-08 propagation) is runtime-verified locally ([phase-08e](docs/evidence/phase-08e.md)); it also exercised the 8b scoring path end to end. Slice 8f (policy evaluation, enrichment-timeout and auto-resolve sweeps) is runtime-verified locally ([phase-08f](docs/evidence/phase-08f.md)). Next: 8g case work and `/v1/cases*`, then the exit. Earlier plan: 8c evaluations and case state machine (with the `GET /v1/transactions/{id}` composition), 8d audit log, 8e saga, 8f policy and case work, 8g exit.
 
 ---
 
@@ -3362,6 +3362,8 @@ The FR-MSG-04 alert firing to ntfy in dev stays a Phase 18 item, as planned. Ope
 ---
 
 ### Phase 14 — Cross-Domain Correlation & Notifications
+
+- [ ] Carried from Phase 8 (8f): the enrichment timeout's delayed self-message on `cases.enrichment-timer.q`. It needs a §6.7 event type (amendment) once async enrichment sources exist; the */5 `runEnrichmentTimeouts` sweep covers the timeout until then.
 
 #### FR-COR-01 — Case correlation saga
 - [ ] `CaseCorrelationSaga` on `correlation.requested` → `searchEventsForEntities` → `attachEvidence` (≤ 20 items)

@@ -3,6 +3,7 @@ package io.aegispulse.cases.adapters.http;
 import io.aegispulse.cases.domain.CaseRecord;
 import io.aegispulse.cases.domain.RiskEvaluation;
 import io.aegispulse.cases.service.CaseOpening;
+import io.aegispulse.cases.service.CaseSweeps;
 import io.aegispulse.cases.service.Commands;
 import io.aegispulse.cases.service.RiskEvaluationService;
 import io.aegispulse.platform.errors.DomainException;
@@ -31,12 +32,35 @@ class CasesController {
   private final ServiceActionAuthorizer authorizer;
   private final RiskEvaluationService evaluations;
   private final CaseOpening opening;
+  private final CaseSweeps sweeps;
 
   CasesController(
-      ServiceActionAuthorizer authorizer, RiskEvaluationService evaluations, CaseOpening opening) {
+      ServiceActionAuthorizer authorizer,
+      RiskEvaluationService evaluations,
+      CaseOpening opening,
+      CaseSweeps sweeps) {
     this.authorizer = authorizer;
     this.evaluations = evaluations;
     this.opening = opening;
+    this.sweeps = sweeps;
+  }
+
+  /** Empty payload (Record&lt;string, never&gt;). */
+  record NoInput() {}
+
+  @PostMapping("/runEnrichmentTimeouts")
+  Success<CaseSweeps.Summary> runEnrichmentTimeouts(
+      @Nullable Authentication auth, @RequestBody NoInput body) {
+    return Success.of(
+        sweeps.runEnrichmentTimeouts(
+            authorizer.requireAction(auth, "cases.runEnrichmentTimeouts")));
+  }
+
+  @PostMapping("/autoResolveCleared")
+  Success<CaseSweeps.Summary> autoResolveCleared(
+      @Nullable Authentication auth, @RequestBody NoInput body) {
+    return Success.of(
+        sweeps.autoResolveCleared(authorizer.requireAction(auth, "cases.autoResolveCleared")));
   }
 
   @PostMapping("/recordRiskEvaluation")

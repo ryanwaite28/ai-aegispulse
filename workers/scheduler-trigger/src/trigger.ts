@@ -51,6 +51,9 @@ export async function trigger(config: Config, job: JobDefinition): Promise<JobRu
       case "cases": {
         const target = new InternalServiceClient("cases", { name: "cases", ...options });
         try {
+          if (job.action !== "verifyAuditChain") {
+            return await target.invoke<typeof job.action, JobRunSummary>(job.action, {});
+          }
           const v = await target.invoke<
             typeof job.action,
             { valid: boolean; checked: number; firstBrokenSeq?: number }

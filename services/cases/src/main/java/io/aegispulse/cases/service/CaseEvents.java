@@ -111,6 +111,20 @@ public class CaseEvents {
     }
   }
 
+  /** correlation.requested (FR-CASE-04 → FR-COR-01): case escalated ≥ HIGH, 30-day lookback. */
+  public void correlationRequested(CaseRecord c, java.util.List<String> entityIds, int revision) {
+    Map<String, @Nullable Object> p = new LinkedHashMap<>();
+    p.put("caseId", c.id().toString());
+    p.put("entityIds", entityIds);
+    p.put("lookbackDays", 30);
+    publish(
+        "correlation.requested",
+        c.tenantId(),
+        c.triggerEventId(),
+        "correlation.requested:" + c.id() + ":" + revision,
+        p);
+  }
+
   /** notification.requested (FR-NOTIF-01): template id, severity, dedup key, flat scalar vars. */
   public void notificationRequested(
       UUID tenantId,

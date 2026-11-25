@@ -103,15 +103,117 @@ public class CaseRepository {
       int expectedVersion,
       CaseStatus to,
       @Nullable OffsetDateTime enrichmentDeadline) {
+    return updateStatus(tenantId, id, expectedVersion, to, enrichmentDeadline, null);
+  }
+
+  /**
+   * Policy result written with the status change (FR-CASE-04): score, version and severity =
+   * band(score).
+   */
+  public record PolicyResult(int score, String version, String severity) {}
+
+  public Optional<CaseRecord> updateStatus(
+      UUID tenantId,
+      UUID id,
+      int expectedVersion,
+      CaseStatus to,
+      @Nullable OffsetDateTime enrichmentDeadline,
+      @Nullable PolicyResult policy) {
     return jdbc.sql(
             "UPDATE cases.cases SET status = ?, version = version + 1, enrichment_deadline = ?,"
-                + " resolved_at = CASE WHEN ? = 'RESOLVED' THEN now() ELSE resolved_at END"
+                + " resolved_at = CASE WHEN ? = 'RESOLVED' THEN now() ELSE resolved_at END,"
+                + " policy_score = COALESCE(?, policy_score), policy_version = COALESCE(?, policy_version),"
+                + " severity = COALESCE(?, severity)"
                 + " WHERE tenant_id = ? AND id = ? AND version = ? RETURNING "
                 + COLUMNS)
         .params(
-            Arrays.asList(to.name(), enrichmentDeadline, to.name(), tenantId, id, expectedVersion))
+            Arrays.asList(
+                to.name(),
+                enrichmentDeadline,
+                to.name(),
+                policy == null ? null : policy.score(),
+                policy == null ? null : policy.version(),
+                policy == null ? null : policy.severity(),
+                tenantId,
+                id,
+                expectedVersion))
         .query(this::map)
         .optional();
+  }
+
+  /** Evidence facts the policy reads (§1.4.5). */
+  public record EvidenceFacts(
+      @Nullable Integer riskScore,
+      int correlatedHigh,
+      int correlatedCritical,
+      boolean watchlistHit,
+      int redFlagClauses) {}
+
+  public EvidenceFacts evidenceFacts(UUID caseId) {
+    return jdbc.sql(
+            "SELECT"
+                + " (SELECT (summary->>'score')::int FROM cases.case_evidence WHERE case_id = ?"
+                + "   AND evidence_type = 'RISK_EVALUATION' ORDER BY created_at DESC LIMIT 1) AS risk_score,"
+                + " (SELECT count(*) FROM cases.case_evidence WHERE case_id = ? AND evidence_type = 'EVENT'"
+                + "   AND final_severity = 'HIGH') AS high,"
+                + " (SELECT count(*) FROM cases.case_evidence WHERE case_id = ? AND evidence_type = 'EVENT'"
+                + "   AND final_severity = 'CRITICAL') AS critical,"
+                + " EXISTS (SELECT 1 FROM cases.case_evidence WHERE case_id = ? AND evidence_type = 'WATCHLIST_HIT')"
+                + "   AS watchlist,"
+                + " (SELECT COALESCE(sum(jsonb_array_length(COALESCE(summary->'redFlags', '[]'::jsonb))), 0)"
+                + "    FROM cases.case_evidence WHERE case_id = ? AND evidence_type = 'EXTRACTION') AS red_flags")
+        .params(caseId, caseId, caseId, caseId, caseId)
+        .query((rs, i) ->
+            new EvidenceFacts(
+                (Integer) rs.getObject("risk_score"),
+                rs.getInt("high"),
+                rs.getInt("critical"),
+                rs.getBoolean("watchlist"),
+                rs.getInt("red_flags")))
+        .single();
+  }
+
+  public int nextPolicyRevision(UUID caseId) {
+    return jdbc.sql(
+            "SELECT COALESCE(max(revision), 0) + 1 FROM cases.policy_evaluations WHERE case_id = ?")
+        .param(caseId)
+        .query(Integer.class)
+        .single();
+  }
+
+  public void insertPolicyEvaluation(
+      UUID tenantId,
+      UUID caseId,
+      int revision,
+      String version,
+      int score,
+      String outcome,
+      String factorsJson) {
+    jdbc.sql(
+            "INSERT INTO cases.policy_evaluations (tenant_id, case_id, revision, policy_version,"
+                + " policy_score, outcome, factors) VALUES (?,?,?,?,?,?,?::jsonb)"
+                + " ON CONFLICT (case_id, revision) DO NOTHING")
+        .params(tenantId, caseId, revision, version, score, outcome, factorsJson)
+        .update();
+  }
+
+  /** A case found by a scheduled sweep (ids only; the work runs under the tenant's RLS). */
+  public record DueCase(UUID tenantId, UUID caseId) {}
+
+  public List<DueCase> enrichmentOverdue(int limit) {
+    return jdbc.sql("SELECT tenant_id, case_id FROM cases.enrichment_overdue(?)")
+        .param(limit)
+        .query((rs, i) ->
+            new DueCase(rs.getObject("tenant_id", UUID.class), rs.getObject("case_id", UUID.class)))
+        .list();
+  }
+
+  public List<DueCase> clearedWithoutNewEvidence(int days, int limit) {
+    return jdbc.sql("SELECT tenant_id, case_id FROM cases.cleared_without_new_evidence(?, ?)")
+        .params(days, limit)
+        .query((rs, i) ->
+            new DueCase(rs.getObject("tenant_id", UUID.class), rs.getObject("case_id", UUID.class)))
+        .list();
   }
 
   /** Records a transition unless (case, key) exists; false when it already did (idempotent). */

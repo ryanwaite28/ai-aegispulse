@@ -38,6 +38,7 @@ public class RiskEvaluationService {
   private final RiskEvaluationRepository evaluations;
   private final CaseRepository cases;
   private final CaseService caseService;
+  private final PolicyEvaluationService policy;
   private final AuditService audit;
   private final CaseEvents events;
   private final TenantScope scope;
@@ -48,6 +49,7 @@ public class RiskEvaluationService {
       RiskEvaluationRepository evaluations,
       CaseRepository cases,
       CaseService caseService,
+      PolicyEvaluationService policy,
       AuditService audit,
       CaseEvents events,
       TenantScope scope,
@@ -56,6 +58,7 @@ public class RiskEvaluationService {
     this.evaluations = evaluations;
     this.cases = cases;
     this.caseService = caseService;
+    this.policy = policy;
     this.audit = audit;
     this.events = events;
     this.scope = scope;
@@ -133,6 +136,12 @@ public class RiskEvaluationService {
             String.valueOf(hit.get("severityFloor")),
             json.writeValueAsString(hit),
             "ScoreTransactionSaga");
+      }
+      if (opened.created()) {
+        // Enrichment of a TRANSACTION_RISK case is its evaluation + watchlist hits, attached above
+        // in this
+        // transaction, so enrichment is complete at open and the policy runs now (FR-CASE-02/04).
+        policy.evaluate(tenantId, caseId, Actor.SYSTEM);
       }
     }
     RiskEvaluation draft =

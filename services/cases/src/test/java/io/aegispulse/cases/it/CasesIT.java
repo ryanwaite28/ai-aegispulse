@@ -259,16 +259,18 @@ class CasesIT {
             tenant,
             () ->
                 jdbc.sql(
-                        "SELECT case_number, case_type, status, severity, version, enrichment_deadline IS NOT NULL AS d FROM cases.cases WHERE id = ?")
+                        "SELECT case_number, case_type, status, severity, version, policy_score, policy_version, enrichment_deadline IS NOT NULL AS d FROM cases.cases WHERE id = ?")
                     .param(caseId)
                     .query()
                     .singleRow());
     assertThat(c)
         .containsEntry("case_type", "TRANSACTION_RISK")
-        .containsEntry("status", "ENRICHING")
+        .containsEntry("status", "ESCALATED") // policy ran at open: base 82 ≥ 75 (FR-CASE-04)
         .containsEntry("severity", "HIGH")
-        .containsEntry("version", 1)
-        .containsEntry("d", true);
+        .containsEntry("version", 3)
+        .containsEntry("policy_score", 82)
+        .containsEntry("policy_version", "policy-v1.0.0")
+        .containsEntry("d", false);
     assertThat((String) c.get("case_number")).matches("AP-\\d{4}-000001");
     assertThat(
             inTenant(
@@ -279,7 +281,7 @@ class CasesIT {
                         .param(caseId)
                         .query(String.class)
                         .list()))
-        .containsExactly("open", "enrich:open");
+        .containsExactly("open", "enrich:open", "policy:1", "outcome:1");
     assertThat(count(tenant, "SELECT count(*) FROM cases.case_evidence WHERE case_id = ?", caseId))
         .isEqualTo(2);
     assertThat(
@@ -290,7 +292,12 @@ class CasesIT {
                         .param(tenant)
                         .query(String.class)
                         .list()))
-        .containsExactly("CASE_OPENED", "CASE_TRANSITION", "RISK_EVALUATION_RECORDED");
+        .containsExactly(
+            "CASE_OPENED",
+            "CASE_TRANSITION",
+            "CASE_TRANSITION",
+            "CASE_TRANSITION",
+            "RISK_EVALUATION_RECORDED");
     assertChainValid(tenant);
     assertThat(
             inTenant(
@@ -301,7 +308,21 @@ class CasesIT {
                         .param(tenant)
                         .query(String.class)
                         .list()))
-        .containsExactly("case.opened", "case.transitioned", "risk.evaluation.recorded");
+        .containsExactly(
+            "case.opened",
+            "case.transitioned",
+            "case.transitioned",
+            "case.transitioned",
+            "case.escalated",
+            "correlation.requested",
+            "risk.evaluation.recorded");
+    assertThat(
+            count(
+                tenant,
+                "SELECT count(*) FROM cases.policy_evaluations WHERE case_id = ? AND revision = 1 AND outcome = 'ESCALATED'"
+                    + " AND (factors->'base_score'->>'contribution')::int = 82",
+                caseId))
+        .isEqualTo(1);
   }
 
   @Test
@@ -332,10 +353,19 @@ class CasesIT {
     assertThat(count(tenant, "SELECT count(*) FROM cases.cases WHERE tenant_id = ?", tenant))
         .isEqualTo(1);
     assertThat(count(tenant, "SELECT count(*) FROM cases.audit_log WHERE tenant_id = ?", tenant))
-        .isEqualTo(3);
+        .isEqualTo(5);
+    // opened, 3 × transitioned, escalated, correlation.requested, N-01 (CRITICAL),
+    // risk.evaluation.recorded
     assertThat(
             count(tenant, "SELECT count(*) FROM cases.outbox_events WHERE tenant_id = ?", tenant))
-        .isEqualTo(3);
+        .isEqualTo(8);
+    assertThat(
+            count(
+                tenant,
+                "SELECT count(*) FROM cases.outbox_events WHERE tenant_id = ? AND routing_key = 'notification.requested'"
+                    + " AND envelope->'payload'->>'templateId' = 'N-01'",
+                tenant))
+        .isEqualTo(1);
     assertThat(again.data().get("severity")).isNull(); // the evaluation view, not a case view
     assertChainValid(tenant);
   }
@@ -375,24 +405,164 @@ class CasesIT {
                 tenant,
                 () ->
                     cases.transition(
-                        tenant, caseId, CaseStatus.RESOLVED, "bad", Actor.SYSTEM, null)))
+                        tenant, caseId, CaseStatus.POLICY_EVALUATED, "bad", Actor.SYSTEM, null)))
         .isInstanceOfSatisfying(
             DomainException.class, e -> assertThat(e.code()).isEqualTo("CASE_INVALID_TRANSITION"));
-    var evaluated =
+    var reopened =
         inTenant(
             tenant,
             () ->
                 cases.transition(
-                    tenant, caseId, CaseStatus.POLICY_EVALUATED, "policy:1", Actor.SYSTEM, null));
+                    tenant, caseId, CaseStatus.ENRICHING, "reeval:1", Actor.SYSTEM, null));
     var again =
         inTenant(
             tenant,
             () ->
                 cases.transition(
-                    tenant, caseId, CaseStatus.POLICY_EVALUATED, "policy:1", Actor.SYSTEM, null));
-    assertThat(again.version()).isEqualTo(evaluated.version()).isEqualTo(2);
+                    tenant, caseId, CaseStatus.ENRICHING, "reeval:1", Actor.SYSTEM, null));
+    assertThat(again.version()).isEqualTo(reopened.version()).isEqualTo(4);
     assertThat(count(tenant, "SELECT count(*) FROM cases.audit_log WHERE tenant_id = ?", tenant))
-        .isEqualTo(4);
+        .isEqualTo(6);
+    assertChainValid(tenant);
+  }
+
+  @Test
+  void policyClearsBelow75WithoutCorrelationAndSweepsEvaluateTimeoutsAndAutoResolve_FR_CASE_02_04()
+      throws Exception {
+    UUID tenant = UUID.randomUUID();
+    Reply cleared =
+        post(
+            "recordRiskEvaluation",
+            SAGA,
+            evaluation(tenant, UUID.randomUUID(), UUID.randomUUID(), 72, null));
+    UUID clearedId = UUID.fromString(cleared.data().get("caseId").asString());
+    Map<String, Object> c =
+        inTenant(
+            tenant,
+            () ->
+                jdbc.sql("SELECT status, severity, policy_score FROM cases.cases WHERE id = ?")
+                    .param(clearedId)
+                    .query()
+                    .singleRow());
+    assertThat(c)
+        .containsEntry("status", "CLEARED")
+        .containsEntry("severity", "HIGH")
+        .containsEntry("policy_score", 72);
+    assertThat(
+            count(
+                tenant,
+                "SELECT count(*) FROM cases.outbox_events WHERE tenant_id = ? AND routing_key = 'correlation.requested'",
+                tenant))
+        .isZero();
+
+    // A case opened without its enrichment stays ENRICHING until the 10-min deadline; the sweep
+    // evaluates it.
+    Reply opened =
+        post(
+            "openCase",
+            SAGA,
+            Map.of(
+                "tenantId",
+                tenant.toString(),
+                "caseType",
+                "DOCUMENT_RISK",
+                "severity",
+                "HIGH",
+                "triggerEventId",
+                UUID.randomUUID().toString(),
+                "openIdempotencyKey",
+                "doc-risk:" + UUID.randomUUID()));
+    assertThat(opened.status()).as(opened.body().toString()).isEqualTo(200);
+    UUID docCase = UUID.fromString(opened.data().get("id").asString());
+    assertThat(opened.data().get("status").asString()).isEqualTo("ENRICHING");
+    String scheduler =
+        Tokens.service(
+            "svc-scheduler-trigger", "cases.runEnrichmentTimeouts", "cases.autoResolveCleared");
+    assertThat(
+            post("runEnrichmentTimeouts", scheduler, Map.of()).data().get("processedCount").asInt())
+        .isGreaterThanOrEqualTo(0);
+    assertThat(
+            inTenant(
+                tenant,
+                () ->
+                    jdbc.sql("SELECT status FROM cases.cases WHERE id = ?")
+                        .param(docCase)
+                        .query(String.class)
+                        .single()))
+        .isEqualTo("ENRICHING"); // deadline not reached
+    inTenant(
+        tenant,
+        () ->
+            jdbc.sql(
+                    "UPDATE cases.cases SET enrichment_deadline = now() - interval '1 minute' WHERE id = ?")
+                .param(docCase)
+                .update());
+    Reply swept = post("runEnrichmentTimeouts", scheduler, Map.of());
+    assertThat(swept.data().get("processedCount").asInt()).isGreaterThanOrEqualTo(1);
+    Map<String, Object> d =
+        inTenant(
+            tenant,
+            () ->
+                jdbc.sql("SELECT status, severity, policy_score FROM cases.cases WHERE id = ?")
+                    .param(docCase)
+                    .query()
+                    .singleRow());
+    assertThat(d)
+        .containsEntry("status", "CLEARED")
+        .containsEntry("severity", "MEDIUM")
+        .containsEntry("policy_score", 50);
+    assertThat(
+            inTenant(
+                tenant,
+                () ->
+                    jdbc.sql(
+                            "SELECT trigger_type FROM cases.case_transitions WHERE case_id = ? AND transition_key = 'policy:1'")
+                        .param(docCase)
+                        .query(String.class)
+                        .single()))
+        .isEqualTo("TIMER");
+
+    // Auto-resolve: CLEARED for 7 days with no new evidence (backdated as the superuser, bypassing
+    // the updated_at trigger).
+    try (Connection admin =
+        DriverManager.getConnection(
+            Infra.POSTGRES.getJdbcUrl(),
+            Infra.POSTGRES.getUsername(),
+            Infra.POSTGRES.getPassword())) {
+      admin
+          .createStatement()
+          .execute("ALTER TABLE cases.cases DISABLE TRIGGER trg_cases_updated_at");
+      admin
+          .createStatement()
+          .executeUpdate(
+              "UPDATE cases.cases SET updated_at = now() - interval '8 days' WHERE id = '"
+                  + docCase
+                  + "'");
+      admin
+          .createStatement()
+          .execute("ALTER TABLE cases.cases ENABLE TRIGGER trg_cases_updated_at");
+    }
+    assertThat(post("autoResolveCleared", scheduler, Map.of()).data().get("processedCount").asInt())
+        .isGreaterThanOrEqualTo(1);
+    assertThat(
+            inTenant(
+                tenant,
+                () ->
+                    jdbc.sql("SELECT status FROM cases.cases WHERE id = ?")
+                        .param(docCase)
+                        .query(String.class)
+                        .single()))
+        .isEqualTo("RESOLVED");
+    assertThat(
+            inTenant(
+                tenant,
+                () ->
+                    jdbc.sql("SELECT status FROM cases.cases WHERE id = ?")
+                        .param(clearedId)
+                        .query(String.class)
+                        .single()))
+        .isEqualTo("CLEARED"); // recent: untouched
+    assertThat(post("runEnrichmentTimeouts", SAGA, Map.of()).status()).isEqualTo(403);
     assertChainValid(tenant);
   }
 

@@ -12,7 +12,10 @@ interface JobBase {
 export type JobDefinition =
   | (JobBase & { readonly service: "ingestion"; readonly action: "expirePreviousSecrets" })
   | (JobBase & { readonly service: "files"; readonly action: "sweepOrphans" | "purgeRetention" })
-  | (JobBase & { readonly service: "cases"; readonly action: "verifyAuditChain" });
+  | (JobBase & {
+      readonly service: "cases";
+      readonly action: "verifyAuditChain" | "runEnrichmentTimeouts" | "autoResolveCleared";
+    });
 
 export const JOBS = {
   /** FR-WHK-08, hourly: expire PREVIOUS webhook secrets + sweep orphan raw objects. */
@@ -40,6 +43,20 @@ export const JOBS = {
    * FR-AUD-03, nightly: verify every tenant's audit chain from its last verified seq; a broken chain emits
    * notification.requested N-06 (cases) and stays unverified. processedCount = entries checked.
    */
+  /** FR-CASE-02, every 5 min: ENRICHING cases past their 10-min enrichment deadline get their policy evaluation. */
+  "cases-enrichment-timeouts": {
+    service: "cases",
+    action: "runEnrichmentTimeouts",
+    baseUrl: (c) => c.CASES_URL,
+    timeoutMs: 300_000,
+  },
+  /** FR-CASE-02, daily: CLEARED cases with no new evidence for 7 days → RESOLVED. */
+  "cases-auto-resolve": {
+    service: "cases",
+    action: "autoResolveCleared",
+    baseUrl: (c) => c.CASES_URL,
+    timeoutMs: 300_000,
+  },
   "cases-audit-verify": {
     service: "cases",
     action: "verifyAuditChain",
