@@ -13,6 +13,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 8g analyst case work (FR-CASE-05..08; spec `docs/specs/FR-CASE-05-08-case-work.md`, evidence `docs/evidence/phase-08g.md`):
+  - **Reads:** list (filters, keyset), detail with policy factors, timeline.
+  - **Writes:** optimistic assign; immutable notes; dispositions with four-eyes, idempotency, model/rule versions and `case.disposition.recorded`; manual re-evaluation.
+  - **Evidence:** `attachEvidence` re-evaluates a case, or opens a CORRELATED case when the original is RESOLVED.
+  - **Gateway:** `/v1/cases*`.
 - Phase 8f policy and sweeps (FR-CASE-04, FR-CASE-02; spec `docs/specs/FR-CASE-02-04-policy-sweeps.md`, evidence `docs/evidence/phase-08f.md`):
   - **Policy:** pure `PolicyV1` (§1.4.5). TRANSACTION_RISK cases are evaluated at open: ENRICHING → POLICY_EVALUATED → ESCALATED | CLEARED, with policy factors stored. Escalation ≥ HIGH emits `correlation.requested`; CRITICAL also emits N-01.
   - **Sweeps:** V7 cross-tenant finders. New scheduler jobs `cases-enrichment-timeouts` (*/5, overdue ENRICHING → policy) and `cases-auto-resolve` (daily, CLEARED with no new evidence for 7 days → RESOLVED).

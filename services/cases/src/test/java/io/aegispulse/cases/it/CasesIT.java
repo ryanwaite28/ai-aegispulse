@@ -308,7 +308,8 @@ class CasesIT {
                         .param(tenant)
                         .query(String.class)
                         .list()))
-        .containsExactly(
+        // the same transaction: event ids share a millisecond, so compare the set, not the order
+        .containsExactlyInAnyOrder(
             "case.opened",
             "case.transitioned",
             "case.transitioned",
@@ -863,5 +864,357 @@ class CasesIT {
                 "SELECT verified_seq FROM cases.audit_chain_heads WHERE tenant_id = ?",
                 healthy))
         .isEqualTo(1);
+  }
+
+  // ── FR-CASE-05..08: case work ────────────────────────────────────────────────────────────────
+
+  UUID caseFor(UUID tenant, int score) throws Exception {
+    Reply r =
+        post(
+            "recordRiskEvaluation",
+            SAGA,
+            evaluation(tenant, UUID.randomUUID(), UUID.randomUUID(), score, null));
+    return UUID.fromString(r.data().get("caseId").asString());
+  }
+
+  @Test
+  void listGetTimelineAssignAndNotesAreTenantScopedAndVersioned_FR_CASE_05_FR_CASE_07()
+      throws Exception {
+    UUID tenant = UUID.randomUUID();
+    UUID escalated = caseFor(tenant, 80);
+    UUID cleared = caseFor(tenant, 71);
+    String viewer = Tokens.user(UUID.randomUUID(), tenant, "t", "VIEWER");
+    String analyst = Tokens.user(UUID.randomUUID(), tenant, "t", "ANALYST");
+    Reply all = post("listCases", viewer, Map.of());
+    assertThat(all.data()).hasSize(2);
+    Reply onlyCleared = post("listCases", viewer, Map.of("status", "CLEARED"));
+    assertThat(onlyCleared.data()).hasSize(1);
+    assertThat(onlyCleared.data().get(0).get("id").asString()).isEqualTo(cleared.toString());
+    Reply paged = post("listCases", viewer, Map.of("limit", 1));
+    Reply page2 =
+        post(
+            "listCases",
+            viewer,
+            Map.of("limit", 1, "cursor", paged.body().path("meta").path("nextCursor").asString()));
+    assertThat(page2.data().get(0).get("id").asString())
+        .isNotEqualTo(paged.data().get(0).get("id").asString());
+
+    Reply detail = post("getCase", viewer, Map.of("caseId", escalated.toString()));
+    assertThat(detail.data().get("status").asString()).isEqualTo("ESCALATED");
+    assertThat(detail.data().get("latestPolicyEvaluation").get("policyScore").asInt())
+        .isEqualTo(80);
+    assertThat(detail.data().get("latestPolicyEvaluation").get("factors")).isNotEmpty();
+    Reply timeline = post("getCaseTimeline", viewer, Map.of("caseId", escalated.toString()));
+    assertThat(timeline.data().get("transitions")).hasSize(4);
+    assertThat(timeline.data().get("evidence")).hasSize(2);
+    Reply foreign =
+        post(
+            "getCase",
+            Tokens.user(UUID.randomUUID(), UUID.randomUUID(), "o", "VIEWER"),
+            Map.of("caseId", escalated.toString()));
+    assertThat((Object) foreign.status()).isEqualTo(404);
+    assertThat(foreign.code()).isEqualTo("CASE_NOT_FOUND");
+
+    int version = detail.data().get("version").asInt();
+    UUID assignee = UUID.randomUUID();
+    Reply stale =
+        post(
+            "assignCase",
+            analyst,
+            Map.of(
+                "caseId",
+                escalated.toString(),
+                "assigneeUserId",
+                assignee.toString(),
+                "expectedVersion",
+                version - 1));
+    assertThat(stale.code()).isEqualTo("CASE_CONFLICT");
+    Reply assigned =
+        post(
+            "assignCase",
+            analyst,
+            Map.of(
+                "caseId",
+                escalated.toString(),
+                "assigneeUserId",
+                assignee.toString(),
+                "expectedVersion",
+                version));
+    assertThat(assigned.data().get("assigneeUserId").asString()).isEqualTo(assignee.toString());
+    assertThat(assigned.data().get("version").asInt()).isEqualTo(version + 1);
+    assertThat(
+            post(
+                    "assignCase",
+                    viewer,
+                    Map.of(
+                        "caseId",
+                        escalated.toString(),
+                        "assigneeUserId",
+                        assignee.toString(),
+                        "expectedVersion",
+                        version + 1))
+                .status())
+        .isEqualTo(403);
+
+    Reply note =
+        post(
+            "addCaseNote",
+            analyst,
+            Map.of(
+                "caseId",
+                escalated.toString(),
+                "body",
+                "Counterparty matches the sanctions list alias."));
+    assertThat(note.status()).isEqualTo(201);
+    assertThat(
+            java.time.Duration.between(
+                    java.time.Instant.parse(note.data().get("createdAt").asString()),
+                    java.time.Instant.parse(note.data().get("lockedAt").asString()))
+                .toMinutes())
+        .isEqualTo(15);
+    assertThat(
+            post(
+                    "addCaseNote",
+                    analyst,
+                    Map.of("caseId", escalated.toString(), "body", "x".repeat(4001)))
+                .status())
+        .isEqualTo(422);
+    assertThat(
+            post(
+                    "listCases",
+                    Tokens.user(UUID.randomUUID(), tenant, "t", "COMPLIANCE_AUDITOR"),
+                    Map.of())
+                .status())
+        .isEqualTo(403);
+    assertChainValid(tenant);
+  }
+
+  @Test
+  void dispositionsEnforceFourEyesAreIdempotentAndResolve_FR_CASE_06() throws Exception {
+    UUID tenant = UUID.randomUUID();
+    UUID caseId = caseFor(tenant, 88);
+    UUID a = UUID.randomUUID();
+    String analystA = Tokens.user(a, tenant, "t", "ANALYST");
+    String analystB = Tokens.user(UUID.randomUUID(), tenant, "t", "ANALYST");
+    String rationale = "Counterparty confirmed on the OFAC list; wire to a sanctioned bank.";
+    assertThat(
+            post(
+                    "recordDisposition",
+                    analystA,
+                    Map.of(
+                        "caseId",
+                        caseId.toString(),
+                        "disposition",
+                        "TRUE_POSITIVE",
+                        "rationale",
+                        "too short"))
+                .status())
+        .isEqualTo(422);
+    Reply review =
+        post(
+            "recordDisposition",
+            analystA,
+            Map.of(
+                "caseId",
+                caseId.toString(),
+                "disposition",
+                "NEEDS_REVIEW",
+                "rationale",
+                rationale));
+    assertThat(review.status()).isEqualTo(201);
+    assertThat(review.data().get("case").get("status").asString()).isEqualTo("ESCALATED");
+    assertThat(review.data().get("case").get("pendingDisposition").asString())
+        .isEqualTo("NEEDS_REVIEW");
+    Reply self =
+        post(
+            "recordDisposition",
+            analystA,
+            Map.of(
+                "caseId",
+                caseId.toString(),
+                "disposition",
+                "TRUE_POSITIVE",
+                "rationale",
+                rationale));
+    assertThat(self.code()).isEqualTo("CASE_FOUR_EYES_REQUIRED");
+    Map<String, Object> body =
+        Map.of(
+            "caseId",
+            caseId.toString(),
+            "disposition",
+            "TRUE_POSITIVE",
+            "rationale",
+            rationale + " Second review.");
+    Reply finalB = post("recordDisposition", analystB, body);
+    assertThat(finalB.status()).isEqualTo(201);
+    assertThat(finalB.data().get("case").get("status").asString()).isEqualTo("RESOLVED");
+    assertThat(finalB.data().get("case").get("pendingDisposition").isNull()).isTrue();
+    assertThat(finalB.data().get("disposition").get("modelVersions").get(0).asString())
+        .isEqualTo("risk-heuristic-v1.0.0");
+    assertThat(finalB.data().get("disposition").get("ruleVersions").get(0).asString())
+        .isEqualTo("policy-v1.0.0");
+    Reply repeat = post("recordDisposition", analystB, body);
+    assertThat(repeat.data().get("disposition").get("id").asString())
+        .isEqualTo(finalB.data().get("disposition").get("id").asString());
+    assertThat(
+            count(tenant, "SELECT count(*) FROM cases.case_dispositions WHERE case_id = ?", caseId))
+        .isEqualTo(2);
+    assertThat(
+            count(
+                tenant,
+                "SELECT count(*) FROM cases.outbox_events WHERE tenant_id = ? AND routing_key = 'case.disposition.recorded'",
+                tenant))
+        .isEqualTo(2);
+    assertThat(
+            count(
+                tenant,
+                "SELECT count(*) FROM cases.outbox_events WHERE tenant_id = ? AND routing_key = 'case.resolved'",
+                tenant))
+        .isEqualTo(1);
+    assertChainValid(tenant);
+  }
+
+  @Test
+  void concurrentFinalDispositionsOneWinsNoDuplicateAudit_FR_CASE_07() throws Exception {
+    UUID tenant = UUID.randomUUID();
+    UUID caseId = caseFor(tenant, 85);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    List<Future<Reply>> fs = new ArrayList<>();
+    for (int i = 0; i < 2; i++) {
+      String token = Tokens.user(UUID.randomUUID(), tenant, "t", "ANALYST");
+      fs.add(
+          pool.submit(() ->
+              post(
+                  "recordDisposition",
+                  token,
+                  Map.of(
+                      "caseId",
+                      caseId.toString(),
+                      "disposition",
+                      "FALSE_POSITIVE",
+                      "rationale",
+                      "Known payroll counterparty; benign pattern."))));
+    }
+    List<Integer> statuses = new ArrayList<>();
+    for (Future<Reply> f : fs) {
+      statuses.add(f.get().status());
+    }
+    pool.shutdown();
+    assertThat(statuses).containsExactlyInAnyOrder(201, 409);
+    assertThat(
+            count(tenant, "SELECT count(*) FROM cases.case_dispositions WHERE case_id = ?", caseId))
+        .isEqualTo(1);
+    assertThat(
+            count(
+                tenant,
+                "SELECT count(*) FROM cases.audit_log WHERE tenant_id = ? AND action = 'CASE_DISPOSITION_RECORDED'",
+                tenant))
+        .isEqualTo(1);
+    assertThat(
+            count(
+                tenant,
+                "SELECT count(*) FROM cases.case_transitions WHERE case_id = ? AND to_status = 'RESOLVED'",
+                caseId))
+        .isEqualTo(1);
+    assertChainValid(tenant);
+  }
+
+  @Test
+  void reevaluationAndEvidenceRerunPolicyAndResolvedCasesSpawnCorrelated_FR_CASE_08()
+      throws Exception {
+    UUID tenant = UUID.randomUUID();
+    UUID caseId = caseFor(tenant, 72); // CLEARED HIGH
+    String analyst = Tokens.user(UUID.randomUUID(), tenant, "t", "ANALYST");
+    Reply re =
+        post(
+            "requestReevaluation",
+            analyst,
+            Map.of("caseId", caseId.toString(), "reason", "new information from the RM"));
+    assertThat(re.data().get("status").asString()).isEqualTo("CLEARED");
+    assertThat(
+            count(
+                tenant, "SELECT count(*) FROM cases.policy_evaluations WHERE case_id = ?", caseId))
+        .isEqualTo(2);
+
+    String saga = Tokens.service("svc-orchestrator", "cases.attachEvidence");
+    String critical = UUID.randomUUID().toString();
+    Map<String, Object> attach =
+        Map.of(
+            "tenantId",
+            tenant.toString(),
+            "caseId",
+            caseId.toString(),
+            "items",
+            List.of(
+                Map.of(
+                    "evidenceType",
+                    "EVENT",
+                    "evidenceRef",
+                    critical,
+                    "finalSeverity",
+                    "CRITICAL")));
+    Reply first = post("attachEvidence", saga, attach);
+    assertThat(first.data().get("attached").asInt()).isEqualTo(1);
+    assertThat(first.data().get("reevaluationTriggered").asBoolean()).isTrue();
+    Map<String, Object> after =
+        inTenant(
+            tenant,
+            () ->
+                jdbc.sql("SELECT status, severity, policy_score FROM cases.cases WHERE id = ?")
+                    .param(caseId)
+                    .query()
+                    .singleRow());
+    assertThat(after)
+        .containsEntry("status", "ESCALATED")
+        .containsEntry("severity", "CRITICAL")
+        .containsEntry("policy_score", 97);
+    Reply dup = post("attachEvidence", saga, attach);
+    assertThat(dup.data().get("duplicates").asInt()).isEqualTo(1);
+    assertThat(dup.data().get("reevaluationTriggered").asBoolean()).isFalse();
+
+    String b = Tokens.user(UUID.randomUUID(), tenant, "t", "ANALYST");
+    post(
+        "recordDisposition",
+        b,
+        Map.of(
+            "caseId",
+            caseId.toString(),
+            "disposition",
+            "TRUE_POSITIVE",
+            "rationale",
+            "Confirmed against the regulator's notice."));
+    Reply onResolved =
+        post(
+            "attachEvidence",
+            saga,
+            Map.of(
+                "tenantId",
+                tenant.toString(),
+                "caseId",
+                caseId.toString(),
+                "items",
+                List.of(
+                    Map.of(
+                        "evidenceType",
+                        "EVENT",
+                        "evidenceRef",
+                        UUID.randomUUID().toString(),
+                        "finalSeverity",
+                        "HIGH"))));
+    UUID correlated = UUID.fromString(onResolved.data().get("newCaseId").asString());
+    Map<String, Object> c =
+        inTenant(
+            tenant,
+            () ->
+                jdbc.sql("SELECT case_type, previous_case_id, status FROM cases.cases WHERE id = ?")
+                    .param(correlated)
+                    .query()
+                    .singleRow());
+    assertThat(c)
+        .containsEntry("case_type", "CORRELATED")
+        .containsEntry("previous_case_id", caseId);
+    assertThat(c.get("status")).isIn("CLEARED", "ESCALATED");
+    assertThat(post("attachEvidence", analyst, attach).status()).isEqualTo(403);
+    assertChainValid(tenant);
   }
 }

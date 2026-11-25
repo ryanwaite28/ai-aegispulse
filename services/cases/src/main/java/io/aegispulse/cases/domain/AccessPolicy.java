@@ -9,13 +9,14 @@ import java.util.Map;
  */
 public final class AccessPolicy {
   private static final Map<String, List<String>> ROLES =
-      Map.of(
-          "getTransactionEvaluation",
-          List.of("INTEGRATION", "VIEWER", "ANALYST", "TENANT_ADMIN", "PLATFORM_ADMIN"),
-          "listAuditEntries",
-          List.of("COMPLIANCE_AUDITOR", "TENANT_ADMIN"),
-          "verifyAuditChain",
-          List.of("COMPLIANCE_AUDITOR"));
+      Map.ofEntries(
+          Map.entry(
+              "getTransactionEvaluation",
+              List.of("INTEGRATION", "VIEWER", "ANALYST", "TENANT_ADMIN", "PLATFORM_ADMIN")),
+          Map.entry("listAuditEntries", List.of("COMPLIANCE_AUDITOR", "TENANT_ADMIN")),
+          Map.entry("verifyAuditChain", List.of("COMPLIANCE_AUDITOR")),
+          Map.entry("readCases", List.of("VIEWER", "ANALYST", "TENANT_ADMIN", "PLATFORM_ADMIN")),
+          Map.entry("workCases", List.of("ANALYST", "TENANT_ADMIN", "PLATFORM_ADMIN")));
 
   private AccessPolicy() {}
 

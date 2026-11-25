@@ -290,3 +290,40 @@ describe("audit routes over the gateway (FR-AUD-03)", () => {
     expect(seen).toHaveLength(2);
   });
 });
+
+describe("case routes over the gateway (FR-CASE-05/06)", () => {
+  const CASE = "0b6f3c1e-2f4a-4c55-9d2e-6a7b8c9d0e1f";
+
+  it("forwards filters, path ids, bodies and Idempotency-Key; notes and dispositions are 201", async () => {
+    const t = { "x-aegis-tenant": TENANT };
+    expect((await get("/v1/cases?status=ESCALATED&limit=5", t)).statusCode).toBe(200);
+    expect((await get(`/v1/cases/${CASE}`, t)).statusCode).toBe(200);
+    expect((await get(`/v1/cases/${CASE}/timeline`, t)).statusCode).toBe(200);
+    expect((await post(`/v1/cases/${CASE}/assign`, { assigneeUserId: null, expectedVersion: 3 }, t)).statusCode).toBe(
+      200,
+    );
+    expect((await post(`/v1/cases/${CASE}/notes`, { body: "n" }, t)).statusCode).toBe(201);
+    expect(
+      (
+        await post(
+          `/v1/cases/${CASE}/dispositions`,
+          { disposition: "NEEDS_REVIEW", rationale: "r" },
+          { ...t, "idempotency-key": "d-1" },
+        )
+      ).statusCode,
+    ).toBe(201);
+    expect((await post(`/v1/cases/${CASE}/reevaluate`, { reason: "new info" }, t)).statusCode).toBe(200);
+    expect(seen.map((x) => [x.path, x.body])).toEqual([
+      ["/internal/v1/listCases", { status: "ESCALATED", limit: 5 }],
+      ["/internal/v1/getCase", { caseId: CASE }],
+      ["/internal/v1/getCaseTimeline", { caseId: CASE }],
+      ["/internal/v1/assignCase", { assigneeUserId: null, expectedVersion: 3, caseId: CASE }],
+      ["/internal/v1/addCaseNote", { body: "n", caseId: CASE }],
+      ["/internal/v1/recordDisposition", { disposition: "NEEDS_REVIEW", rationale: "r", caseId: CASE }],
+      ["/internal/v1/requestReevaluation", { reason: "new info", caseId: CASE }],
+    ]);
+    expect(seen[5]?.idem).toBe("d-1");
+    expect((await get("/v1/cases/nope")).statusCode).toBe(404);
+    expect(seen).toHaveLength(7);
+  });
+});

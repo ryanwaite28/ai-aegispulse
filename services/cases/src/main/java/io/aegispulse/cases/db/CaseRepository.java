@@ -216,6 +216,14 @@ public class CaseRepository {
         .list();
   }
 
+  public @Nullable UUID pendingReviewer(UUID tenantId, UUID caseId) {
+    return jdbc.sql("SELECT pending_reviewer_id FROM cases.cases WHERE tenant_id = ? AND id = ?")
+        .params(tenantId, caseId)
+        .query((rs, i) -> rs.getObject(1, UUID.class))
+        .optional()
+        .orElse(null);
+  }
+
   /** Records a transition unless (case, key) exists; false when it already did (idempotent). */
   public boolean insertTransition(
       UUID tenantId,

@@ -68,7 +68,19 @@ const IMPLEMENTED: Record<string, readonly string[]> = {
   ],
   "Phase 6": ["searchEvents", "getEvent", "getEventCorrelationChain", "overrideEventClassification"],
   "Phase 7": ["listDeadLetters", "getDeadLetter", "replayDeadLetter", "discardDeadLetter"],
-  "Phase 8": ["submitTransaction", "getTransaction", "listAuditEntries", "verifyAuditChain"],
+  "Phase 8": [
+    "submitTransaction",
+    "getTransaction",
+    "listAuditEntries",
+    "verifyAuditChain",
+    "listCases",
+    "getCase",
+    "getCaseTimeline",
+    "assignCase",
+    "addCaseNote",
+    "recordDisposition",
+    "requestCaseReevaluation",
+  ],
 };
 const implemented = new Set(Object.values(IMPLEMENTED).flat());
 const phase2 = Object.entries(routes).filter(([id]) => implemented.has(id));
@@ -91,6 +103,7 @@ describe("FR-AUTH-06 role matrix over the gateway", () => {
           .replace("{id}", RANDOM_ID)
           .replace("{fileId}", RANDOM_ID)
           .replace("{eventId}", RANDOM_ID)
+          .replace("{caseId}", RANDOM_ID)
           .replace("{correlationId}", "corr-e2e-none");
         const body = route.method === "GET" || route.method === "DELETE" ? undefined : {};
         const headers: Record<string, string> =

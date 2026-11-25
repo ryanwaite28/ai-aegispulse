@@ -111,6 +111,45 @@ public class CaseEvents {
     }
   }
 
+  /** case.disposition.recorded (FR-CASE-06): disposition + the model/rule versions in effect. */
+  public void dispositionRecorded(CaseRecord c, io.aegispulse.cases.domain.CaseWork.Disposition d) {
+    Map<String, @Nullable Object> p = base(c);
+    p.put("disposition", d.disposition());
+    p.put("analystId", d.analystId().toString());
+    p.put("modelVersions", d.modelVersions());
+    p.put("ruleVersions", d.ruleVersions());
+    publish(
+        "case.disposition.recorded",
+        c.tenantId(),
+        c.triggerEventId(),
+        "case.disposition.recorded:" + d.id(),
+        p);
+  }
+
+  /** case.evidence.attached (FR-CASE-08). */
+  public void evidenceAttached(CaseRecord c, String evidenceType, String evidenceRef) {
+    Map<String, @Nullable Object> p = base(c);
+    p.put("evidenceType", evidenceType);
+    p.put("evidenceRef", evidenceRef);
+    publish(
+        "case.evidence.attached",
+        c.tenantId(),
+        c.triggerEventId(),
+        "case.evidence.attached:" + c.id() + ":" + evidenceType + ":" + evidenceRef,
+        p);
+  }
+
+  private static Map<String, @Nullable Object> base(CaseRecord c) {
+    Map<String, @Nullable Object> p = new LinkedHashMap<>();
+    p.put("caseId", c.id().toString());
+    p.put("caseNumber", c.caseNumber());
+    p.put("type", c.caseType());
+    p.put("severity", c.severity());
+    p.put("to", c.status().name());
+    p.put("version", c.version());
+    return p;
+  }
+
   /** correlation.requested (FR-CASE-04 → FR-COR-01): case escalated ≥ HIGH, 30-day lookback. */
   public void correlationRequested(CaseRecord c, java.util.List<String> entityIds, int revision) {
     Map<String, @Nullable Object> p = new LinkedHashMap<>();
