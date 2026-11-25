@@ -225,3 +225,21 @@ def test_stats_credits_only_tasks_that_replace_a_read(usage: Path, capsys: pytes
     out = capsys.readouterr().out
     assert "total ~tokens kept out of Claude context: 9500 " in out  # (40000 - 2000) // 4 only
     assert out.count("not credited") == 2
+
+
+def test_remote_profile_needs_its_env_host_and_applies_bounded_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = off.load_config()
+    assert cfg.remote is not None
+    monkeypatch.delenv(cfg.remote.host_env, raising=False)
+    with pytest.raises(off.OffloadError) as exc:
+        off.apply_remote(cfg)
+    assert exc.value.exit_code == off.EXIT_UNAVAILABLE  # falls back to Claude like any unavailable server
+    monkeypatch.setenv(cfg.remote.host_env, "http://remote.invalid:11434")
+    remote = off.apply_remote(cfg)
+    assert remote.host == "http://remote.invalid:11434"
+    assert remote.num_ctx <= 8192  # CPU box shared with the data stores
+    assert remote.chunk_chars < cfg.chunk_chars
+    assert set(remote.models) == {"fast", "deep"}
+    assert not {"gpt-oss:20b", "devstral:24b", "qwen3-coder:30b"} & set(remote.models.values())
+    assert remote.tasks is cfg.tasks
+    assert remote.think is False

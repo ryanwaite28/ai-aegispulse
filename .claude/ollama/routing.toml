@@ -25,6 +25,20 @@ deep = "qwen2.5-coder:14b"
 #   qwen3.8:latest    27.8B  nvfp4   18 GB  thinking, vision
 #   flint:latest      39.8B  int4    22 GB  thinking
 
+# Optional second server, used only with `--remote` (docs/OLLAMA_HOMELAB_SERVER.md, docs/steering/local-llm.md).
+# The host comes from the environment, never from this file. CPU-only and shared with the k3s storage node (data
+# stores), so: small models only, bounded context (the server doc caps num_ctx at 8192), one model loaded at a time.
+# Never use its 13-18 GB models (gpt-oss:20b, devstral:24b, qwen3-coder:30b) for offload.
+[remote]
+host_env = "OLLAMA_REMOTE_HOST"       # e.g. http://<tailscale-ip>:11434 (exported in the shell, not committed)
+timeout_s = 600
+keep_alive = "2m"
+chunk_chars = 14000                    # ~3.5k tokens + prompt + answer stays inside num_ctx
+num_ctx = 8192
+[remote.models]
+fast = "qwen3:8b"                      # thinking model: [server].think = false is sent on every request
+deep = "deepseek-coder-v2:16b"         # MoE, 8.9 GB
+
 [limits]
 # Chars per chunk sent in one request (~4 chars/token, leaving room for the prompt and the answer).
 chunk_chars = 24000

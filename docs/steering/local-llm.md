@@ -45,6 +45,21 @@ Use the cheapest tier that still meets `docs/steering/quality.md`:
 | 2 | refused (guard, unknown task, input too large for a single-window task) | narrow the input, or do the task in Claude if it is guarded |
 | 3 | Ollama down or model not pulled | do the task in Claude (Haiku-class). Never block on it; suggest `make llm-setup` once |
 
+## Homelab server (optional, `--remote`)
+`docs/OLLAMA_HOMELAB_SERVER.md` describes a second Ollama on `optiplex-tower` (CPU-only, Tailscale). The offload CLI can use it with `--remote` (`check` and `run`); the `[remote]` profile in `routing.toml` gives it its own tiers and limits, and the address comes from `OLLAMA_REMOTE_HOST` (never committed).
+
+| | Workstation (default) | Homelab (`--remote`) |
+|---|---|---|
+| `fast` / `deep` | `qwen2.5-coder:7b` / `:14b` | `qwen3:8b` (thinking off) / `deepseek-coder-v2:16b` |
+| `num_ctx` / `chunk_chars` | 16384 / 24000 | 8192 / 14000 |
+| Measured, one 9.8 KB log | about 10 s | 240 s cold, 24 s warm (2026-11-25) |
+
+When to use it: a batch of condensing calls (the model stays warm for the server's 2 min keep-alive), or the workstation is short on memory (compose stack up plus a large model). Not for a single quick call: the cold load costs minutes. Exit 3 (no env var, server down, model missing) falls back to Claude like any unavailable server.
+
+Why it is bounded: `optiplex-tower` is the k3s storage node (ADR-0015) that hosts the dev and prod data stores, and the 23 GiB of free RAM is shared with them. So only the two small models above are routed, context stays at or below 8192, and `gpt-oss:20b`, `devstral:24b` and `qwen3-coder:30b` (13 to 18 GB) are never used for offload. The same guards apply as locally: secret paths are never read and credential shapes are redacted in both directions. Everything sent stays on the owner's tailnet.
+
+The server doc's other models and the VS Code (Continue) setup are for interactive use in the editor, not for this CLI.
+
 ## Candidate models (installed, not routed)
 Installed on the workstation alongside the two routed tiers. Facts are from `ollama show`; **none has been benchmarked for these tasks**, so none is routed. Quality, speed and memory behaviour with the compose stack up are unknown until measured.
 

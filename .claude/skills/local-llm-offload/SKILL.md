@@ -31,6 +31,12 @@ Otherwise do it yourself. Small files are cheaper to `Read` directly, because a 
 
 `$SCRATCH` is the session scratchpad directory. Keep logs there, not in the repo. Use `-m deep` to escalate one run to the bigger model, and `-o FILE` to write the answer to a file.
 
+## Homelab server (`--remote`)
+A second, CPU-only Ollama on `optiplex-tower` (`docs/OLLAMA_HOMELAB_SERVER.md`). Use it only for overflow:
+- **When:** a batch of several condensing calls (warm 24 s each, cold 240 s), or the workstation is short on memory. Not for one quick call: the workstation does it in about 10 s.
+- **How:** `export OLLAMA_REMOTE_HOST=...` (never write the address into a file), then add `--remote` to `check` or `run`. Exit 3 → do it in Claude.
+- **Never** point it at the big models there (`gpt-oss:20b`, `devstral:24b`, `qwen3-coder:30b`): the node hosts the dev and prod data stores. The profile only routes `qwen3:8b` and `deepseek-coder-v2:16b` with `num_ctx` 8192, and the same never-route list applies.
+
 ## Other installed models (not routed)
 `mimo-v2.6` (8.7 GB), `qwen3.8` (18 GB) and `flint` (22 GB) are installed but unbenchmarked, so the default tiers stay `qwen2.5-coder:7b` / `:14b`. Do not pass `-m` with them on your own initiative.
 - Only on the owner's request, try one with `-m <tag>` for a single run.

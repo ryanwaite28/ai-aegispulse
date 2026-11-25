@@ -8,6 +8,7 @@ Usage:
   ollama_offload.py tasks                       # list task profiles from .claude/ollama/routing.toml
   ollama_offload.py run TASK [inputs] [-q Q]    # run one task; prints a header line, then the answer
   ollama_offload.py stats                       # estimated Claude context avoided so far
+  ollama_offload.py check|run ... --remote      # use the optional homelab server profile ([remote] in routing.toml)
 
 Inputs (combinable): -f/--file PATH (repeatable), --stdin, --diff [REV], --staged.
 
@@ -27,7 +28,7 @@ import time
 import tomllib
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn
 
@@ -79,6 +80,18 @@ class Task:
 
 
 @dataclass(frozen=True)
+class Remote:
+    """Optional second server (docs/OLLAMA_HOMELAB_SERVER.md): host from an env var, its own tiers and limits."""
+
+    host_env: str
+    models: dict[str, str]
+    timeout_s: float
+    keep_alive: str
+    chunk_chars: int
+    num_ctx: int
+
+
+@dataclass(frozen=True)
 class Config:
     host: str
     timeout_s: float
@@ -91,6 +104,7 @@ class Config:
     deny_paths: tuple[str, ...]
     security_paths: tuple[str, ...]
     tasks: dict[str, Task] = field(default_factory=dict)
+    remote: Remote | None = None
 
     def model_tag(self, tier_or_tag: str) -> str:
         return self.models.get(tier_or_tag, tier_or_tag)
@@ -113,6 +127,19 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         )
         for name, t in raw["tasks"].items()
     }
+    rm = raw.get("remote")
+    remote = (
+        Remote(
+            host_env=str(rm["host_env"]),
+            models={k: str(v) for k, v in rm["models"].items()},
+            timeout_s=float(rm.get("timeout_s", 600)),
+            keep_alive=str(rm.get("keep_alive", "2m")),
+            chunk_chars=int(rm["chunk_chars"]),
+            num_ctx=int(rm["num_ctx"]),
+        )
+        if rm is not None
+        else None
+    )
     return Config(
         host=os.environ.get("OLLAMA_HOST") or str(server["host"]),
         timeout_s=float(server.get("timeout_s", 300)),
@@ -125,6 +152,27 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         deny_paths=tuple(guard["deny_paths"]),
         security_paths=tuple(guard["security_paths"]),
         tasks=tasks,
+        remote=remote,
+    )
+
+
+def apply_remote(cfg: Config) -> Config:
+    """The same config pointed at the homelab server: its host, tiers and bounded context (exit 3 when unavailable)."""
+    if cfg.remote is None:
+        raise OffloadError("no [remote] profile in routing.toml", EXIT_UNAVAILABLE)
+    host = os.environ.get(cfg.remote.host_env, "")
+    if not host:
+        raise OffloadError(
+            f"--remote needs {cfg.remote.host_env} (see docs/OLLAMA_HOMELAB_SERVER.md)", EXIT_UNAVAILABLE
+        )
+    return replace(
+        cfg,
+        host=host,
+        models=cfg.remote.models,
+        timeout_s=cfg.remote.timeout_s,
+        keep_alive=cfg.remote.keep_alive,
+        chunk_chars=cfg.remote.chunk_chars,
+        num_ctx=cfg.remote.num_ctx,
     )
 
 
@@ -377,6 +425,7 @@ def cmd_run(cfg: Config, args: argparse.Namespace) -> int:
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "task": task.name,
             "model": model,
+            "remote": getattr(args, "remote", False),
             "chars_in": len(text),
             "chars_out": len(answer),
             "seconds": round(elapsed, 1),
@@ -417,7 +466,8 @@ def cmd_stats(cfg: Config) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("check", help="verify server and configured models")
+    chk = sub.add_parser("check", help="verify server and configured models")
+    chk.add_argument("--remote", action="store_true", help="check the optional homelab server profile instead")
     sub.add_parser("tasks", help="list task profiles")
     sub.add_parser("stats", help="usage and estimated context avoided")
     sub.add_parser("models", help="print configured model tags (for `make llm-setup`)")
@@ -429,6 +479,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--staged", action="store_true", help="git diff --staged as input")
     run.add_argument("-q", "--question", help="what to answer / extract / which FR id")
     run.add_argument("-m", "--model", help="tier (fast|deep) or explicit model tag")
+    run.add_argument("--remote", action="store_true", help="use the homelab server profile (CPU-only; slower)")
     run.add_argument("-o", "--out", help="write the answer to this file instead of stdout")
     return parser
 
@@ -443,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         cfg = load_config()
+        if getattr(args, "remote", False):
+            cfg = apply_remote(cfg)
         if args.cmd == "check":
             return cmd_check(cfg)
         if args.cmd == "tasks":
