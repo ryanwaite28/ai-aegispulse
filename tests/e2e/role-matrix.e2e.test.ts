@@ -68,6 +68,7 @@ const IMPLEMENTED: Record<string, readonly string[]> = {
   ],
   "Phase 6": ["searchEvents", "getEvent", "getEventCorrelationChain", "overrideEventClassification"],
   "Phase 7": ["listDeadLetters", "getDeadLetter", "replayDeadLetter", "discardDeadLetter"],
+  "Phase 8": ["submitTransaction"],
 };
 const implemented = new Set(Object.values(IMPLEMENTED).flat());
 const phase2 = Object.entries(routes).filter(([id]) => implemented.has(id));

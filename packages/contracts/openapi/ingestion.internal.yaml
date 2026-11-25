@@ -1650,7 +1650,8 @@ components:
             - type: integer
             - type: "null"
         submittedBy:
-          $ref: ./components/common.yaml#/components/schemas/Uuid
+          type: string
+          description: Actor reference of the submitter, user:{uuid} or integration:{clientId}.
         createdAt:
           $ref: ./components/common.yaml#/components/schemas/IsoDateTime
       required:

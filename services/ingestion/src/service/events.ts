@@ -52,3 +52,54 @@ export function sourceTrustChanged(args: {
   const exchange: ExchangeName = "aegispulse.intelligence";
   return { exchange, routingKey: envelope.eventType, envelope };
 }
+
+/** txn.submitted (FR-TXN-01 → ScoreTransactionSaga, FR-TXN-03) on aegispulse.ingress. Ids and transaction fields only. */
+export function txnSubmitted(args: {
+  version: string;
+  tenantId: string;
+  eventId: string;
+  correlationId: string;
+  transaction: {
+    id: string;
+    accountId: string;
+    counterpartyId: string;
+    counterpartyName: string;
+    amount: string;
+    currency: string;
+    country: string;
+    channel: string;
+    occurredAt: Date;
+    metadata: Record<string, unknown>;
+  };
+}): OutboxMessage {
+  const now = new Date().toISOString();
+  const t = args.transaction;
+  const envelope = {
+    eventId: args.eventId,
+    correlationId: args.correlationId,
+    causationId: null,
+    tenantId: args.tenantId,
+    schemaVersion: "1.0.0",
+    eventType: "txn.submitted",
+    source: "api:/v1/transactions",
+    producer: producer(args.version),
+    occurredAt: t.occurredAt.toISOString(),
+    ingestedAt: now,
+    idempotencyKey: `txn.submitted:${t.id}`,
+    classification: { sensitivity: "CONFIDENTIAL", status: "INGESTED", classification_source: "PRODUCER" },
+    payload: {
+      transactionId: t.id,
+      accountId: t.accountId,
+      counterpartyId: t.counterpartyId,
+      counterpartyName: t.counterpartyName,
+      amount: t.amount,
+      currency: t.currency,
+      country: t.country,
+      channel: t.channel,
+      occurredAt: t.occurredAt.toISOString(),
+      metadata: t.metadata,
+    },
+  } as CanonicalEnvelope;
+  const exchange: ExchangeName = "aegispulse.ingress";
+  return { exchange, routingKey: envelope.eventType, envelope };
+}

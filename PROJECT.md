@@ -12,7 +12,7 @@
 | **Messaging library** | [docs/libs/RXJS_RABBITMQ.md](docs/libs/RXJS_RABBITMQ.md) (`rxjs-rabbitmq`) |
 | **Authoring guide** | [docs/PROJECT_TEMPLATE_GUIDE.md](docs/PROJECT_TEMPLATE_GUIDE.md) |
 | **Document status** | v1.0 — baseline, all requirements `PENDING` |
-| **Last updated** | 2026-11-24 (Phase 7: §7.6 `dead_letters` registry fields, FR-MSG-03 replay path, §6.5 raw consumer; DLQ headers `x-aegis-error-message`/`-stack-hash`, `ops.audit.dead_letter_resolved`; envelope `classification.source_trust_level` for §1.4.3; `ops.audit.file_deleted` for FR-FILE-12 / FR-AUD-02; §5.1 CronJob `aegispulse-cron-secret-expiry`, 9 CronJobs; §5.7.3 ingestion object-store list grant for FR-WHK-08) · 2026-11-23 (JVM heap 50%; ADR-0017 SERVICE secret reconciliation; client-credentials rate limit; JWKS source; changePassword session keep; `registry.tenant.deactivated`; FR-TEN-09) |
+| **Last updated** | 2026-11-24 (Phase 8: `fx-static-v1` as contract reference file; Phase 7: §7.6 `dead_letters` registry fields, FR-MSG-03 replay path, §6.5 raw consumer; DLQ headers `x-aegis-error-message`/`-stack-hash`, `ops.audit.dead_letter_resolved`; envelope `classification.source_trust_level` for §1.4.3; `ops.audit.file_deleted` for FR-FILE-12 / FR-AUD-02; §5.1 CronJob `aegispulse-cron-secret-expiry`, 9 CronJobs; §5.7.3 ingestion object-store list grant for FR-WHK-08) · 2026-11-23 (JVM heap 50%; ADR-0017 SERVICE secret reconciliation; client-credentials rate limit; JWKS source; changePassword session keep; `registry.tenant.deactivated`; FR-TEN-09) |
 
 ---
 
@@ -212,7 +212,7 @@ score                = min(100, sum of factors)            (integer)
 band                 = LOW <40 | MEDIUM 40–69 | HIGH 70–84 | CRITICAL ≥85
 case_threshold       = 70  → opens TRANSACTION_RISK case
 ```
-- Currency conversion uses a static, versioned FX table (`fx-static-v1`, seeded) — no live FX calls.
+- Currency conversion uses a static, versioned FX table (`fx-static-v1`) — no live FX calls. It is a contract reference file, `packages/contracts/reference/fx-static-v1.json` (`{version, base: USD, asOf, usdPerUnit{ccy: decimal string}}`, schema-validated by `make contracts`). Ingestion reads it for the FR-TXN-01 currency check and risk-scoring for USD amounts; a new version is a new file.
 - Velocity/new-counterparty features are kept in Risk Scoring's Redis keyspace (sorted sets, 30-day TTL).
 - **Demo override (demo-mode tenants only, any environment):** `metadata.demoScenario = "FORCE_CRITICAL"` adds a 100-point factor named `demo_override`. Ignored unless `tenant.demo_mode = true`.
 - Phase 12 adds an IsolationForest anomaly model (`risk-iforest-vN`); final score = `max(heuristic, round(100 × anomaly_score))`, both factor sets returned for explainability.
@@ -1067,6 +1067,7 @@ aegispulse/
 │   │   ├── asyncapi/aegispulse.asyncapi.yaml
 │   │   ├── openapi/                   # gateway.public.yaml + {service}.internal.yaml
 │   │   ├── topology/aegispulse.topology.json   # exchanges, queues, bindings, retry tiers
+│   │   ├── reference/fx-static-v1.json         # static FX table (§1.4.4): accepted currencies, USD per unit
 │   │   └── generated/                 # ts/, java/, python/ — generated, never hand-edited
 │   ├── ts-platform/                   # Node shared kit (no business logic)
 │   │   └── src/{config,logging,telemetry,errors,http-client,auth,amqp,outbox,health,idempotency}/
@@ -1789,7 +1790,7 @@ CREATE TABLE ingestion.transaction_submissions (
   metadata          JSONB NOT NULL DEFAULT '{}',
   source_file_id    UUID,                            -- batch rows
   source_row        INT,
-  submitted_by      UUID NOT NULL,                   -- user or service account id
+  submitted_by      TEXT NOT NULL,                   -- actor reference: user:{uuid} | integration:{clientId}
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE UNIQUE INDEX ux_txn_tenant_idem ON ingestion.transaction_submissions (tenant_id, idempotency_key);
@@ -2878,7 +2879,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 5 | Files Subsystem | COMPLETE (gate met: exit items, OpenObserve, pipelines green, clean-state run, merged to `main` in !1 (`46ccd5e`, 2026-11-24)) | [phase-05](docs/evidence/phase-05.md) ([5a](docs/evidence/phase-05a.md), [5b](docs/evidence/phase-05b.md), [5c](docs/evidence/phase-05c.md), [5d](docs/evidence/phase-05d.md), [5e](docs/evidence/phase-05e.md)), [clean-state](docs/evidence/clean-state-2026-11-24.md) |
 | 6 | Events Archive & Stage-1 Classification | COMPLETE (gate met: exit items, OpenObserve, pipelines green, clean-state run, merged to `main` in !1 (`46ccd5e`, 2026-11-24)) | [phase-06](docs/evidence/phase-06.md) ([6a](docs/evidence/phase-06a.md), [6b](docs/evidence/phase-06b.md), [6c+6d](docs/evidence/phase-06c.md)), [clean-state](docs/evidence/clean-state-2026-11-24.md) |
 | 7 | Messaging Resilience & Dead Letters | IN PROGRESS (exit items met locally; open: pipelines, merge, clean-state run; FR-MSG-04 dev alert test → Phase 18) | [phase-07](docs/evidence/phase-07.md) |
-| 8 | Transactions, Scoring & Risk Cases (MVP slice) | PENDING | — |
+| 8 | Transactions, Scoring & Risk Cases (MVP slice) | IN PROGRESS (8a transaction intake runtime-verified locally) | [phase-08a](docs/evidence/phase-08a.md) |
 | 9 | Kubernetes, IaC & Secrets (homelab dev + prod) | PENDING | — |
 | 10 | CI/CD & DevSecOps Gates | PENDING | — |
 | 11 | Document ETL & Extraction | PENDING | — |
@@ -3185,10 +3186,10 @@ The FR-MSG-04 alert firing to ntfy in dev stays a Phase 18 item, as planned. Ope
 ### Phase 8 — Transactions, Scoring & Risk Cases (MVP vertical slice)
 
 #### FR-TXN-01 / FR-TXN-06 — Transaction intake & status
-- [ ] Migration `V4__transaction_submissions.sql`
-- [ ] `TransactionService.submit` (validation, FX currency check, idempotency with body hash), outbox `txn.submitted`; `getTransaction`
-- [ ] Gateway `POST /v1/transactions`, `GET /v1/transactions/{id}` (composes ingestion + cases clients)
-- [ ] Tests: key reuse with different body → 409; same body → original response
+- [x] Migration `V6__transaction_submissions.sql` (ingestion already has V4/V5 from Phase 4) ([phase-08a](docs/evidence/phase-08a.md))
+- [x] `TransactionService.submit` (validation, FX currency check, idempotency with body hash), outbox `txn.submitted`; `getTransaction` ([phase-08a](docs/evidence/phase-08a.md))
+- [ ] Gateway `POST /v1/transactions`, `GET /v1/transactions/{id}` (composes ingestion + cases clients) — POST done ([phase-08a](docs/evidence/phase-08a.md)); GET composition with cases in 8c
+- [x] Tests: key reuse with different body → 409; same body → original response ([phase-08a](docs/evidence/phase-08a.md))
 
 #### FR-TXN-04 — Risk scoring service (heuristic)
 - [ ] `services/risk-scoring`: `domain/heuristic_v1.py` (§1.4.4), static FX table `fx-static-v1`, Redis features with `feat:seen` idempotency, `POST /v1/score`
@@ -3224,7 +3225,7 @@ The FR-MSG-04 alert firing to ntfy in dev stays a Phase 18 item, as planned. Ope
 - [ ] Tests: UPDATE/DELETE rejected by DB; tampering a row via superuser in test → verify reports `firstBrokenSeq`
 
 **Phase 8 exit evidence (MVP slice):** compose E2E — signed webhook archived & classified (Stage 1), transaction burst → evaluation → case ESCALATED → audit chain verified; zero duplicates after replaying all queues 3×; trace waterfall across Node → Python → Java.
-**Phase note:** status `PENDING`.
+**Phase note:** status **`IN PROGRESS`** (2026-11-25). Slice 8a, transaction intake (FR-TXN-01 + the ingestion read of FR-TXN-06), is runtime-verified locally ([phase-08a](docs/evidence/phase-08a.md)). Next: 8b risk scoring, 8c evaluations and case state machine (with the `GET /v1/transactions/{id}` composition), 8d audit log, 8e saga, 8f policy and case work, 8g exit.
 
 ---
 

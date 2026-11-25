@@ -7,6 +7,7 @@
   "exports": {
     "./generated/ts/*": "./generated/ts/*",
     "./topology": "./topology/aegispulse.topology.json",
+    "./reference/fx-static-v1": "./reference/fx-static-v1.json",
     "./gateway-routes": "./generated/gateway-routes.json",
     "./envelope": "./envelope/canonical-envelope.v1.schema.json",
     "./openapi/gateway.public.yaml": "./openapi/gateway.public.yaml"

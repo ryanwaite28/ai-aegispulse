@@ -209,3 +209,14 @@ describe("dead-letter routes over the gateway (FR-MSG-03)", () => {
     expect(seen).toHaveLength(0);
   });
 });
+
+describe("transaction intake over the gateway (FR-TXN-01)", () => {
+  it("forwards the body, token, X-Aegis-Tenant and Idempotency-Key to ingestion and answers 202", async () => {
+    const body = { idempotencyKey: "t-1", accountId: "a", amount: "1.00" };
+    const r = await post("/v1/transactions", body, { "x-aegis-tenant": TENANT, "idempotency-key": "t-1" });
+    expect(r.statusCode).toBe(202);
+    expect(seen.map((x) => [x.path, x.body, x.tenant, x.idem])).toEqual([
+      ["/internal/v1/submitTransaction", body, TENANT, "t-1"],
+    ]);
+  });
+});

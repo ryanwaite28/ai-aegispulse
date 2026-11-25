@@ -55,6 +55,7 @@ export class IngestionClient {
     forward: Forward,
   ): Promise<SuccessEnvelope<R>> {
     const headers: Record<string, string> = {};
+    if (forward.tenant !== undefined) headers["x-aegis-tenant"] = forward.tenant;
     if (forward.idempotencyKey !== undefined) headers["idempotency-key"] = forward.idempotencyKey;
     return this.api.invokeEnvelope<A, R>(action, payload, {
       ...(forward.authorization === undefined ? {} : { authorization: forward.authorization }),

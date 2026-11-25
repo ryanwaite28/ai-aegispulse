@@ -13,6 +13,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 8a transaction intake (FR-TXN-01; spec `docs/specs/FR-TXN-01-06-transaction-intake.md`, evidence `docs/evidence/phase-08a.md`):
+  - **Ingestion:** `submitTransaction` (contract roles, tenant ACTIVE check, FX/skew/metadata rules, idempotent on (tenant, key) with a canonical body hash, 409 on reuse) and `getTransaction`. Migration `V6__transaction_submissions.sql` (RLS). The row and `txn.submitted` are written atomically through the outbox.
+  - **Gateway:** `POST /v1/transactions` (202); `IngestionClient` now forwards `X-Aegis-Tenant`.
+  - **Contracts:** reference file `fx-static-v1`.
 - Phase 7 messaging resilience and dead letters (FR-MSG-01..04; spec `docs/specs/FR-MSG-01-04-messaging-resilience.md`, evidence `docs/evidence/phase-07.md`):
   - **Kits (TS, Java, Python):** the DLQ copy now carries `x-aegis-error-message` (log-safe, ≤ 500 chars) and `x-aegis-error-stack-hash` (16 hex over the error type + top 10 frames without line numbers). New integration tests per kit cover the full 1 s → 5 s → 30 s chain with increasing gaps → DLQ, and redelivery of the original when the DLQ republish fails. The TS kit adds `consumeRaw` (no envelope validation; failure waits 5 s and requeues), `publishRaw`, `replayRoute` and `workQueueNames`.
   - **Dead-letter registry (events):**
@@ -222,6 +226,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- PROJECT.md amendment (owner-approved 2026-11-24): the static FX table `fx-static-v1` is a contract reference file, `packages/contracts/reference/fx-static-v1.json` (schema, `make contracts` check, TS export, Python package resource), shared by ingestion (FR-TXN-01 currency check) and risk-scoring (§1.4.4). §1.4.4 and the §6.1 tree are updated. The Phase 8 transaction migration is `V6` (ingestion has V4/V5). §7.2 `transaction_submissions.submitted_by` becomes the actor reference text (`user:{uuid}` | `integration:{clientId}`), because integration tokens carry the client id, not a UUID; the contract `TransactionSubmission.submittedBy` follows.
 - PROJECT.md amendments (owner-approved 2026-11-24) for Phase 7:
   - **Headers:** §6.4 adds the DLQ-only headers `x-aegis-error-message` and `x-aegis-error-stack-hash` (FR-MSG-02 needs the error message and stack hash).
   - **Audit event:** new `ops.audit.dead_letter_resolved {deadLetterId, queue, action, actorId, originalEventId, reason}` (events → intelligence → `cases.audit-ingest.q`); FR-MSG-03 / FR-AUD-02 / §6.7 updated; contracts regenerated.

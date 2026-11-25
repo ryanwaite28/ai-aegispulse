@@ -28,6 +28,14 @@ report(
   `${topology.exchanges.length} exchanges, ${topology.queues.length} queues, ${topology.bindings.length} bindings`,
 );
 
+// 1b. reference data (static FX table, §1.4.4 / FR-TXN-01)
+const fxAjv = createAjv();
+const fxValidate = fxAjv.compile(readJson(join(contractsRoot, "reference", "fx-static.schema.json")) as object);
+const fx = readJson(join(contractsRoot, "reference", "fx-static-v1.json")) as { version: string; usdPerUnit: object };
+const fxErrors = fxValidate(fx) ? [] : (fxValidate.errors ?? []).map((e) => `${e.instancePath} ${e.message ?? ""}`);
+if (fx.version !== "fx-static-v1") fxErrors.push(`fx-static-v1.json declares version ${fx.version}`);
+report("reference", fxErrors, `${fx.version}: ${String(Object.keys(fx.usdPerUnit).length)} currencies`);
+
 // 2. envelope + examples
 const ajv = createAjv();
 const envelope = ajv.getSchema(ENVELOPE_ID);

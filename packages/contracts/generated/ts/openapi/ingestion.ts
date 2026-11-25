@@ -575,7 +575,8 @@ export type components = {
             occurredAt: components["schemas"]["IsoDateTime"];
             sourceFileId?: components["schemas"]["Uuid"] | null;
             sourceRow?: number | null;
-            submittedBy: components["schemas"]["Uuid"];
+            /** @description Actor reference of the submitter, user:{uuid} or integration:{clientId}. */
+            submittedBy: string;
         };
         /**
          * @description TRUSTED sources may raise final_severity to the publisher-stated severity (PROJECT.md §1.4.3).

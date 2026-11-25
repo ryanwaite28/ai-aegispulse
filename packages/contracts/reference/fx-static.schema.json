@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegispulse.dev/contracts/reference/fx-static.schema.json",
+  "title": "Static FX table",
+  "description": "Versioned static FX table (PROJECT.md §1.4.4, FR-TXN-01): accepted currencies and USD conversion. No live FX (§2 out of scope). Read by ingestion (currency check) and risk-scoring (USD amounts).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "base", "asOf", "usdPerUnit"],
+  "properties": {
+    "version": { "type": "string", "pattern": "^fx-static-v[0-9]+$" },
+    "base": { "const": "USD" },
+    "asOf": { "type": "string", "format": "date" },
+    "usdPerUnit": {
+      "type": "object",
+      "description": "USD value of one unit of the currency, as a decimal string (no float loss).",
+      "propertyNames": { "pattern": "^[A-Z]{3}$" },
+      "properties": { "USD": { "const": "1.0" } },
+      "additionalProperties": { "type": "string", "pattern": "^(?=.*[1-9])[0-9]{1,6}\\.[0-9]{1,8}$" },
+      "required": ["USD"],
+      "minProperties": 1
+    }
+  }
+}

@@ -19,6 +19,10 @@ import { IdempotencyRepository } from "@aegispulse/ts-platform/idempotency";
 import { OutboxRelay, OutboxRepository } from "@aegispulse/ts-platform/outbox";
 import { startTelemetry } from "@aegispulse/ts-platform/telemetry";
 import { registerMaintenanceRoutes } from "./adapters/http/maintenance.routes.js";
+import { registerTransactionRoutes } from "./adapters/http/transactions.routes.js";
+import { TransactionRepository } from "./db/transactions.repository.js";
+import { TransactionService } from "./service/transaction.service.js";
+import { fxCurrencies } from "./storage/fx-table.js";
 import { registerWebhookDeliveryRoutes } from "./adapters/http/webhook-delivery.routes.js";
 import { registerWebhookSourceRoutes } from "./adapters/http/webhook-sources.routes.js";
 import { WebhookMaintenanceRepository } from "./db/webhook-maintenance.repository.js";
@@ -114,13 +118,14 @@ async function main(): Promise<void> {
     await registry.close();
     await registryAuth.close();
   });
+  const tenantStatus = new RegistryTenantStatus(TenantSettingsCache.forRegistry(registry));
   const ingest = new IngestWebhookUseCase({
     pool: pg,
     deliveries: new WebhookDeliveryRepository(),
     outbox,
     nonces: new RedisNonceStore(redis),
     raw: new S3RawStore(s3, bucketName(config)),
-    tenants: new RegistryTenantStatus(TenantSettingsCache.forRegistry(registry)),
+    tenants: tenantStatus,
     kek,
     version,
     logger,
@@ -138,6 +143,19 @@ async function main(): Promise<void> {
   registerWebhookSourceRoutes(app, verifier, sources);
   registerWebhookDeliveryRoutes(app, verifier, ingest);
   registerMaintenanceRoutes(app, verifier, maintenance);
+  registerTransactionRoutes(
+    app,
+    verifier,
+    new TransactionService({
+      pool: pg,
+      transactions: new TransactionRepository(),
+      outbox,
+      tenants: tenantStatus,
+      currencies: fxCurrencies(),
+      version,
+      logger,
+    }),
+  );
   await app.listen({ host: "0.0.0.0", port: PORT });
   lifecycle
     .onShutdown("http", "fastify", () => app.close())
