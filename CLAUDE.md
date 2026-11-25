@@ -81,6 +81,7 @@ make demo             # end-to-end scenario
 3. Implement with tests (`/implement-fr`). Migrations are new files only.
 4. Run lint, typecheck, unit, and integration tests. Don't claim more verification than you ran.
 5. Update the §11 checklist and status ledger honestly, add a `CHANGELOG.md` entry under `[Unreleased]`, and attach evidence for phase exits (`/phase-exit-evidence`).
+   When a phase or spec slice is done and **all tests pass**, commit and push to both remotes (`origin` for the GitLab pipelines, `github` as upstream) and continue without asking. Failures and bugs are handled per the `project-manager` skill.
 6. Architectural decision? Add an ADR (`/new-adr`) and amend `PROJECT.md` in the same MR.
 7. Work depends on a 🛑 MANUAL step that isn't DONE in `docs/runbooks/manual-bootstrap.md`? Stop, give the operator that step's exact directions and what to report back (names, IDs, "done", never secret values), and resume only after verifying it read-only (PROJECT.md §12 rule 19).
 
@@ -123,5 +124,6 @@ Subagent defaults (frontmatter): `architecture-reviewer` → sonnet, `security-r
 ## Skills & Agents
 Role skills live in `.claude/skills/`: `systems-architect`, `principal-engineer`, `devsecops`, `database-admin`, `cybersecurity`, `messaging-engineer`, `ml-ai-engineer`, `data-intel-engineer`, `sre-observability`, `kubernetes-platform`, `qa-test-engineer`, `frontend-engineer`.
 Workflow skills: `/implement-fr`, `/write-spec`, `/phase-exit-evidence`, `/new-adr`, `/amend-project`.
+Product & execution skills (deterministic decisions; product intent in `PROJECT.md` §1.1 decides everything else): `product-manager` (value hierarchy, gap filling), `end-user-personas` (who the users are and their jobs), `project-manager` (what is next, definition of done, test/bug handling, commit policy), `decision-protocol` (authority order: when to decide, record or ask).
 Session trail: every prompt and response is recorded automatically to `docs/sessions/` by `.claude/hooks/session_log.py` (see `docs/sessions/README.md`).
 Review agents live in `.claude/agents/`: `architecture-reviewer`, `security-reviewer`, `spec-tracer`. Use them before opening an MR.

@@ -236,6 +236,12 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - Token `typ` rules (ADR-0010 amended): `user`/`integration` only on `JWT_AUDIENCE`, `service` only on `aegispulse-internal`, `jti` required, unknown or missing `typ` rejected. INTEGRATION tokens are now defined (FR-AUTH-04) and accepted by both kits as tenant principals with only the `INTEGRATION` role. Before this, the 1b/1c verifiers would have rejected every integration-account call.
 
 ### Docs
+- New skills (owner request 2026-11-25) so AI sessions decide from the plan instead of asking:
+  - `product-manager`: value hierarchy from the §1.1 product intent.
+  - `end-user-personas`: analyst, tenant admin, compliance auditor, integration engineer, platform operator, viewer, and the portfolio reviewer.
+  - `project-manager`: next-work order, definition of done, test/bug handling, auto commit/push when all tests pass.
+  - `decision-protocol`: authority order and when to ask the owner.
+  - CLAUDE.md lists them and the commit policy.
 - PROJECT.md amendment (owner-approved 2026-11-24): the static FX table `fx-static-v1` is a contract reference file, `packages/contracts/reference/fx-static-v1.json` (schema, `make contracts` check, TS export, Python package resource), shared by ingestion (FR-TXN-01 currency check) and risk-scoring (§1.4.4). §1.4.4 and the §6.1 tree are updated. The Phase 8 transaction migration is `V6` (ingestion has V4/V5). §7.2 `transaction_submissions.submitted_by` becomes the actor reference text (`user:{uuid}` | `integration:{clientId}`), because integration tokens carry the client id, not a UUID; the contract `TransactionSubmission.submittedBy` follows.
 - PROJECT.md amendments (owner-approved 2026-11-24) for Phase 7:
   - **Headers:** §6.4 adds the DLQ-only headers `x-aegis-error-message` and `x-aegis-error-stack-hash` (FR-MSG-02 needs the error message and stack hash).
