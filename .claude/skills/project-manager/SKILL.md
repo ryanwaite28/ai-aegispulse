@@ -21,6 +21,7 @@ Run the PROJECT.md §11 plan from start to finish with as little owner input as 
 - [ ] Tests named with FR ids: unit; integration against real dependencies (Testcontainers); E2E or runtime where the FR is user-visible.
 - [ ] On the compose stack: every changed runtime image rebuilt (`docker compose build` + `up -d --force-recreate`), then `make migrate` → `/readyz`, then `make test-e2e`, plus demos where the phase defines one.
 - [ ] `make lint`, `make typecheck`, `make test-unit` exit 0, and integration suites for every touched package. Check every package's summary line: `make test-integration` stops at the first failing pnpm package.
+  - In sessions, run the brief variants by default: `BRIEF_LOG_DIR=<scratchpad> make test-unit-brief` / `test-integration-brief` / `test-e2e-brief`. They print the exit code, the log path and a local triage (`local-llm-offload`), keep the full log on disk, and exit exactly like the full target. The exit code is the gate; confirm any failure by re-running it narrowly before acting.
 - [ ] Evidence file `docs/evidence/phase-NN{x}.md`, §11 checklist and ledger updated honestly, CHANGELOG `[Unreleased]` entry.
 - [ ] Security-relevant or architectural slices: run the `security-reviewer` / `architecture-reviewer` agents before calling the phase done, and fix their blockers and majors.
 

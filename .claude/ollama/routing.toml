@@ -41,9 +41,13 @@ security_paths = [
 # --------------------------------------------------------------------------- tasks
 # model: fast | deep · draft: output is proposed text that Claude must review before use
 # code: the task writes code, so it refuses [guard].security_paths
+# replaces_read: Claude would otherwise read this input itself, so `stats` credits (in - out) as context kept out.
+#   Drafts (changelog, test-scaffold, ask) are not credited: Claude would not have read their full input.
+# commit-msg was dropped (2026-11-25): Claude already knows what it changed, 7b invented FR ids, 14b took ~54 s.
 # format: "text" | "json" · map_reduce: chunk large inputs, condense each, then merge
 
 [tasks.summarize-log]
+replaces_read = true
 model = "fast"
 draft = false
 map_reduce = true
@@ -56,6 +60,7 @@ prompt = """You triage build/test/CI logs. Report ONLY:
 Never invent names, numbers or lines that are not in the log. If nothing failed, say so in one line. Max 40 lines."""
 
 [tasks.summarize-file]
+replaces_read = true
 model = "fast"
 draft = false
 map_reduce = true
@@ -66,6 +71,7 @@ symbols / sections with one-line roles and line numbers if shown; external depen
 (DB, queues, HTTP); TODOs. Quote identifiers exactly. Do not speculate beyond the text. Max 40 lines."""
 
 [tasks.summarize-diff]
+replaces_read = true
 model = "fast"
 draft = false
 map_reduce = true
@@ -74,18 +80,6 @@ temperature = 0.0
 prompt = """Summarize this git diff per file: what changed and why it likely changed (only if evident).
 Flag: new migrations, contract (packages/contracts) changes, new env vars, deleted tests, TODO/FIXME added.
 Group by directory. Exact paths. Max 50 lines."""
-
-[tasks.commit-msg]
-model = "deep"   # 7b copied FR ids from unchanged context lines in trials (2026-11-25); 14b did not
-draft = true
-map_reduce = true
-format = "text"
-temperature = 0.2
-prompt = """Draft a git commit message for this diff. Only lines starting with "+" or "-" are changes; lines
-without a prefix are unchanged context and must NOT be described or used for ids. Line 1: imperative summary
-<= 72 chars. Prefix it with a phase/slice and FR ids ONLY if those ids appear on added ("+") lines that describe
-this change (e.g. "Phase 8g: ... (FR-CASE-05)"); otherwise no prefix. Blank line. Then 3-8 bullet lines of what
-changed. No marketing words. No trailers. Output the message only."""
 
 [tasks.changelog]
 model = "fast"
@@ -98,6 +92,7 @@ categories Added/Changed/Fixed/Security/Docs/Status only as needed. Reference FR
 appear in the diff. Bold short labels for sub-bullets, as in "- **Saga:** ...". Output Markdown only."""
 
 [tasks.inventory]
+replaces_read = true
 model = "fast"
 draft = false
 map_reduce = true
@@ -107,6 +102,7 @@ prompt = """The input is raw grep/find/ls output. Turn it into a compact invento
 (if given). Group by directory, dedupe, count, and list exact paths. Never add items not in the input."""
 
 [tasks.extract]
+replaces_read = true
 model = "fast"
 draft = false
 map_reduce = false
@@ -128,6 +124,7 @@ in QUESTION. Cover happy path, validation errors and edge cases visible in the c
 brokers; target pure functions only. Output one code block with the complete test file."""
 
 [tasks.explain]
+replaces_read = true
 model = "deep"
 draft = false
 map_reduce = false

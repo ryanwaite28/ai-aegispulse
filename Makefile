@@ -153,7 +153,7 @@ objectstore-compat: ## ADR-0011 S3 compatibility check against the local object 
 	  --bucket aegispulse-local-raw --scoped-prefix raw/webhooks/
 
 # ---------------------------------------------------------------- local LLM offload (workstation only; docs/steering/local-llm.md)
-.PHONY: llm-setup llm-check llm llm-stats
+.PHONY: llm-setup llm-check llm llm-stats test-unit-brief test-integration-brief test-e2e-brief
 LLM := python3 scripts/llm/ollama_offload.py
 llm-setup: ## Pull the local Ollama models named in .claude/ollama/routing.toml
 	@command -v ollama >/dev/null || { echo "ollama not installed (brew install ollama)" >&2; exit 2; }
@@ -165,3 +165,11 @@ llm: ## Run a local-LLM task: TASK=summarize-log FILE=path (or DIFF=1 / STAGED=1
 	@if [ -z "$(TASK)" ]; then $(LLM) tasks; else $(LLM) run $(TASK) $(if $(FILE),-f $(FILE)) $(if $(DIFF),--diff) $(if $(STAGED),--staged) $(if $(Q),-q "$(Q)"); fi
 llm-stats: ## Estimated Claude context kept out by local offloads
 	@$(LLM) stats
+# Brief variants (default in sessions, project-manager definition of done): full log to BRIEF_LOG_DIR, exit code +
+# local triage on stdout (tail -60 when Ollama is unavailable). Same exit code as the full target.
+test-unit-brief: ## make test-unit, printing only exit code + log path + local triage
+	@scripts/llm/brief.sh unit $(MAKE) --no-print-directory test-unit
+test-integration-brief: ## make test-integration, printing only exit code + log path + local triage
+	@scripts/llm/brief.sh integration $(MAKE) --no-print-directory test-integration
+test-e2e-brief: ## make test-e2e, printing only exit code + log path + local triage
+	@scripts/llm/brief.sh e2e $(MAKE) --no-print-directory test-e2e

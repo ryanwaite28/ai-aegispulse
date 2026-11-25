@@ -14,8 +14,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Added
 - Local-LLM offload for agent sessions (workstation tooling, not shipped; steering `docs/steering/local-llm.md`):
-  - **CLI:** `scripts/llm/ollama_offload.py`, stdlib only. Tasks: summarize-log/file/diff, inventory, extract, commit-msg, changelog, test-scaffold, explain, ask. Large inputs are map-reduced.
+  - **CLI:** `scripts/llm/ollama_offload.py`, stdlib only. Tasks: summarize-log/file/diff, inventory, extract, changelog, test-scaffold, explain, ask (commit-msg was trialled and dropped: low value, 7b invented FR ids). Large inputs are map-reduced.
   - **Guards:** secret files are never read. Credential shapes are redacted both ways. Code-writing tasks refuse security-critical paths. Exit 3 means fall back to Claude.
+  - **Default cheap path:** `make test-unit-brief`, `test-integration-brief`, `test-e2e-brief` (`scripts/llm/brief.sh`) print the exit code, log path and a local triage (tail -60 fallback) and keep the suite's exit code; the project-manager definition of done points at them.
+  - **Honest stats:** `llm-stats` credits only tasks that replace a read Claude would otherwise do (`replaces_read`), not drafts.
   - **Config and wiring:** `.claude/ollama/routing.toml` (`fast` `qwen2.5-coder:7b`, `deep` `qwen2.5-coder:14b`); `local-llm-offload` skill; `make llm-setup|llm-check|llm|llm-stats`; CLAUDE.md model-routing row.
 - Phase 8g analyst case work (FR-CASE-05..08; spec `docs/specs/FR-CASE-05-08-case-work.md`, evidence `docs/evidence/phase-08g.md`):
   - **Reads:** list (filters, keyset), detail with policy factors, timeline.

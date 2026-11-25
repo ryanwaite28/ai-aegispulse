@@ -71,7 +71,10 @@ def usage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_repo_config_loads_and_every_task_uses_a_known_tier() -> None:
     cfg = off.load_config()
     assert {"fast", "deep"} <= set(cfg.models)
-    assert {"summarize-log", "commit-msg", "changelog", "test-scaffold"} <= set(cfg.tasks)
+    assert {"summarize-log", "changelog", "test-scaffold"} <= set(cfg.tasks)
+    assert "commit-msg" not in cfg.tasks  # dropped: low value, 7b invented FR ids
+    credited = {n for n, t in cfg.tasks.items() if t.replaces_read}
+    assert credited == {"summarize-log", "summarize-file", "summarize-diff", "inventory", "extract", "explain"}
     for task in cfg.tasks.values():
         assert task.model in cfg.models, task.name
         assert task.fmt in {"text", "json"}
@@ -202,3 +205,22 @@ def test_missing_model_exits_3(server: str, usage: Path, tmp_path: Path, monkeyp
         off.main(["run", "summarize-log", "-f", str(f)])
     assert exc.value.code == off.EXIT_UNAVAILABLE
     assert _FakeOllama.calls == []
+
+
+def test_stats_credits_only_tasks_that_replace_a_read(usage: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    usage.write_text(
+        "\n".join(
+            json.dumps(e)
+            for e in [
+                {"task": "summarize-log", "chars_in": 40_000, "chars_out": 2_000},
+                {"task": "changelog", "chars_in": 60_000, "chars_out": 1_000},
+                {"task": "commit-msg", "chars_in": 50_000, "chars_out": 500},  # retired task in an old log
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert off.cmd_stats(off.load_config()) == off.EXIT_OK
+    out = capsys.readouterr().out
+    assert "total ~tokens kept out of Claude context: 9500 " in out  # (40000 - 2000) // 4 only
+    assert out.count("not credited") == 2

@@ -75,6 +75,7 @@ class Task:
     map_reduce: bool = False
     fmt: str = "text"
     temperature: float = 0.0
+    replaces_read: bool = False
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
             map_reduce=bool(t.get("map_reduce", False)),
             fmt=str(t.get("format", "text")),
             temperature=float(t.get("temperature", 0.0)),
+            replaces_read=bool(t.get("replaces_read", False)),
         )
         for name, t in raw["tasks"].items()
     }
@@ -379,7 +381,8 @@ def cmd_run(cfg: Config, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def cmd_stats() -> int:
+def cmd_stats(cfg: Config) -> int:
+    """Credits only tasks whose input Claude would otherwise have read (replaces_read); drafts are listed uncredited."""
     if not USAGE_PATH.exists():
         print("no offloads recorded yet")
         return EXIT_OK
@@ -395,10 +398,15 @@ def cmd_stats() -> int:
         agg[2] += int(e.get("chars_out", 0))
     total = 0
     for name, (runs, cin, cout) in sorted(per_task.items()):
-        saved = max(cin - cout, 0) // 4
-        total += saved
-        print(f"{name:15} runs={runs:<4} in={cin:<9} out={cout:<7} ~tokens kept out of Claude context={saved}")
-    print(f"total ~tokens kept out of Claude context: {total} (estimate: 4 chars/token)")
+        task = cfg.tasks.get(name)
+        if task is not None and task.replaces_read:
+            saved = max(cin - cout, 0) // 4
+            total += saved
+            note = f"~tokens kept out of Claude context={saved}"
+        else:
+            note = "draft/retired task: not credited (Claude would not have read the input)"
+        print(f"{name:15} runs={runs:<4} in={cin:<9} out={cout:<7} {note}")
+    print(f"total ~tokens kept out of Claude context: {total} (estimate: 4 chars/token, read-replacing tasks only)")
     return EXIT_OK
 
 
@@ -436,7 +444,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "tasks":
             return cmd_tasks(cfg)
         if args.cmd == "stats":
-            return cmd_stats()
+            return cmd_stats(load_config())
         if args.cmd == "models":
             print("\n".join(sorted(set(cfg.models.values()))))
             return EXIT_OK

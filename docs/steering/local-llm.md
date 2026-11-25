@@ -9,6 +9,10 @@ Claude usage is spent on tokens that enter the session context and on tokens Cla
 1. **Context it keeps out (biggest win).** A 4,000-line test log, a 60 KB diff, or a 1,500-line file is condensed locally. Claude reads a 30-line summary instead of the raw text.
 2. **Drafts it writes.** Commit messages, CHANGELOG entries, and test skeletons are drafted locally. Claude reviews and edits them, which costs fewer tokens than writing from scratch.
 
+The cheap path is the default: `make test-unit-brief`, `test-integration-brief` and `test-e2e-brief` (script `scripts/llm/brief.sh`) run the suite, keep the full log in `BRIEF_LOG_DIR`, and print the exit code plus a local triage, falling back to `tail -60` when Ollama is unavailable. The project-manager definition of done points at them, so sessions save without having to remember the skill.
+
+Commit messages are not offloaded (dropped 2026-11-25): Claude already knows what it changed, the 7b model invented FR ids in trials, and the 14b model took about 54 s per draft.
+
 It does **not** pay off for small inputs (under about 150 lines: just read them) or for work where Claude must re-read the whole source anyway to verify the draft.
 
 ## Routing ladder
@@ -17,7 +21,7 @@ Use the cheapest tier that still meets `docs/steering/quality.md`:
 | Tier | Use for | Never for |
 |---|---|---|
 | **Local, `fast`** (`qwen2.5-coder:7b`, about 5–20 s) | Condensing logs, diffs, files and grep output; inventories; JSON extraction; CHANGELOG drafts | Decisions, final status claims |
-| **Local, `deep`** (`qwen2.5-coder:14b`, about 1–2 min) | Commit-message drafts (in trials, 7b copied FR ids from unchanged context lines), test skeletons for pure domain code, code explanations, Q&A over a given input | Security-critical code, contracts, migrations |
+| **Local, `deep`** (`qwen2.5-coder:14b`, about 1–2 min) | Test skeletons for pure domain code, code explanations, Q&A over a given input | Security-critical code, contracts, migrations |
 | Haiku | Same class of work when Ollama is unavailable (exit 3), or when the result must be exact on the first try | |
 | Sonnet / Opus | Per the CLAUDE.md model-routing table | |
 
@@ -30,7 +34,7 @@ Use the cheapest tier that still meets `docs/steering/quality.md`:
 
 ## Verification duty
 - Every answer starts with a header line: `[ollama <model> · task=… · in→out chars · secs · DRAFT|local summary]`.
-- **DRAFT** output (commit-msg, changelog, test-scaffold, ask) is reviewed and edited by Claude before it is used. Claude stays responsible for every line written to the repo.
+- **DRAFT** output (changelog, test-scaffold, ask) is reviewed and edited by Claude before it is used. Claude stays responsible for every line written to the repo.
 - **Summaries** are leads. Before acting on a claim (a failing test name, a `file:line`), confirm it with a targeted `grep` or `Read` of just that spot. That costs much less than reading the whole input.
 - Never quote local output as a test result. Re-run the narrowed command instead.
 
@@ -44,4 +48,4 @@ Use the cheapest tier that still meets `docs/steering/quality.md`:
 ## Hardware and models
 - Workstation: Apple M5, 24 GB unified memory, shared with the compose stack. `keep_alive = "10m"` unloads idle models. `num_ctx = 16384` and `chunk_chars = 24000` keep each request inside one window, and larger inputs are map-reduced.
 - Swap models by editing `[models]` in `routing.toml`, then `make llm-setup`. Raise the `deep` tier only if memory allows with `make up` running.
-- `make llm-stats` estimates how many tokens were kept out of Claude context. Use it to decide whether a task profile is worth keeping.
+- `make llm-stats` estimates how many tokens were kept out of Claude context. It credits only tasks marked `replaces_read` (logs, files, diffs, inventories, extraction, explanations), where Claude would otherwise have read the input; drafts are listed but not credited. The estimate is still a proxy: to measure the real effect, compare `/cost` across two similar slices, one with offload and one without.
