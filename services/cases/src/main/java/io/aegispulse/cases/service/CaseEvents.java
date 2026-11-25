@@ -111,10 +111,26 @@ public class CaseEvents {
     }
   }
 
+  /** notification.requested (FR-NOTIF-01): template id, severity, dedup key, flat scalar vars. */
+  public void notificationRequested(
+      UUID tenantId,
+      String templateId,
+      String severity,
+      String notificationKey,
+      Map<String, Object> vars) {
+    Map<String, @Nullable Object> p = new LinkedHashMap<>();
+    p.put("templateId", templateId);
+    p.put("severity", severity);
+    p.put("notificationKey", notificationKey);
+    p.put("vars", vars);
+    publish(
+        "notification.requested", tenantId, null, "notification.requested:" + notificationKey, p);
+  }
+
   private void publish(
       String eventType,
       UUID tenantId,
-      UUID causationId,
+      @Nullable UUID causationId,
       String idempotencyKey,
       Map<String, @Nullable Object> payload) {
     String eventId = UuidV7.next().toString();
@@ -122,7 +138,7 @@ public class CaseEvents {
     String correlationId = MDC.get(LogContext.CORRELATION_ID);
     CanonicalEnvelope envelope =
         new CanonicalEnvelope(
-            causationId.toString(),
+            causationId == null ? null : causationId.toString(),
             CLASSIFICATION,
             correlationId != null && correlationId.startsWith("corr-")
                 ? correlationId

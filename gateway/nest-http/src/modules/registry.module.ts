@@ -6,6 +6,7 @@ import { EventsController } from "./events/events.controller.js";
 import { FilesController } from "./files/files.controller.js";
 import { DeadLettersController } from "./ops/dead-letters.controller.js";
 import { TransactionsController } from "./transactions/transactions.controller.js";
+import { AuditController } from "./audit/audit.controller.js";
 import { ServiceAccountsController } from "./service-accounts/service-accounts.controller.js";
 import { TenantsController } from "./tenants/tenants.controller.js";
 import { UsersController } from "./users/users.controller.js";
@@ -28,6 +29,7 @@ import { WellKnownController } from "./well-known/well-known.controller.js";
     EventsController,
     DeadLettersController,
     TransactionsController,
+    AuditController,
     WellKnownController,
   ],
 })

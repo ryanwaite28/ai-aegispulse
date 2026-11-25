@@ -18,6 +18,7 @@ const TENANT = "8a92269a-91aa-4d80-b6fd-093a350304fe";
 let fake: Server;
 let app: Awaited<ReturnType<typeof createGateway>>;
 let token: string;
+let auditorToken: string;
 let deduplicated = false;
 let notScored = false;
 let seen: {
@@ -86,6 +87,15 @@ beforeAll(async () => {
     .setAudience(config.JWT_AUDIENCE)
     .setSubject("u-1")
     .setJti("j-1")
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(privateKey);
+  auditorToken = await new SignJWT({ typ: "user", tid: TENANT, tslug: "acme", roles: ["COMPLIANCE_AUDITOR"] })
+    .setProtectedHeader({ alg: "RS256", kid: "k1" })
+    .setIssuer(config.JWT_ISSUER)
+    .setAudience(config.JWT_AUDIENCE)
+    .setSubject("u-2")
+    .setJti("j-2")
     .setIssuedAt()
     .setExpirationTime("10m")
     .sign(privateKey);
@@ -262,5 +272,21 @@ describe("transaction detail over the gateway (FR-TXN-06)", () => {
     };
     expect(r.json().data).toMatchObject({ processingStatus: "ACCEPTED", latestEvaluation: null, caseId: null });
     expect((await get("/v1/transactions/nope")).statusCode).toBe(404);
+  });
+});
+
+describe("audit routes over the gateway (FR-AUD-03)", () => {
+  it("list passes filters; verify passes integer seq bounds and rejects others locally", async () => {
+    const auditor = { authorization: `Bearer ${auditorToken}` };
+    expect((await get("/v1/audit")).statusCode).toBe(403); // PLATFORM_ADMIN is not an audit role
+    expect((await get("/v1/audit?action=CASE_TRANSITION&limit=5", auditor)).statusCode).toBe(200);
+    expect((await get("/v1/audit/verify?fromSeq=2&toSeq=9", auditor)).statusCode).toBe(200);
+    expect(seen.map((x) => [x.path, x.body])).toEqual([
+      ["/internal/v1/listAuditEntries", { action: "CASE_TRANSITION", limit: 5 }],
+      ["/internal/v1/verifyAuditChain", { fromSeq: 2, toSeq: 9 }],
+    ]);
+    expect((await get("/v1/audit/verify?fromSeq=0", auditor)).statusCode).toBe(422);
+    expect((await get("/v1/audit/verify?toSeq=abc", auditor)).statusCode).toBe(422);
+    expect(seen).toHaveLength(2);
   });
 });

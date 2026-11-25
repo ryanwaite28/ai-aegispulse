@@ -13,6 +13,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 8d audit log read side (FR-AUD-02/03; spec `docs/specs/FR-AUD-01-03-audit-log.md`, evidence `docs/evidence/phase-08d.md`):
+  - **Ingest:** a `cases.audit-ingest.q` consumer chains registry, override, ops and replay events once each. Tenantless events go to the platform tenant.
+  - **Read and verify:** `listAuditEntries` (filters, seq cursor) and `verifyAuditChain` (recomputes hashes and links, reports `firstBrokenSeq`).
+  - **Nightly check:** a cross-tenant run through V6 `audit_chains_to_verify()` raises N-06 on a break; new scheduler job `cases-audit-verify` (`CASES_URL`).
+  - **Gateway:** `GET /v1/audit` and `GET /v1/audit/verify`.
 - Phase 8c cases core (FR-TXN-05/06, FR-CASE-01/02/03/07, FR-AUD-01; spec `docs/specs/FR-TXN-05-CASE-01-03-cases-core.md`, evidence `docs/evidence/phase-08c.md`):
   - **Migrations:** cases V3 (risk evaluations), V4 (cases + history), V5 (append-only audit log + chain heads), with RLS and §5.7.2 grants.
   - **Evaluations and cases:** `recordRiskEvaluation` (idempotent; opens a TRANSACTION_RISK case ≥ 70, or suppresses it for non-ACTIVE tenants), `openCase` and `getTransactionEvaluation`. The case core is a pure state machine with idempotent transition keys and optimistic locking; every transition writes an audit entry (hash chain, RFC 8785 canonical JSON) and `case.*` outbox events.

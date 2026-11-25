@@ -11,7 +11,8 @@ interface JobBase {
 /** Discriminated on the owning service so the trigger can use that service's typed client. */
 export type JobDefinition =
   | (JobBase & { readonly service: "ingestion"; readonly action: "expirePreviousSecrets" })
-  | (JobBase & { readonly service: "files"; readonly action: "sweepOrphans" | "purgeRetention" });
+  | (JobBase & { readonly service: "files"; readonly action: "sweepOrphans" | "purgeRetention" })
+  | (JobBase & { readonly service: "cases"; readonly action: "verifyAuditChain" });
 
 export const JOBS = {
   /** FR-WHK-08, hourly: expire PREVIOUS webhook secrets + sweep orphan raw objects. */
@@ -33,6 +34,16 @@ export const JOBS = {
     service: "files",
     action: "purgeRetention",
     baseUrl: (c) => c.FILES_URL,
+    timeoutMs: 900_000,
+  },
+  /**
+   * FR-AUD-03, nightly: verify every tenant's audit chain from its last verified seq; a broken chain emits
+   * notification.requested N-06 (cases) and stays unverified. processedCount = entries checked.
+   */
+  "cases-audit-verify": {
+    service: "cases",
+    action: "verifyAuditChain",
+    baseUrl: (c) => c.CASES_URL,
     timeoutMs: 900_000,
   },
 } as const satisfies Record<string, JobDefinition>;

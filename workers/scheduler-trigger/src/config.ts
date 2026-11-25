@@ -9,5 +9,6 @@ export const configSchema = platformEnvSchema.extend(serviceCredentialsEnvSchema
   REGISTRY_URL: z.url(),
   INGESTION_URL: z.url().default("http://ingestion:8081"),
   FILES_URL: z.url().default("http://files:8082"),
+  CASES_URL: z.url().default("http://cases:8085"),
 });
 export type Config = z.output<typeof configSchema>;

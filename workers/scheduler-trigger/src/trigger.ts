@@ -6,6 +6,9 @@ import type { JobDefinition } from "./jobs.js";
 
 export interface JobRunSummary {
   readonly processedCount: number;
+  /** cases-audit-verify only: chain verification outcome (a broken chain is reported via N-06, not an exit code). */
+  readonly valid?: boolean;
+  readonly firstBrokenSeq?: number;
   readonly startedAt?: string;
   readonly finishedAt?: string;
 }
@@ -41,6 +44,22 @@ export async function trigger(config: Config, job: JobDefinition): Promise<JobRu
         const target = new InternalServiceClient("files", { name: "files", ...options });
         try {
           return await target.invoke<typeof job.action, JobRunSummary>(job.action, {});
+        } finally {
+          await target.close();
+        }
+      }
+      case "cases": {
+        const target = new InternalServiceClient("cases", { name: "cases", ...options });
+        try {
+          const v = await target.invoke<
+            typeof job.action,
+            { valid: boolean; checked: number; firstBrokenSeq?: number }
+          >(job.action, {});
+          return {
+            processedCount: v.checked,
+            valid: v.valid,
+            ...(v.firstBrokenSeq === undefined ? {} : { firstBrokenSeq: v.firstBrokenSeq }),
+          };
         } finally {
           await target.close();
         }

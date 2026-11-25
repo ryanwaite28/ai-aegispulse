@@ -11,7 +11,11 @@ public final class AccessPolicy {
   private static final Map<String, List<String>> ROLES =
       Map.of(
           "getTransactionEvaluation",
-          List.of("INTEGRATION", "VIEWER", "ANALYST", "TENANT_ADMIN", "PLATFORM_ADMIN"));
+          List.of("INTEGRATION", "VIEWER", "ANALYST", "TENANT_ADMIN", "PLATFORM_ADMIN"),
+          "listAuditEntries",
+          List.of("COMPLIANCE_AUDITOR", "TENANT_ADMIN"),
+          "verifyAuditChain",
+          List.of("COMPLIANCE_AUDITOR"));
 
   private AccessPolicy() {}
 

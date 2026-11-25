@@ -54,6 +54,20 @@ public class AuditService {
 
   public record Appended(long seq, String hash) {}
 
+  /**
+   * Appends unless {@code e.sourceEventId()} is already in the chain (FR-AUD-02 idempotency,
+   * checked under the chain lock so concurrent deliveries cannot both append). Empty for a
+   * duplicate.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public java.util.Optional<Appended> appendIfNew(Entry e) {
+    repo.lockChain(e.tenantId());
+    if (e.sourceEventId() != null && repo.sourceEventRecorded(e.tenantId(), e.sourceEventId())) {
+      return java.util.Optional.empty();
+    }
+    return java.util.Optional.of(append(e));
+  }
+
   @Transactional(propagation = Propagation.MANDATORY)
   public Appended append(Entry e) {
     repo.lockChain(e.tenantId());

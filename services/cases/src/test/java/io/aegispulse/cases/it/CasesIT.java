@@ -471,4 +471,227 @@ class CasesIT {
           .hasMessageContaining("append-only");
     }
   }
+
+  // ── FR-AUD-02/03: ingest, list, verify ───────────────────────────────────────────────────────
+
+  static String envelope(UUID eventId, String eventType, UUID tenant, Map<String, Object> payload) {
+    Map<String, Object> e = new java.util.LinkedHashMap<>();
+    e.put("eventId", eventId.toString());
+    e.put("correlationId", "corr-" + UUID.randomUUID());
+    e.put("causationId", null);
+    e.put("tenantId", tenant == null ? null : tenant.toString());
+    e.put("schemaVersion", "1.0.0");
+    e.put("eventType", eventType);
+    e.put("source", "service:registry");
+    e.put("producer", "aegispulse-registry@abc1234");
+    e.put("occurredAt", java.time.Instant.now().toString());
+    e.put("ingestedAt", java.time.Instant.now().toString());
+    e.put("idempotencyKey", eventType + ":" + eventId);
+    e.put("classification", Map.of("sensitivity", "INTERNAL", "status", "INGESTED"));
+    e.put("payload", payload);
+    return JSON.writeValueAsString(e);
+  }
+
+  static void publish(String exchange, String routingKey, String body) throws Exception {
+    try (com.rabbitmq.client.Connection c = Infra.adminConnection();
+        com.rabbitmq.client.Channel ch = c.createChannel()) {
+      ch.confirmSelect();
+      ch.basicPublish(
+          exchange,
+          routingKey,
+          new com.rabbitmq.client.AMQP.BasicProperties.Builder()
+              .contentType("application/json")
+              .deliveryMode(2)
+              .build(),
+          body.getBytes(StandardCharsets.UTF_8));
+      ch.waitForConfirmsOrDie(5_000);
+    }
+  }
+
+  void await(java.util.function.BooleanSupplier condition) throws InterruptedException {
+    long deadline = System.nanoTime() + java.time.Duration.ofSeconds(15).toNanos();
+    while (!condition.getAsBoolean()) {
+      if (System.nanoTime() > deadline) {
+        throw new AssertionError("condition not met within 15 s");
+      }
+      Thread.sleep(50);
+    }
+  }
+
+  @Test
+  void auditIngestChainsOtherServicesEventsOnceEachIncludingPlatformEvents_FR_AUD_02()
+      throws Exception {
+    UUID tenant = UUID.randomUUID();
+    UUID userChanged = UUID.randomUUID();
+    String body =
+        envelope(
+            userChanged,
+            "registry.user.changed",
+            tenant,
+            Map.of("userId", UUID.randomUUID().toString(), "changedFields", List.of("roles")));
+    publish("aegispulse.domain", "registry.user.changed", body);
+    publish("aegispulse.domain", "registry.user.changed", body); // redelivery of the same event
+    UUID actor = UUID.randomUUID();
+    publish(
+        "aegispulse.intelligence",
+        "ops.audit.file_deleted",
+        envelope(
+            UUID.randomUUID(),
+            "ops.audit.file_deleted",
+            tenant,
+            Map.of("fileId", UUID.randomUUID().toString(), "actorId", actor.toString())));
+    await(() ->
+        count(tenant, "SELECT count(*) FROM cases.audit_log WHERE tenant_id = ?", tenant) == 2);
+    Thread.sleep(500); // the duplicate has had time to arrive
+    List<Map<String, Object>> rows =
+        inTenant(
+            tenant,
+            () ->
+                jdbc.sql(
+                        "SELECT action, actor_type, actor_id, subject_type, source_event_id FROM cases.audit_log WHERE tenant_id = ? ORDER BY seq")
+                    .param(tenant)
+                    .query()
+                    .listOfRows());
+    assertThat(rows).hasSize(2);
+    assertThat(rows.get(0))
+        .containsEntry("action", "REGISTRY_USER_CHANGED")
+        .containsEntry("actor_type", "SERVICE")
+        .containsEntry("actor_id", "aegispulse-registry")
+        .containsEntry("subject_type", "USER");
+    assertThat(rows.get(1))
+        .containsEntry("action", "OPS_AUDIT_FILE_DELETED")
+        .containsEntry("actor_type", "USER")
+        .containsEntry("actor_id", actor.toString());
+    assertChainValid(tenant);
+
+    UUID platform = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    UUID platformEvent = UUID.randomUUID();
+    publish(
+        "aegispulse.intelligence",
+        "ops.audit.dead_letter_resolved",
+        envelope(
+            platformEvent,
+            "ops.audit.dead_letter_resolved",
+            null,
+            Map.of(
+                "deadLetterId",
+                "abc",
+                "queue",
+                "q",
+                "action",
+                "DISCARDED",
+                "actorId",
+                actor.toString())));
+    await(() ->
+        count(
+                platform,
+                "SELECT count(*) FROM cases.audit_log WHERE tenant_id = ? AND source_event_id = ?",
+                platform,
+                platformEvent)
+            == 1);
+  }
+
+  @Test
+  void listAndVerifyOverHttpDetectTamperingAndTheNightlyJobRaisesN06_FR_AUD_03() throws Exception {
+    UUID tenant = UUID.randomUUID();
+    for (int i = 0; i < 3; i++) {
+      post(
+          "recordRiskEvaluation",
+          SAGA,
+          evaluation(tenant, UUID.randomUUID(), UUID.randomUUID(), 10 + i, null));
+    }
+    String auditor = Tokens.user(UUID.randomUUID(), tenant, "t", "COMPLIANCE_AUDITOR");
+    Reply all = post("listAuditEntries", auditor, Map.of("limit", 2));
+    assertThat(all.status()).isEqualTo(200);
+    assertThat(all.data()).hasSize(2);
+    assertThat(all.data().get(0).get("seq").asLong()).isEqualTo(3);
+    String cursor = all.body().path("meta").path("nextCursor").asString();
+    Reply next = post("listAuditEntries", auditor, Map.of("limit", 2, "cursor", cursor));
+    assertThat(next.data()).hasSize(1);
+    assertThat(next.data().get(0).get("seq").asLong()).isEqualTo(1);
+    Reply filtered =
+        post(
+            "listAuditEntries",
+            Tokens.user(UUID.randomUUID(), tenant, "t", "TENANT_ADMIN"),
+            Map.of("action", "RISK_EVALUATION_RECORDED"));
+    assertThat(filtered.data()).hasSize(3);
+    assertThat(
+            post(
+                    "listAuditEntries",
+                    Tokens.user(UUID.randomUUID(), tenant, "t", "ANALYST"),
+                    Map.of())
+                .status())
+        .isEqualTo(403);
+    assertThat(
+            post(
+                    "verifyAuditChain",
+                    Tokens.user(UUID.randomUUID(), tenant, "t", "TENANT_ADMIN"),
+                    Map.of())
+                .status())
+        .isEqualTo(403);
+
+    Reply valid = post("verifyAuditChain", auditor, Map.of());
+    assertThat(valid.data().get("valid").asBoolean()).isTrue();
+    assertThat(valid.data().get("checked").asLong()).isEqualTo(3);
+
+    // Tamper with seq 2 the only way possible: as the superuser, with the append-only trigger
+    // disabled.
+    try (Connection admin =
+        DriverManager.getConnection(
+            Infra.POSTGRES.getJdbcUrl(),
+            Infra.POSTGRES.getUsername(),
+            Infra.POSTGRES.getPassword())) {
+      admin
+          .createStatement()
+          .execute("ALTER TABLE cases.audit_log DISABLE TRIGGER trg_audit_no_update");
+      admin
+          .createStatement()
+          .executeUpdate(
+              "UPDATE cases.audit_log SET after_state = jsonb_set(after_state, '{score}', '99') WHERE tenant_id = '"
+                  + tenant
+                  + "' AND seq = 2");
+      admin
+          .createStatement()
+          .execute("ALTER TABLE cases.audit_log ENABLE TRIGGER trg_audit_no_update");
+    }
+    Reply broken = post("verifyAuditChain", auditor, Map.of());
+    assertThat(broken.status()).isEqualTo(200);
+    assertThat(broken.data().get("valid").asBoolean()).isFalse();
+    assertThat(broken.data().get("firstBrokenSeq").asLong()).isEqualTo(2);
+    assertThat(broken.data().get("code").asString()).isEqualTo("AUDIT_CHAIN_BROKEN");
+    assertThat(
+            post("verifyAuditChain", auditor, Map.of("fromSeq", 3)).data().get("valid").asBoolean())
+        .isTrue();
+
+    // Nightly job (SERVICE, no tenantId): every pending chain; the broken one raises N-06 and stays
+    // unverified.
+    String job = Tokens.service("svc-scheduler-trigger", "cases.verifyAuditChain");
+    Reply nightly = post("verifyAuditChain", job, Map.of());
+    assertThat(nightly.status()).as(nightly.body().toString()).isEqualTo(200);
+    assertThat(nightly.data().get("valid").asBoolean()).isFalse();
+    assertThat(
+            count(
+                tenant,
+                "SELECT count(*) FROM cases.outbox_events WHERE tenant_id = ? AND routing_key = 'notification.requested' AND envelope->'payload'->>'templateId' = 'N-06'",
+                tenant))
+        .isEqualTo(1);
+    assertThat(
+            count(
+                tenant,
+                "SELECT verified_seq FROM cases.audit_chain_heads WHERE tenant_id = ?",
+                tenant))
+        .isZero();
+    UUID healthy = UUID.randomUUID();
+    post(
+        "recordRiskEvaluation",
+        SAGA,
+        evaluation(healthy, UUID.randomUUID(), UUID.randomUUID(), 5, null));
+    post("verifyAuditChain", job, Map.of());
+    assertThat(
+            count(
+                healthy,
+                "SELECT verified_seq FROM cases.audit_chain_heads WHERE tenant_id = ?",
+                healthy))
+        .isEqualTo(1);
+  }
 }
