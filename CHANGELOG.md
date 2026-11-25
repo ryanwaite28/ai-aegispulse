@@ -13,6 +13,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ## [Unreleased]
 
 ### Added
+- Phase 8b risk scoring (FR-TXN-04; spec `docs/specs/FR-TXN-04-risk-scoring.md`, evidence `docs/evidence/phase-08b.md`):
+  - **Endpoint:** `POST /internal/v1/score`, accepting SERVICE tokens with `riskScoring.score` only and authenticating before validation.
+  - **Model:** `risk-heuristic-v1.0.0` with `fx-static-v1`. An empty tenant high-risk list falls back to `HIGH_RISK_COUNTRIES_DEFAULT`.
+  - **Features:** a Redis store that is idempotent by eventId through a `SET NX` snapshot. No Lua or MULTI, per the ACL.
+  - **Kit:** `aegis_platform.web` (§8.2 envelopes for FastAPI). `make contracts` now generates Pydantic models for the Python-owned internal APIs.
 - Phase 8a transaction intake (FR-TXN-01; spec `docs/specs/FR-TXN-01-06-transaction-intake.md`, evidence `docs/evidence/phase-08a.md`):
   - **Ingestion:** `submitTransaction` (contract roles, tenant ACTIVE check, FX/skew/metadata rules, idempotent on (tenant, key) with a canonical body hash, 409 on reuse) and `getTransaction`. Migration `V6__transaction_submissions.sql` (RLS). The row and `txn.submitted` are written atomically through the outbox.
   - **Gateway:** `POST /v1/transactions` (202); `IngestionClient` now forwards `X-Aegis-Tenant`.

@@ -534,6 +534,11 @@ services:
       OTEL_SERVICE_NAMESPACE: aegispulse
       OTEL_EXPORTER_OTLP_ENDPOINT: http://openobserve:5080/api/default
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      REGISTRY_URL: http://registry:8084
+      JWT_ISSUER: aegispulse-registry
+      JWT_AUDIENCE: aegispulse
+      RISK_MODEL: heuristic
+      HIGH_RISK_COUNTRIES_DEFAULT: IR,KP,SY,CU,RU
       REDIS_URL: redis://risk_scoring:${REDIS_PASSWORD_RISK_SCORING:?run make env}@redis:6379/0
     ports: ["127.0.0.1:8086:8086"]
     read_only: true

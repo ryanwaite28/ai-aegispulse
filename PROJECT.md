@@ -2879,7 +2879,7 @@ curl -s "$API/v1/events?correlationId=<corr-id>" -H "authorization: Bearer $TOKE
 | 5 | Files Subsystem | COMPLETE (gate met: exit items, OpenObserve, pipelines green, clean-state run, merged to `main` in !1 (`46ccd5e`, 2026-11-24)) | [phase-05](docs/evidence/phase-05.md) ([5a](docs/evidence/phase-05a.md), [5b](docs/evidence/phase-05b.md), [5c](docs/evidence/phase-05c.md), [5d](docs/evidence/phase-05d.md), [5e](docs/evidence/phase-05e.md)), [clean-state](docs/evidence/clean-state-2026-11-24.md) |
 | 6 | Events Archive & Stage-1 Classification | COMPLETE (gate met: exit items, OpenObserve, pipelines green, clean-state run, merged to `main` in !1 (`46ccd5e`, 2026-11-24)) | [phase-06](docs/evidence/phase-06.md) ([6a](docs/evidence/phase-06a.md), [6b](docs/evidence/phase-06b.md), [6c+6d](docs/evidence/phase-06c.md)), [clean-state](docs/evidence/clean-state-2026-11-24.md) |
 | 7 | Messaging Resilience & Dead Letters | IN PROGRESS (exit items met locally; open: pipelines, merge, clean-state run; FR-MSG-04 dev alert test → Phase 18) | [phase-07](docs/evidence/phase-07.md) |
-| 8 | Transactions, Scoring & Risk Cases (MVP slice) | IN PROGRESS (8a transaction intake runtime-verified locally) | [phase-08a](docs/evidence/phase-08a.md) |
+| 8 | Transactions, Scoring & Risk Cases (MVP slice) | IN PROGRESS (8a runtime-verified; 8b integration-verified) | [phase-08a](docs/evidence/phase-08a.md), [phase-08b](docs/evidence/phase-08b.md) |
 | 9 | Kubernetes, IaC & Secrets (homelab dev + prod) | PENDING | — |
 | 10 | CI/CD & DevSecOps Gates | PENDING | — |
 | 11 | Document ETL & Extraction | PENDING | — |
@@ -3192,10 +3192,10 @@ The FR-MSG-04 alert firing to ntfy in dev stays a Phase 18 item, as planned. Ope
 - [x] Tests: key reuse with different body → 409; same body → original response ([phase-08a](docs/evidence/phase-08a.md))
 
 #### FR-TXN-04 — Risk scoring service (heuristic)
-- [ ] `services/risk-scoring`: `domain/heuristic_v1.py` (§1.4.4), static FX table `fx-static-v1`, Redis features with `feat:seen` idempotency, `POST /v1/score`
-- [ ] Pydantic request/response models generated from contracts
-- [ ] Tests: factor table tests; redelivery does not inflate velocity; demo override only with demo tenant flag
-- [ ] Tests (moved from Phase 2, FR-TEN-08): a tenant settings change (`highValueThresholdUsd` / `highRiskCountries`) reaches scoring within 60 s (kit cache ≤ 60 s)
+- [x] `services/risk-scoring`: `domain/heuristic_v1.py` (§1.4.4), static FX table `fx-static-v1`, Redis features with `feat:seen` idempotency, `POST /v1/score` (route `/internal/v1/score`) ([phase-08b](docs/evidence/phase-08b.md))
+- [x] Pydantic request/response models generated from contracts (`aegis_contracts.openapi.*` via `make contracts`) ([phase-08b](docs/evidence/phase-08b.md))
+- [x] Tests: factor table tests; redelivery does not inflate velocity; demo override only with demo tenant flag ([phase-08b](docs/evidence/phase-08b.md))
+- [ ] Tests (moved from Phase 2, FR-TEN-08): a tenant settings change (`highValueThresholdUsd` / `highRiskCountries`) reaches scoring within 60 s (kit cache ≤ 60 s) — the orchestrator supplies the settings, so this runs with the saga (8e)
 
 #### FR-TXN-03 — Score transaction saga
 - [ ] `services/orchestrator`: consumer adapter `orchestrator.txn.q` → `ScoreTransactionSaga` (checkWatchlists → score → recordRiskEvaluation) with typed clients, SERVICE token, timeouts, breakers
@@ -3225,7 +3225,7 @@ The FR-MSG-04 alert firing to ntfy in dev stays a Phase 18 item, as planned. Ope
 - [ ] Tests: UPDATE/DELETE rejected by DB; tampering a row via superuser in test → verify reports `firstBrokenSeq`
 
 **Phase 8 exit evidence (MVP slice):** compose E2E — signed webhook archived & classified (Stage 1), transaction burst → evaluation → case ESCALATED → audit chain verified; zero duplicates after replaying all queues 3×; trace waterfall across Node → Python → Java.
-**Phase note:** status **`IN PROGRESS`** (2026-11-25). Slice 8a, transaction intake (FR-TXN-01 + the ingestion read of FR-TXN-06), is runtime-verified locally ([phase-08a](docs/evidence/phase-08a.md)). Next: 8b risk scoring, 8c evaluations and case state machine (with the `GET /v1/transactions/{id}` composition), 8d audit log, 8e saga, 8f policy and case work, 8g exit.
+**Phase note:** status **`IN PROGRESS`** (2026-11-25). Slice 8a, transaction intake (FR-TXN-01 + the ingestion read of FR-TXN-06), is runtime-verified locally ([phase-08a](docs/evidence/phase-08a.md)). Slice 8b, risk scoring (FR-TXN-04), is integration-verified ([phase-08b](docs/evidence/phase-08b.md)); its call path from the orchestrator is verified with the saga in 8e. Next: 8c evaluations and case state machine (with the `GET /v1/transactions/{id}` composition), 8d audit log, 8e saga, 8f policy and case work, 8g exit.
 
 ---
 

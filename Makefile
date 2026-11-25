@@ -93,7 +93,7 @@ test-unit: ## Unit suites (Vitest / JUnit / pytest)
 test-integration: ## Testcontainers suites (requires Docker; no compose stack needed)
 	pnpm run test:integration
 	./gradlew --no-daemon integrationTest
-	uv run pytest -q -m integration packages/py-platform/tests/integration
+	uv run pytest -q -m integration packages/py-platform/tests/integration services/risk-scoring/tests/integration
 
 test-e2e: ## E2E + security suites against the compose stack (make up first; grows per phase)
 	@scripts/dev/test-e2e.sh

@@ -7,7 +7,13 @@ from aegis_platform.config import ConfigError, load_settings
 from aegis_risk.config import PORT, Settings
 from aegis_risk.main import create_app
 
-VALID = {"AEGIS_ENV": "local", "REDIS_URL": "redis://risk_scoring:pw@redis:6379/0"}
+VALID = {
+    "AEGIS_ENV": "local",
+    "REDIS_URL": "redis://risk_scoring:pw@redis:6379/0",
+    "REGISTRY_URL": "http://registry:8084",
+    "JWT_ISSUER": "aegispulse-registry",
+    "JWT_AUDIENCE": "aegispulse",
+}
 
 
 def test_accepts_documented_variables_and_uses_the_5_4_port() -> None:
