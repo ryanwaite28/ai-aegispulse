@@ -1,10 +1,15 @@
 """Risk-scoring feature store on Redis (PROJECT.md §7.7 ``feat:*``; ACL ``risk_scoring`` has no scripting or MULTI).
 
-Idempotency without Lua (FR-TXN-04): the features are read first, then claimed with
+Idempotency without Lua (FR-TXN-04): a first-seen event is recorded in the velocity set first (ZADD by eventId, so
+re-adding is a no-op), then the window is counted, then the features are claimed with
 ``SET NX feat:seen:{tenantId}:{eventId} <snapshot> EX 48h``. Only the winner's snapshot counts: a redelivery (or a
 concurrent duplicate) loses the SET NX and returns the stored snapshot, so the score is stable and velocity is not
-inflated. The updates that follow are idempotent too (ZADD by eventId; last-seen only moves forward), so a crash
-between the claim and the updates is repaired by the redelivery.
+inflated (the eventId is one set member however often it is added).
+
+Record-then-count matters for bursts scored in parallel (the saga consumer runs deliveries concurrently): Redis
+commands are linearizable, so of two concurrent transactions on one account at least one counts the other; with
+count-then-record both could miss each other and a burst would score as isolated transactions. The counterparty
+last-seen update stays after the read (the new-counterparty factor must not see the transaction itself).
 """
 
 import json
@@ -32,12 +37,12 @@ class RedisFeatureStore:
 
         stored = await self._redis.get(seen_key)
         if stored is None:
+            await self._redis.zadd(velocity_key, {event_id: occurred_ms})
+            # The window includes this transaction (just added, score = occurred_ms), counted exactly once.
             in_window = await self._redis.zcount(velocity_key, occurred_ms - VELOCITY_WINDOW_MS, occurred_ms)
-            own = await self._redis.zscore(velocity_key, event_id)
-            already_counted = own is not None and occurred_ms - VELOCITY_WINDOW_MS <= own <= occurred_ms
             last_raw = await self._redis.hget(counterparty_key, counterparty_id)
             last = int(last_raw) if last_raw is not None else None
-            snapshot = FeatureSnapshot(in_window - (1 if already_counted else 0) + 1, last)
+            snapshot = FeatureSnapshot(in_window, last)
             body = json.dumps({"txnCount1h": snapshot.txn_count_1h, "counterpartyLastSeenMs": last})
             if not await self._redis.set(seen_key, body, nx=True, ex=SEEN_TTL_S):
                 stored = await self._redis.get(seen_key)
@@ -45,6 +50,7 @@ class RedisFeatureStore:
             raw = json.loads(stored)
             snapshot = FeatureSnapshot(int(raw["txnCount1h"]), raw["counterpartyLastSeenMs"])
 
+        # Idempotent repair for a crash between the claim and the updates (no-op when already a member).
         await self._redis.zadd(velocity_key, {event_id: occurred_ms})
         # Trim relative to this transaction's own time: entries 2 h older can never fall in a later window
         # (wall-clock trimming would erase the history of backdated transactions).

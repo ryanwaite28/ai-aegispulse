@@ -21,10 +21,10 @@ from aegis_platform.logging import configure_logging, get_logger
 from aegis_platform.telemetry import start_telemetry
 from aegis_platform.web import install_http
 from aegis_risk.adapters.http.score import score_router
-from aegis_risk.adapters.redis.features import RedisFeatureStore
 from aegis_risk.config import PORT, SERVICE, Settings
 from aegis_risk.domain.fx import fx_static_v1
 from aegis_risk.service.scoring import ScoringService
+from aegis_risk.storage.features import RedisFeatureStore
 
 
 def _redis_check(redis: Redis) -> Check:

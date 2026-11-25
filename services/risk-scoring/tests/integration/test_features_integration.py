@@ -14,7 +14,7 @@ from redis.exceptions import NoPermissionError
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
-from aegis_risk.adapters.redis.features import RedisFeatureStore
+from aegis_risk.storage.features import RedisFeatureStore
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="module")]
 ROOT = Path(__file__).resolve().parents[4]
@@ -65,6 +65,20 @@ async def test_concurrent_duplicates_agree_and_count_once(redis: Redis) -> None:
     nxt = await store.observe(tenant, "next", "acc", "cp", t0 + 1)
     assert nxt.txn_count_1h == 2
     assert await redis.ttl(f"feat:seen:{tenant}:dup") > 47 * 3600
+
+
+async def test_fr_txn_04_a_parallel_burst_is_never_scored_in_isolation(redis: Redis) -> None:
+    # The saga scores deliveries concurrently: six transactions of one burst observed at once. Record-then-count
+    # guarantees whichever is counted last sees the whole burst (count-then-record let all six count only themselves).
+    store = RedisFeatureStore(redis)
+    tenant = str(uuid.uuid4())
+    t0 = 1_795_000_000_000
+    snaps = await asyncio.gather(*(store.observe(tenant, f"b{i}", "acc", f"cp-{i}", t0) for i in range(6)))
+    counts = [s.txn_count_1h for s in snaps]
+    assert max(counts) == 6
+    assert all(1 <= c <= 6 for c in counts)
+    again = await asyncio.gather(*(store.observe(tenant, f"b{i}", "acc", f"cp-{i}", t0) for i in range(6)))
+    assert again == snaps  # redeliveries return the first snapshots; the burst is not inflated
 
 
 async def test_acl_confines_the_runtime_user_to_feat_keys(redis: Redis) -> None:

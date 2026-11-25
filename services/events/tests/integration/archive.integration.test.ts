@@ -21,6 +21,7 @@ import { consumeArchive } from "../../src/adapters/amqp/archive.consumer.js";
 import { ArchiveRepository } from "../../src/db/archive.repository.js";
 import { MongoOutboxRepository } from "../../src/db/outbox.repository.js";
 import { ArchiveService } from "../../src/service/archive.service.js";
+import type { CanonicalEnvelope } from "@aegispulse/contracts/generated/ts/envelope.ts";
 import { MongoOutboxRelay } from "../../src/storage/mongo-outbox-relay.js";
 
 const logger = createLogger({
@@ -40,6 +41,7 @@ let relay: MongoOutboxRelay;
 let publisher: amqplib.ChannelModel;
 let channel: amqplib.Channel;
 let classificationQueue: string;
+let archiveService: ArchiveService;
 
 function envelope(over: Record<string, unknown> = {}): Record<string, unknown> {
   const eventId = randomUUID();
@@ -123,6 +125,7 @@ beforeAll(async () => {
     version: "abc1234",
     logger,
   });
+  archiveService = service;
   consumeArchive(amqp, logger, service);
   relay = new MongoOutboxRelay({ repository: outbox, publisher: new AmqpPublisher(amqp), logger });
   publisher = await amqplib.connect(broker.adminUrl);
@@ -182,6 +185,18 @@ describe("archive consumer (FR-EVT-01..03, FR-CLS-01/02)", () => {
     expect(got.filter((m) => m.payload["eventId"] === id).map((m) => m.eventType)).toEqual([
       "classification.scan.requested",
     ]);
+  });
+
+  it("NFR-02: concurrent and late duplicates resolve to 'duplicate' (never a retry loop on an aborted transaction)", async () => {
+    const env = envelope() as unknown as CanonicalEnvelope;
+    const meta = { exchange: "aegispulse.ingress", routingKey: "external.market.alert", replayJob: undefined };
+    const concurrent = await Promise.all(Array.from({ length: 6 }, () => archiveService.archiveEvent(env, meta)));
+    expect(concurrent.filter((o) => o === "archived")).toHaveLength(1);
+    expect(concurrent.filter((o) => o === "duplicate")).toHaveLength(5);
+    // A redelivery after the original committed (broker redelivery / queue replay) is a plain duplicate.
+    await expect(archiveService.archiveEvent(env, meta)).resolves.toBe("duplicate");
+    expect(await db.collection("events_archive").countDocuments({ tenantId: TENANT, eventId: env.eventId })).toBe(1);
+    expect(await outboxFor(String(env.eventId))).toHaveLength(1);
   });
 
   it("untrusted publisher severity never counts; a terminal family is archived without emitting anything", async () => {

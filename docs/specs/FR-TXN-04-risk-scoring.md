@@ -17,10 +17,10 @@
 - **Amount:** converted to USD with `fx-static-v1`. A currency outside the table gets 422.
 - **High-risk countries:** an empty tenant list falls back to `HIGH_RISK_COUNTRIES_DEFAULT`.
 - **Features** (`RedisFeatureStore`; the ACL has no scripting and no MULTI):
-  1. Read the velocity: `ZCOUNT feat:txn1h:{t}:{account}` over `[occurredAt − 1 h, occurredAt]`. The transaction itself counts.
+  1. Record, then count, the velocity: `ZADD feat:txn1h:{t}:{account} {occurredAt} {eventId}` (a no-op for a member already present), then `ZCOUNT` over `[occurredAt − 1 h, occurredAt]`. The transaction itself counts once. Recording first means two transactions of one burst scored in parallel can't both miss each other (Redis commands are linearizable), so a parallel burst is never scored as isolated transactions.
   2. Read the counterparty's last-seen time: `HGET feat:cp:{t}:{account} {counterparty}`.
   3. Claim the event with `SET NX feat:seen:{t}:{eventId} <snapshot> EX 48h`. A loser (redelivery or concurrent duplicate) returns the stored snapshot, so the score is stable and velocity is not inflated.
-  4. Apply idempotent updates: `ZADD` by eventId; trim entries 2 h older than this transaction (by `occurredAt`, so backdated history survives); move `HSET` last-seen forward only; TTLs 2 h and 30 d.
+  4. Apply idempotent updates: `ZADD` by eventId again (repairs a crash between steps); trim entries 2 h older than this transaction (by `occurredAt`, so backdated history survives); move `HSET` last-seen forward only; TTLs 2 h and 30 d.
 - **Score:** `risk-heuristic-v1.0.0`.
   - Factors: `amount`, `velocity`, `geo`, `watchlist`, `new_counterparty`, and `demo_override` (only with `demoMode` and `metadata.demoScenario = FORCE_CRITICAL`).
   - The score is `min(100, round-half-up(sum))`; bands are LOW < 40, MEDIUM 40–69, HIGH 70–84, CRITICAL ≥ 85.
@@ -36,7 +36,7 @@
 |---|---|
 | Domain | `aegis_risk/domain/heuristic_v1.py`, `aegis_risk/domain/fx.py` |
 | Service | `aegis_risk/service/scoring.py` (`FeatureStore` port) |
-| Redis adapter | `aegis_risk/adapters/redis/features.py` |
+| Redis feature store | `aegis_risk/storage/features.py` |
 | HTTP adapter | `aegis_risk/adapters/http/score.py` |
 | Config | `aegis_risk/config.py` (+ JWT verify settings, `RISK_MODEL`, `HIGH_RISK_COUNTRIES_DEFAULT`) |
 
@@ -45,6 +45,6 @@
 |---|---|---|
 | Unit | `tests/unit/test_heuristic_v1.py` | factor table (each factor, caps, sum cap 100, HIGH at 70), demo override only in demo mode, bands, rounding, zero threshold, 30-day window, FX |
 | Unit | `tests/unit/test_score_route.py` | contract response shape; default high-risk list; redelivery stable (velocity 1 after 5 deliveries); 403 user token / missing act; 401 before validation; 422 amount/currency |
-| Integration | `tests/integration/test_features_integration.py` (Redis 8, compose ACL `risk_scoring`) | velocity over the hour; redelivery returns the first snapshot; 8 concurrent duplicates agree and count once; 48 h TTL; ACL confines the user to `feat:*` |
+| Integration | `tests/integration/test_features_integration.py` (Redis 8, compose ACL `risk_scoring`) | velocity over the hour; redelivery returns the first snapshot; 8 concurrent duplicates agree and count once; a parallel burst of 6 distinct transactions on one account: the one counted last sees all 6 (none is scored in isolation); 48 h TTL; ACL confines the user to `feat:*` |
 
 FR-TEN-08 propagation (a settings change reaches scoring within 60 s) depends on the caller's settings cache, so it is tested with the saga in 8e.

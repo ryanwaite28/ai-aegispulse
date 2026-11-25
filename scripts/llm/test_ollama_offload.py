@@ -142,6 +142,7 @@ def test_run_small_input_single_call_with_header_and_redacted_answer(
     assert call["model"] == "qwen2.5-coder:7b"
     assert call["stream"] is False
     assert call["options"]["temperature"] == 0.0
+    assert call["think"] is False  # thinking models must not spend hidden reasoning tokens on condensing
     assert out.startswith("[ollama qwen2.5-coder:7b · task=summarize-log")
     assert "ghp_" not in out  # model output is redacted too
     entry = json.loads(usage.read_text(encoding="utf-8").splitlines()[0])

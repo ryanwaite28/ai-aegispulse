@@ -117,7 +117,7 @@ eval: ## Golden-dataset evaluation
 	$(call not_yet,Phase 16)
 
 # ---------------------------------------------------------------- runtime helpers
-.PHONY: dev images demo demo-webhook demo-upload demo-dlq check-dlq-alert chaos trigger k3d-up k3d-down env-sleep env-wake env-reset
+.PHONY: dev images demo demo-webhook demo-upload demo-dlq demo-mvp check-dlq-alert chaos trigger k3d-up k3d-down env-sleep env-wake env-reset
 dev: ## Run one service natively with hot reload against the compose stack (SERVICE=name; Ctrl-C restores the container)
 	@test -n "$(SERVICE)" || { echo "usage: make dev SERVICE=<name>" >&2; exit 2; }
 	@scripts/dev/dev-service.sh $(SERVICE)
@@ -127,6 +127,8 @@ demo: ## End-to-end demo scenario
 	$(call not_yet,Phase 20)
 demo-upload: ## Phase 5 demo: init → PUT → complete → VALIDATED, plus EICAR → QUARANTINED (make up + make seed first)
 	@scripts/demo/upload.sh
+demo-mvp: ## Phase 8 exit demo: transaction burst → ESCALATED case → audit verified; replay all routed messages 3× → zero duplicates; saga trace
+	@uv run python scripts/demo/mvp_demo.py
 demo-dlq: ## Phase 7 demo: ClamAV stopped → retries 1s/5s/30s → DLQ registry → restart → replay → VALIDATED (make seed first)
 	@scripts/demo/dlq-demo.sh
 check-dlq-alert: ## FR-MSG-04 local equivalent: evaluate the dlq-spike alerts against local OpenObserve + broker (exit 1 = firing)

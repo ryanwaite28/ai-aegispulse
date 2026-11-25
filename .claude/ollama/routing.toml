@@ -10,10 +10,20 @@
 host = "http://127.0.0.1:11434"
 timeout_s = 300
 keep_alive = "10m"        # unload models after 10 min idle so the compose stack keeps its RAM
+# Thinking models (qwen3.8, mimo-v2.6, flint) otherwise spend hidden reasoning tokens (time and RAM) on routine
+# condensing. Sent as `think` on every request; non-thinking models ignore false. Set true only for a one-off
+# experiment with a thinking model.
+think = false
 
 [models]
 fast = "qwen2.5-coder:7b"
 deep = "qwen2.5-coder:14b"
+# Installed but NOT routed (not benchmarked here; see docs/steering/local-llm.md "Candidate models"). Try one
+# for a single run with `-m <tag>`, e.g. `run summarize-log -f LOG -m mimo-v2.6:latest`; promote a tier only after
+# measuring it on real logs/diffs with `make llm-stats` and the compose stack running.
+#   mimo-v2.6:latest   9.4B  nvfp4  8.7 GB  thinking, vision
+#   qwen3.8:latest    27.8B  nvfp4   18 GB  thinking, vision
+#   flint:latest      39.8B  int4    22 GB  thinking
 
 [limits]
 # Chars per chunk sent in one request (~4 chars/token, leaving room for the prompt and the answer).

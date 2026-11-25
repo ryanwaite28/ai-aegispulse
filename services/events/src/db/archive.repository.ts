@@ -62,6 +62,11 @@ export interface ArchivedEvent {
 
 const DUPLICATE_KEY = 11000;
 
+/** E11000 from an insert (possibly wrapped by the driver's transaction helper). */
+export function isDuplicateKey(error: unknown): boolean {
+  return (error as { code?: unknown }).code === DUPLICATE_KEY;
+}
+
 export class ArchiveRepository {
   private readonly standard: Collection<ArchivedEvent>;
   private readonly restricted: Collection<ArchivedEvent>;
@@ -75,20 +80,22 @@ export class ArchiveRepository {
     return tier === "restricted" ? this.restricted : this.standard;
   }
 
-  /** false when {tenantId, eventId} already exists in either tier (duplicate = success, FR-EVT-02). */
+  /**
+   * false when {tenantId, eventId} already exists in either tier (duplicate = success, FR-EVT-02). A concurrent
+   * duplicate that wins the unique index between the check and the insert surfaces as E11000 (see
+   * isDuplicateKey): inside a transaction the server has already aborted it, so the caller must treat that error as
+   * "duplicate" outside the transaction (catching it here and committing would fail with NoSuchTransaction, 251).
+   */
   async insert(session: ClientSession, tier: Tier, doc: ArchivedEvent): Promise<boolean> {
-    const other = await this.col(tier === "restricted" ? "standard" : "restricted").findOne(
-      { tenantId: doc.tenantId, eventId: doc.eventId },
-      { session, projection: { _id: 1 } },
-    );
-    if (other !== null) return false;
-    try {
-      await this.col(tier).insertOne(doc, { session });
-      return true;
-    } catch (error: unknown) {
-      if ((error as { code?: number }).code === DUPLICATE_KEY) return false;
-      throw error;
+    for (const t of ["standard", "restricted"] as const) {
+      const existing = await this.col(t).findOne(
+        { tenantId: doc.tenantId, eventId: doc.eventId },
+        { session, projection: { _id: 1 } },
+      );
+      if (existing !== null) return false;
     }
+    await this.col(tier).insertOne(doc, { session });
+    return true;
   }
 
   /** FR-EVT-02 replay: bump replay metadata only; never creates a record. false when the event is not archived. */

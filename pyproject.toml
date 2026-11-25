@@ -56,6 +56,7 @@ known-first-party = ["aegis_platform", "aegis_contracts", "aegis_risk", "aegis_s
 "scripts/infisical/*.py" = ["S603", "S607"]  # fixed `infisical` CLI calls; arguments come from the repo catalog
 "scripts/dev/dev_service.py" = ["S603", "S607"]  # fixed docker/compose/pnpm/gradle/uv commands; names come from the compose file
 "scripts/dev/dlq_alert_check.py" = ["S603", "S607"]  # fixed docker compose / rabbitmqctl commands
+"scripts/demo/mvp_demo.py" = ["S603", "S607", "S608"]  # fixed docker/make commands; SQL over fixed table names and a seeded tenant id
 "scripts/llm/*.py" = ["S603", "S607"]  # fixed `git diff` calls; paths are guard-checked repo files
 "packages/py-platform/tests/**" = ["S603", "S607", "S105", "S106", "S608"]
 

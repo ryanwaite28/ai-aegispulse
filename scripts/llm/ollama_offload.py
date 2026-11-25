@@ -83,6 +83,7 @@ class Config:
     host: str
     timeout_s: float
     keep_alive: str
+    think: bool
     models: dict[str, str]
     chunk_chars: int
     max_input_chars: int
@@ -116,6 +117,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         host=os.environ.get("OLLAMA_HOST") or str(server["host"]),
         timeout_s=float(server.get("timeout_s", 300)),
         keep_alive=str(server.get("keep_alive", "10m")),
+        think=bool(server.get("think", False)),
         models={k: str(v) for k, v in raw["models"].items()},
         chunk_chars=int(limits["chunk_chars"]),
         max_input_chars=int(limits["max_input_chars"]),
@@ -270,6 +272,8 @@ class Ollama:
             "keep_alive": self.cfg.keep_alive,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "options": {"temperature": temperature, "num_ctx": self.cfg.num_ctx},
+            # Thinking models spend hidden reasoning tokens (time and RAM) on condensing; off unless [server].think.
+            "think": self.cfg.think,
         }
         if fmt == "json":
             body["format"] = "json"

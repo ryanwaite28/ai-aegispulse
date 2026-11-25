@@ -15,7 +15,7 @@ import { classifyStage1, RULE_VERSION } from "../domain/classification/rules-v1.
 import { resolveSeverity } from "../domain/classification/severity-resolver.js";
 import { isSeverity } from "../domain/classification/severity.js";
 import { expireAt } from "../domain/retention.js";
-import type { ArchiveRepository, ArchivedEvent, Tier } from "../db/archive.repository.js";
+import { isDuplicateKey, type ArchiveRepository, type ArchivedEvent, type Tier } from "../db/archive.repository.js";
 import type { MongoOutboxRepository } from "../db/outbox.repository.js";
 import { classificationFinalized, scanRequested } from "./events.js";
 
@@ -137,16 +137,22 @@ export class ArchiveService {
       expireAt: expireAt(archivedAt, tier, retention),
     };
 
-    const inserted = await this.inTransaction(async (session) => {
-      if (!(await this.deps.archive.insert(session, tier, doc))) return false;
-      if (!stage1.terminal) {
-        await this.deps.outbox.enqueue(
-          session,
-          finalNow ? classificationFinalized(this.deps.version, doc) : scanRequested(this.deps.version, doc),
-          archivedAt,
-        );
-      }
-      return true;
+    const archiveOnce = (): Promise<boolean> =>
+      this.inTransaction(async (session) => {
+        if (!(await this.deps.archive.insert(session, tier, doc))) return false;
+        if (!stage1.terminal) {
+          await this.deps.outbox.enqueue(
+            session,
+            finalNow ? classificationFinalized(this.deps.version, doc) : scanRequested(this.deps.version, doc),
+            archivedAt,
+          );
+        }
+        return true;
+      });
+    // A concurrent delivery of the same event won the unique index: the aborted transaction wrote nothing (NFR-02).
+    const inserted = await archiveOnce().catch((error: unknown) => {
+      if (isDuplicateKey(error)) return false;
+      throw error;
     });
     if (!inserted) return "duplicate";
     this.deps.logger.info(

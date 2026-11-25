@@ -45,7 +45,22 @@ Use the cheapest tier that still meets `docs/steering/quality.md`:
 | 2 | refused (guard, unknown task, input too large for a single-window task) | narrow the input, or do the task in Claude if it is guarded |
 | 3 | Ollama down or model not pulled | do the task in Claude (Haiku-class). Never block on it; suggest `make llm-setup` once |
 
+## Candidate models (installed, not routed)
+Installed on the workstation alongside the two routed tiers. Facts are from `ollama show`; **none has been benchmarked for these tasks**, so none is routed. Quality, speed and memory behaviour with the compose stack up are unknown until measured.
+
+| Model | Params / quant | Disk | Capabilities | Note |
+|---|---|---|---|---|
+| `mimo-v2.6:latest` | 9.4B · nvfp4 | 8.7 GB | thinking, vision, tools | The only one that plausibly fits beside `make up` (similar size to `deep`). First candidate for a `fast`/`deep` swap. |
+| `qwen3.8:latest` | 27.8B · nvfp4 | 18 GB | thinking, vision, tools | About 75% of the 24 GB unified memory: run only with the compose stack down. |
+| `flint:latest` | 39.8B · int4 | 22 GB | thinking, tools | About 90% of the 24 GB: do not load while the stack is up. |
+
+Rules:
+- **Thinking is off by default** (`[server].think = false` in `routing.toml`, sent on every request). These models otherwise spend hidden reasoning tokens on routine condensing. Enable it only for a deliberate one-off experiment.
+- **Try, don't switch.** Use `-m <tag>` for a single run. Promote a model into `[models]` (and `make llm-setup`) only after comparing it with the current tier on the same real log and diff (accuracy of failure names and `file:line`, seconds, and `vm_stat` / the compose stack staying healthy).
+- **Never load `qwen3.8` or `flint` with the stack up.** Memory pressure can stall the stack and the session. A model loaded for a trial unloads after `keep_alive` (10 min idle).
+- None of them changes the "never route" list above: security-critical code, contracts, migrations, decisions and evidence stay out.
+
 ## Hardware and models
 - Workstation: Apple M5, 24 GB unified memory, shared with the compose stack. `keep_alive = "10m"` unloads idle models. `num_ctx = 16384` and `chunk_chars = 24000` keep each request inside one window, and larger inputs are map-reduced.
-- Swap models by editing `[models]` in `routing.toml`, then `make llm-setup`. Raise the `deep` tier only if memory allows with `make up` running.
+- Swap models by editing `[models]` in `routing.toml`, then `make llm-setup`. `make llm-setup` pulls only the models named in `[models]`; candidate models are installed by hand with `ollama pull`. Raise the `deep` tier only if memory allows with `make up` running.
 - `make llm-stats` estimates how many tokens were kept out of Claude context. It credits only tasks marked `replaces_read` (logs, files, diffs, inventories, extraction, explanations), where Claude would otherwise have read the input; drafts are listed but not credited. The estimate is still a proxy: to measure the real effect, compare `/cost` across two similar slices, one with offload and one without.

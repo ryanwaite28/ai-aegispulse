@@ -31,6 +31,13 @@ Otherwise do it yourself. Small files are cheaper to `Read` directly, because a 
 
 `$SCRATCH` is the session scratchpad directory. Keep logs there, not in the repo. Use `-m deep` to escalate one run to the bigger model, and `-o FILE` to write the answer to a file.
 
+## Other installed models (not routed)
+`mimo-v2.6` (8.7 GB), `qwen3.8` (18 GB) and `flint` (22 GB) are installed but unbenchmarked, so the default tiers stay `qwen2.5-coder:7b` / `:14b`. Do not pass `-m` with them on your own initiative.
+- Only on the owner's request, try one with `-m <tag>` for a single run.
+- Never load `qwen3.8` or `flint` while the compose stack is up: they take 75% and 90% of the 24 GB unified memory.
+- Thinking is off by default (`[server].think`); keep it off for condensing.
+Details: `docs/steering/local-llm.md` "Candidate models".
+
 ## Using the answer
 - The first line is the header. **DRAFT** means: review, fix, then use. You own every line that lands in the repo.
 - A summary is a lead. Confirm each fact you act on with a narrow `grep -n` or a `Read` with offset and limit. Then re-run the narrowed failing test yourself; that run, not the summary, is the evidence.
