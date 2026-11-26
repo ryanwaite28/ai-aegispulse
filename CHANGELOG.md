@@ -12,6 +12,18 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Fixed
+- Phase 8 review fixes (architecture and security reviews):
+  - **Cases, concurrent `recordRiskEvaluation`:** a transaction-scoped advisory lock on `(tenant, idempotencyKey)` stops a losing delivery from attaching evidence that points at an evaluation id that was never stored (FR-TXN-05, FR-CASE-07). The integration test reproduced it before the fix.
+  - **Cases, sweeps:** per-case fault isolation; `JobRunSummary.failedCount` (additive contract field); the scheduler exits non-zero on partial failure.
+  - **Cases, audit ingest:** a `causationId` that is not a UUID is dropped instead of failing outside the poison/permanent classification (FR-AUD-02).
+  - **Cases, migration `V8`:** index on `cases.previous_case_id`.
+
+### Security
+- Phase 8 review fixes:
+  - **Dispositions (M-1):** client idempotency keys are scoped to the analyst and the case, and reusing a key with a different body is 409 `IDEMPOTENCY_KEY_REUSED`. Before, a key was scoped only to the tenant, so analyst B could receive analyst A's disposition and rationale (FR-CASE-06, NFR-02).
+  - **`recordRiskEvaluation` (L-2):** `tenantStatus` is required (contract) and only `ACTIVE` opens a case; a missing value no longer fails open.
+
 ### Added
 - Local-LLM offload for agent sessions (workstation tooling, not shipped; steering `docs/steering/local-llm.md`):
   - **CLI:** `scripts/llm/ollama_offload.py`, stdlib only. Tasks: summarize-log/file/diff, inventory, extract, changelog, test-scaffold, explain, ask (commit-msg was trialled and dropped: low value, 7b invented FR ids). Large inputs are map-reduced.

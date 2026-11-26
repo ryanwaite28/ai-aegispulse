@@ -33,6 +33,19 @@ public class RiskEvaluationRepository {
     this.json = json;
   }
 
+  /**
+   * Serializes concurrent deliveries of one idempotency key for the rest of the transaction: the
+   * loser waits for the winner's commit, then reads its stored evaluation, so it never
+   * opens/attaches anything of its own.
+   */
+  public void lockKey(UUID tenantId, String idempotencyKey) {
+    jdbc.sql(
+            "SELECT pg_advisory_xact_lock(hashtextextended('cases.risk-eval:' || ?::text || ':' || ?, 0))")
+        .params(tenantId, idempotencyKey)
+        .query()
+        .singleValue();
+  }
+
   /** Inserts unless (tenant, idempotency key) exists; empty when it does. */
   public Optional<RiskEvaluation> insert(RiskEvaluation e) {
     return jdbc.sql(

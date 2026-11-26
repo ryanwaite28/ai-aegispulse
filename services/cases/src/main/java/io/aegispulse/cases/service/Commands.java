@@ -40,7 +40,7 @@ public final class Commands {
       @NotBlank String modelVersion,
       @NotBlank String featureVersion,
       @Nullable List<@Valid WatchlistHit> watchlistHits,
-      @Nullable @Pattern(regexp = "ACTIVE|SUSPENDED|DEACTIVATED") String tenantStatus) {}
+      @NotNull @Pattern(regexp = "ACTIVE|SUSPENDED|DEACTIVATED") String tenantStatus) {}
 
   /** openCase (FR-CASE-01). */
   public record OpenCase(

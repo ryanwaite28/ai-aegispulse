@@ -616,10 +616,10 @@ export type components = {
             score: number;
             tenantId: components["schemas"]["Uuid"];
             /**
-             * @description Tenant status the saga read with getTenantSettings (cases has no callees, §5.7.4). Not ACTIVE → the evaluation is recorded and the case is suppressed with suppressedReason TENANT_SUSPENDED (FR-TXN-05, FR-TEN-02). Absent = ACTIVE.
+             * @description Tenant status the saga read with getTenantSettings (cases has no callees, §5.7.4). Required: only ACTIVE opens a case; anything else records the evaluation and suppresses the case with suppressedReason TENANT_SUSPENDED (FR-TXN-05, FR-TEN-02). The value is as fresh as the saga's settings cache (≤ 60 s, FR-TEN-08), so a tenant suspended within that window can still get a case.
              * @enum {string}
              */
-            tenantStatus?: "ACTIVE" | "SUSPENDED" | "DEACTIVATED";
+            tenantStatus: "ACTIVE" | "SUSPENDED" | "DEACTIVATED";
             transactionEventId: components["schemas"]["Uuid"];
             transactionId: components["schemas"]["Uuid"];
             watchlistHits?: components["schemas"]["WatchlistHit"][];

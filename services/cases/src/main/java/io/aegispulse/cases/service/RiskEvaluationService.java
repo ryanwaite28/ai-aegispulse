@@ -74,6 +74,7 @@ public class RiskEvaluationService {
     }
     UUID tenantId = cmd.tenantId();
     scope.apply(tenantId);
+    evaluations.lockKey(tenantId, cmd.idempotencyKey());
     Optional<RiskEvaluation> existing = evaluations.findByKey(tenantId, cmd.idempotencyKey());
     if (existing.isPresent()) {
       return existing.get();
@@ -100,7 +101,8 @@ public class RiskEvaluationService {
       factors.add(m);
     }
     boolean caseWorthy = cmd.score() >= CASE_THRESHOLD;
-    boolean active = cmd.tenantStatus() == null || "ACTIVE".equals(cmd.tenantStatus());
+    boolean active =
+        "ACTIVE".equals(cmd.tenantStatus()); // fail closed: anything but ACTIVE suppresses
     UUID evaluationId = UuidV7.next();
     UUID caseId = null;
     if (caseWorthy && active) {

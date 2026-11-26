@@ -19,6 +19,8 @@
   5. Append audit `RISK_EVALUATION_RECORDED` (model version) and enqueue `risk.evaluation.recorded`. Everything commits in one transaction.
   - **Suppression:** when the saga reports a non-ACTIVE `tenantStatus` (an additive contract field: cases has no callees to read tenant status itself, §5.7.4), the evaluation is recorded with `suppressedReason = TENANT_SUSPENDED` and no case is opened (FR-TEN-02 "sagas skip case creation").
   - **Duplicates:** a repeat (redelivery, replay, concurrent duplicate) returns the stored evaluation with no new rows, audit entries or events.
+  - **Concurrent duplicates** (review fix, 2026-11-26): `record()` first takes a transaction-scoped advisory lock on `(tenant, idempotencyKey)`, so a losing delivery waits for the winner's commit and returns its evaluation. Before this, a loser could attach a `RISK_EVALUATION` evidence row pointing at an evaluation id that was never stored (`CasesIT` FR_CASE_07 asserts exactly one, pointing at the stored evaluation).
+  - **`tenantStatus` is required** (review fix, 2026-11-26): only `ACTIVE` opens a case and a missing value is 422, so cases fails closed instead of treating absent as ACTIVE. The value is as fresh as the saga's settings cache (≤ 60 s, FR-TEN-08).
 - **`CaseService.open`:**
   - Idempotent by `(tenant, openIdempotencyKey)`.
   - The number `AP-{yyyy}-{n}` comes from `case_number_sequences` under a row lock, so numbers are gapless.

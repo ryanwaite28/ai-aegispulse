@@ -20,7 +20,7 @@
     - `NEEDS_REVIEW` keeps the status and sets `pending_disposition` and `pending_reviewer_id`.
     - TRUE_POSITIVE / FALSE_POSITIVE clear the pending flag and resolve the case (`disposition:{id}`, which emits `case.resolved`). The analyst who recorded NEEDS_REVIEW gets `409 CASE_FOUR_EYES_REQUIRED`.
     - Records the model versions of the case's risk evaluations and the policy versions of its policy evaluations, and emits `case.disposition.recorded`.
-    - Idempotent by `Idempotency-Key`, or else by a key derived from case + analyst + disposition + rationale.
+    - Idempotent by `Idempotency-Key`, or else by a key derived from case + analyst + disposition + rationale. A client key is stored scoped to the analyst and the case (`idem:{analyst}:{caseId}:{key}`), so one analyst's key never returns another analyst's or another case's disposition. Reusing a key with a different disposition or rationale is 409 `IDEMPOTENCY_KEY_REUSED` (NFR-02). Review fix, 2026-11-26.
   - `requestReevaluation`: ESCALATED/CLEARED → ENRICHING (`reeval:{Idempotency-Key | actor:version}`), then the policy runs immediately (this phase has no async enrichment source). Audit `CASE_REEVALUATION_REQUESTED` carries the reason.
 - **`attachEvidence`** (SERVICE; sagas from Phase 14):
   - Idempotent per (case, type, ref); each new item emits `case.evidence.attached`.

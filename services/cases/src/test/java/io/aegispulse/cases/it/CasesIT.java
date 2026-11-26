@@ -32,6 +32,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -133,6 +134,12 @@ class CasesIT {
 
   Reply post(String action, String token, Object body, String acting)
       throws IOException, InterruptedException {
+    return post(action, token, body, acting, null);
+  }
+
+  Reply post(
+      String action, String token, Object body, @Nullable String acting, @Nullable String idem)
+      throws IOException, InterruptedException {
     HttpRequest.Builder b =
         HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/internal/v1/" + action))
             .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
@@ -140,6 +147,9 @@ class CasesIT {
             .header("authorization", "Bearer " + token);
     if (acting != null) {
       b.header("X-Aegis-Tenant", acting);
+    }
+    if (idem != null) {
+      b.header("Idempotency-Key", idem);
     }
     HttpResponse<String> r = HTTP.send(b.build(), HttpResponse.BodyHandlers.ofString());
     return new Reply(r.statusCode(), JSON.readTree(r.body()));
@@ -172,9 +182,7 @@ class CasesIT {
                 "severityFloor", "HIGH",
                 "entityId", UUID.randomUUID().toString(),
                 "counterpartyId", "cp-1")));
-    if (status != null) {
-      m.put("tenantStatus", status);
-    }
+    m.put("tenantStatus", status == null ? "ACTIVE" : status);
     return m;
   }
 
@@ -368,7 +376,41 @@ class CasesIT {
                 tenant))
         .isEqualTo(1);
     assertThat(again.data().get("severity")).isNull(); // the evaluation view, not a case view
+    // A losing racer must not leave its own evidence behind: one RISK_EVALUATION row, and it points
+    // at the
+    // evaluation that was actually stored (not at an id a loser generated).
+    assertThat(
+            count(
+                tenant,
+                "SELECT count(*) FROM cases.case_evidence WHERE tenant_id = ? AND evidence_type = 'RISK_EVALUATION'",
+                tenant))
+        .isEqualTo(1);
+    assertThat(
+            count(
+                tenant,
+                "SELECT count(*) FROM cases.case_evidence WHERE tenant_id = ? AND evidence_type = 'RISK_EVALUATION'"
+                    + " AND evidence_ref = ?",
+                tenant,
+                ids.getFirst()))
+        .isEqualTo(1);
     assertChainValid(tenant);
+  }
+
+  @Test
+  void aMissingTenantStatusIsRejectedNotTreatedAsActive_FR_TXN_05() throws Exception {
+    UUID tenant = UUID.randomUUID();
+    Map<String, Object> body =
+        new java.util.LinkedHashMap<>(
+            evaluation(tenant, UUID.randomUUID(), UUID.randomUUID(), 90, null));
+    body.remove("tenantStatus");
+    Reply r = post("recordRiskEvaluation", SAGA, body);
+    assertThat(r.status()).as(r.body().toString()).isEqualTo(422);
+    assertThat(count(tenant, "SELECT count(*) FROM cases.cases WHERE tenant_id = ?", tenant))
+        .isZero();
+    assertThat(
+            count(
+                tenant, "SELECT count(*) FROM cases.risk_evaluations WHERE tenant_id = ?", tenant))
+        .isZero();
   }
 
   @Test
@@ -1071,6 +1113,74 @@ class CasesIT {
                 "SELECT count(*) FROM cases.outbox_events WHERE tenant_id = ? AND routing_key = 'case.resolved'",
                 tenant))
         .isEqualTo(1);
+    assertChainValid(tenant);
+  }
+
+  @Test
+  void anIdempotencyKeyIsScopedToTheAnalystAndCaseAndRejectsADifferentBody_FR_CASE_06()
+      throws Exception {
+    UUID tenant = UUID.randomUUID();
+    UUID caseX = caseFor(tenant, 88);
+    UUID caseY = caseFor(tenant, 88);
+    String analystA = Tokens.user(UUID.randomUUID(), tenant, "t", "ANALYST");
+    String analystB = Tokens.user(UUID.randomUUID(), tenant, "t", "ANALYST");
+    String key = UUID.randomUUID().toString();
+    String rationaleA = "Analyst A: counterparty needs a second look before closing.";
+    String rationaleB = "Analyst B: unrelated case, independent review requested here.";
+    Reply a =
+        post(
+            "recordDisposition",
+            analystA,
+            Map.of(
+                "caseId", caseX.toString(), "disposition", "NEEDS_REVIEW", "rationale", rationaleA),
+            null,
+            key);
+    assertThat(a.status()).as(a.body().toString()).isEqualTo(201);
+    // Same client key, other analyst, other case: a separate disposition, never A's.
+    Reply b =
+        post(
+            "recordDisposition",
+            analystB,
+            Map.of(
+                "caseId", caseY.toString(), "disposition", "NEEDS_REVIEW", "rationale", rationaleB),
+            null,
+            key);
+    assertThat(b.status()).as(b.body().toString()).isEqualTo(201);
+    assertThat(b.data().get("disposition").get("id").asString())
+        .isNotEqualTo(a.data().get("disposition").get("id").asString());
+    assertThat(b.data().get("disposition").get("caseId").asString()).isEqualTo(caseY.toString());
+    assertThat(b.data().get("disposition").get("rationale").asString()).isEqualTo(rationaleB);
+    // Same analyst, same key, different body: refused, nothing recorded.
+    Reply reused =
+        post(
+            "recordDisposition",
+            analystA,
+            Map.of(
+                "caseId",
+                caseX.toString(),
+                "disposition",
+                "NEEDS_REVIEW",
+                "rationale",
+                rationaleA + " Edited."),
+            null,
+            key);
+    assertThat(reused.status()).isEqualTo(409);
+    assertThat(reused.code()).isEqualTo("IDEMPOTENCY_KEY_REUSED");
+    // Exact repeat: the original disposition.
+    Reply repeat =
+        post(
+            "recordDisposition",
+            analystA,
+            Map.of(
+                "caseId", caseX.toString(), "disposition", "NEEDS_REVIEW", "rationale", rationaleA),
+            null,
+            key);
+    assertThat(repeat.data().get("disposition").get("id").asString())
+        .isEqualTo(a.data().get("disposition").get("id").asString());
+    assertThat(
+            count(
+                tenant, "SELECT count(*) FROM cases.case_dispositions WHERE tenant_id = ?", tenant))
+        .isEqualTo(2);
     assertChainValid(tenant);
   }
 

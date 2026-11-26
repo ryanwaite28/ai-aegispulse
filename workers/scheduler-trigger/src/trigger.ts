@@ -6,11 +6,18 @@ import type { JobDefinition } from "./jobs.js";
 
 export interface JobRunSummary {
   readonly processedCount: number;
+  /** Items that failed while the run continued (per-item isolation); above 0 the job exits non-zero. */
+  readonly failedCount?: number;
   /** cases-audit-verify only: chain verification outcome (a broken chain is reported via N-06, not an exit code). */
   readonly valid?: boolean;
   readonly firstBrokenSeq?: number;
   readonly startedAt?: string;
   readonly finishedAt?: string;
+}
+
+/** A run that finished but skipped failed items must still fail the CronJob, so alerting fires. */
+export function hasFailures(summary: JobRunSummary): boolean {
+  return (summary.failedCount ?? 0) > 0;
 }
 
 export async function trigger(config: Config, job: JobDefinition): Promise<JobRunSummary> {

@@ -27,6 +27,8 @@
 
 ## Data
 - `V7__case_sweeps.sql`: the two finders, owned by `cases_platform`, which is granted SELECT on cases and case_evidence. `/readyz` requires Flyway ≥ 7.
+- **Fault isolation** (review fix, 2026-11-26): each case runs in its own transaction inside a try/catch. A failing case is logged (tenant id, case id, error type only) and counted in an additive `failedCount` on `JobRunSummary`; the sweep continues with the rest. The scheduler exits non-zero when `failedCount > 0`, so CronJob alerting fires.
+- `V8__cases_previous_case_index.sql`: index on `cases.previous_case_id` (FK without a leading index). `/readyz` requires Flyway ≥ 8.
 - `CaseRepository.updateStatus` writes policy score, version and severity together with the status change, inside the same optimistic-locked update.
 
 ## Tests

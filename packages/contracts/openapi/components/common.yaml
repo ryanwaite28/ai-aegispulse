@@ -224,6 +224,10 @@ components:
           type: integer
           minimum: 0
           description: Items processed by the run.
+        failedCount:
+          type: integer
+          minimum: 0
+          description: "Items that failed while the run continued with the rest (per-item fault isolation). Absent or 0 means none; the scheduler exits non-zero when it is above 0."
         startedAt:
           $ref: "#/components/schemas/IsoDateTime"
         finishedAt:

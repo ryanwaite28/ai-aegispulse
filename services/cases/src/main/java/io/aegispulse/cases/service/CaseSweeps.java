@@ -54,53 +54,88 @@ public class CaseSweeps {
     this.clock = clock;
   }
 
-  public record Summary(int processedCount, Instant startedAt, Instant finishedAt) {}
+  /**
+   * failedCount: cases that threw and were skipped (each in its own transaction); the sweep
+   * continues.
+   */
+  public record Summary(
+      int processedCount, int failedCount, Instant startedAt, Instant finishedAt) {}
 
   public Summary runEnrichmentTimeouts(AegisPrincipal principal) {
     requireService(principal);
     Instant started = Instant.now(clock);
     int done = 0;
+    int failed = 0;
     for (CaseRepository.DueCase d : cases.enrichmentOverdue(BATCH)) {
-      CaseRecord after =
-          tx.execute(s -> {
-            scope.apply(d.tenantId());
-            return policy.evaluate(d.tenantId(), d.caseId(), Actor.TIMER);
-          });
-      if (after != null) {
-        done++;
+      try {
+        CaseRecord after =
+            tx.execute(s -> {
+              scope.apply(d.tenantId());
+              return policy.evaluate(d.tenantId(), d.caseId(), Actor.TIMER);
+            });
+        if (after != null) {
+          done++;
+        }
+      } catch (RuntimeException e) {
+        failed++;
+        logFailure("cases.enrichment_timeouts.case_failed", d, e);
       }
     }
-    log.atInfo().addKeyValue("processedCount", done).log("cases.enrichment_timeouts");
-    return new Summary(done, started, Instant.now(clock));
+    log.atInfo()
+        .addKeyValue("processedCount", done)
+        .addKeyValue("failedCount", failed)
+        .log("cases.enrichment_timeouts");
+    return new Summary(done, failed, started, Instant.now(clock));
   }
 
   public Summary autoResolveCleared(AegisPrincipal principal) {
     requireService(principal);
     Instant started = Instant.now(clock);
     int done = 0;
+    int failed = 0;
     for (CaseRepository.DueCase d : cases.clearedWithoutNewEvidence(AUTO_RESOLVE_DAYS, BATCH)) {
-      Boolean resolved =
-          tx.execute(s -> {
-            scope.apply(d.tenantId());
-            CaseRecord c = cases.findById(d.tenantId(), d.caseId()).orElse(null);
-            if (c == null || c.status() != CaseStatus.CLEARED) {
-              return false;
-            }
-            caseService.transition(
-                d.tenantId(),
-                d.caseId(),
-                CaseStatus.RESOLVED,
-                "auto-resolve:v" + c.version(),
-                Actor.TIMER,
-                null);
-            return true;
-          });
-      if (Boolean.TRUE.equals(resolved)) {
-        done++;
+      try {
+        Boolean resolved =
+            tx.execute(s -> {
+              scope.apply(d.tenantId());
+              CaseRecord c = cases.findById(d.tenantId(), d.caseId()).orElse(null);
+              if (c == null || c.status() != CaseStatus.CLEARED) {
+                return false;
+              }
+              caseService.transition(
+                  d.tenantId(),
+                  d.caseId(),
+                  CaseStatus.RESOLVED,
+                  "auto-resolve:v" + c.version(),
+                  Actor.TIMER,
+                  null);
+              return true;
+            });
+        if (Boolean.TRUE.equals(resolved)) {
+          done++;
+        }
+      } catch (RuntimeException e) {
+        failed++;
+        logFailure("cases.auto_resolve.case_failed", d, e);
       }
     }
-    log.atInfo().addKeyValue("processedCount", done).log("cases.auto_resolved");
-    return new Summary(done, started, Instant.now(clock));
+    log.atInfo()
+        .addKeyValue("processedCount", done)
+        .addKeyValue("failedCount", failed)
+        .log("cases.auto_resolved");
+    return new Summary(done, failed, started, Instant.now(clock));
+  }
+
+  /**
+   * One bad case must not block the rest of the batch; log ids and the error type only (no case
+   * content).
+   */
+  private static void logFailure(String message, CaseRepository.DueCase d, RuntimeException e) {
+    log.atError()
+        .addKeyValue("tenantId", d.tenantId())
+        .addKeyValue("caseId", d.caseId())
+        .addKeyValue("errorType", e.getClass().getSimpleName())
+        .log(message);
   }
 
   private static void requireService(AegisPrincipal principal) {

@@ -92,7 +92,7 @@ public class AuditLogService {
                     m.action(),
                     m.subjectType(),
                     m.subjectId(),
-                    e.causationId() == null ? null : UUID.fromString(e.causationId()),
+                    causationOf(e.causationId()),
                     null,
                     null,
                     null,
@@ -107,6 +107,22 @@ public class AuditLogService {
           .log("audit.ingested");
     }
     return appended;
+  }
+
+  /**
+   * causationId is a correlation pointer: a value that is not a UUID is dropped instead of failing
+   * the ingest.
+   */
+  private static @Nullable UUID causationOf(@Nullable String causationId) {
+    if (causationId == null) {
+      return null;
+    }
+    try {
+      return UUID.fromString(causationId);
+    } catch (IllegalArgumentException ex) {
+      log.atWarn().log("audit.ingest.causation_not_uuid");
+      return null;
+    }
   }
 
   public record Page(List<AuditEntry> items, @Nullable String nextCursor) {}

@@ -212,14 +212,22 @@ public class CaseWorkService {
     if (rationale.strip().length() < MIN_RATIONALE) {
       throw invalid("rationale", "at least " + MIN_RATIONALE + " characters");
     }
+    // A client key is scoped to the analyst and the case, so one analyst's key can never return
+    // another analyst's (or another case's) disposition; the stored row is the request fingerprint.
     String key =
         idempotencyKey != null
-            ? "idem:" + idempotencyKey
+            ? "idem:" + analyst + ":" + caseId + ":" + idempotencyKey
             : "derived:"
                 + sha256(caseId + "|" + analyst + "|" + disposition + "|" + rationale.strip());
     Optional<CaseWork.Disposition> existing = work.findDisposition(tenant, key);
     if (existing.isPresent()) {
-      return new DispositionResult(existing.get(), load(tenant, caseId));
+      CaseWork.Disposition prior = existing.get();
+      if (!prior.disposition().equals(disposition)
+          || !prior.rationale().equals(rationale.strip())) {
+        throw new DomainException.Conflict(
+            "IDEMPOTENCY_KEY_REUSED", "idempotency key was used with a different request body");
+      }
+      return new DispositionResult(prior, load(tenant, caseId));
     }
     CaseRecord c = load(tenant, caseId);
     if (c.status() != CaseStatus.ESCALATED && c.status() != CaseStatus.CLEARED) {

@@ -5,7 +5,7 @@ import { ConfigError, loadConfig } from "@aegispulse/ts-platform/config";
 import { createLogger } from "@aegispulse/ts-platform/logging";
 import { configSchema, SERVICE } from "./config.js";
 import { resolveJob, UsageError } from "./jobs.js";
-import { trigger } from "./trigger.js";
+import { hasFailures, trigger } from "./trigger.js";
 
 async function main(): Promise<number> {
   let config;
@@ -29,6 +29,14 @@ async function main(): Promise<number> {
   const started = Date.now();
   try {
     const summary = await trigger(config, job);
+    if (hasFailures(summary)) {
+      // Partial failure: the run finished the rest, but the CronJob must fail so alerting fires.
+      logger.error(
+        { job: job.name, action: `${job.service}.${job.action}`, summary, durationMs: Date.now() - started },
+        "job completed with failures",
+      );
+      return 1;
+    }
     logger.info(
       { job: job.name, action: `${job.service}.${job.action}`, summary, durationMs: Date.now() - started },
       "job succeeded",
